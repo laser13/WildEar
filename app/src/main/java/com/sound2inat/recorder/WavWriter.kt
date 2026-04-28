@@ -1,0 +1,89 @@
+package com.sound2inat.recorder
+
+import java.io.BufferedOutputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.io.RandomAccessFile
+
+class WavWriter(
+    private val file: File,
+    private val sampleRate: Int,
+    private val channels: Int,
+    private val bitsPerSample: Int,
+) {
+    private var out: BufferedOutputStream? = null
+    private var dataBytesWritten: Int = 0
+
+    fun open() {
+        require(channels == 1) { "Only mono supported in Spec 1" }
+        require(bitsPerSample == 16) { "Only 16-bit PCM supported in Spec 1" }
+        val raw = FileOutputStream(file).also { writeHeaderPlaceholder(it) }
+        out = BufferedOutputStream(raw)
+        dataBytesWritten = 0
+    }
+
+    fun writeBytes(buf: ByteArray, off: Int, len: Int) {
+        out!!.write(buf, off, len)
+        dataBytesWritten += len
+    }
+
+    fun writeShorts(buf: ShortArray, off: Int, len: Int) {
+        val bytes = ByteArray(len * 2)
+        var bi = 0
+        for (i in 0 until len) {
+            val s = buf[off + i].toInt()
+            bytes[bi++] = (s and 0xFF).toByte()
+            bytes[bi++] = ((s ushr 8) and 0xFF).toByte()
+        }
+        writeBytes(bytes, 0, bytes.size)
+    }
+
+    fun close() {
+        out?.flush()
+        out?.close()
+        out = null
+        patchHeader()
+    }
+
+    private fun writeHeaderPlaceholder(stream: FileOutputStream) {
+        stream.write(ByteArray(HEADER_SIZE))
+    }
+
+    private fun patchHeader() {
+        val byteRate = sampleRate * channels * bitsPerSample / 8
+        val blockAlign = (channels * bitsPerSample / 8).toShort()
+        RandomAccessFile(file, "rw").use { raf ->
+            raf.seek(0)
+            raf.write("RIFF".toByteArray(Charsets.US_ASCII))
+            raf.writeIntLe(dataBytesWritten + 36)
+            raf.write("WAVE".toByteArray(Charsets.US_ASCII))
+            raf.write("fmt ".toByteArray(Charsets.US_ASCII))
+            raf.writeIntLe(16)
+            raf.writeShortLe(1)
+            raf.writeShortLe(channels.toShort())
+            raf.writeIntLe(sampleRate)
+            raf.writeIntLe(byteRate)
+            raf.writeShortLe(blockAlign)
+            raf.writeShortLe(bitsPerSample.toShort())
+            raf.write("data".toByteArray(Charsets.US_ASCII))
+            raf.writeIntLe(dataBytesWritten)
+        }
+    }
+
+    private fun RandomAccessFile.writeIntLe(v: Int) {
+        write(v and 0xFF)
+        write((v ushr 8) and 0xFF)
+        write((v ushr 16) and 0xFF)
+        write((v ushr 24) and 0xFF)
+    }
+
+    private fun RandomAccessFile.writeShortLe(v: Short) {
+        val i = v.toInt()
+        write(i and 0xFF)
+        write((i ushr 8) and 0xFF)
+    }
+
+    companion object {
+        const val HEADER_SIZE = 44
+    }
+}
