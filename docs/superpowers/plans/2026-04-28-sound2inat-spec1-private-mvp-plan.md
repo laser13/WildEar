@@ -2542,5 +2542,817 @@ Acceptance for Task 9: tests green; on-device behaviour verified in Task 17/18.
 
 ---
 
+## Task 10 — Hilt graph, Application, Navigation host, permissions plumbing (`app`)
+
+**Goal:** Wire all `core/*` modules into a Hilt object graph; provide a single `MainActivity` hosting Compose Navigation; implement a permissions abstraction (`PermissionsController`) that other screens use without coupling to Activity APIs.
+
+**Files:**
+- Modify: `app/src/main/java/com/sound2inat/app/Sound2iNatApp.kt` (already `@HiltAndroidApp` from Task 1)
+- Modify: `app/src/main/java/com/sound2inat/app/MainActivity.kt`
+- Create: `app/src/main/java/com/sound2inat/app/di/AppModule.kt`
+- Create: `app/src/main/java/com/sound2inat/app/di/ProviderBindings.kt`
+- Create: `app/src/main/java/com/sound2inat/app/permissions/PermissionsController.kt`
+- Create: `app/src/main/java/com/sound2inat/app/permissions/AndroidPermissionsController.kt`
+- Create: `app/src/main/java/com/sound2inat/app/nav/Routes.kt`
+- Create: `app/src/main/java/com/sound2inat/app/nav/Sound2iNatNavHost.kt`
+- Create: `app/src/test/java/com/sound2inat/app/permissions/PermissionsControllerContractTest.kt` (interface contract tests using a fake)
+
+**Pre-task review:** Confirm what each downstream task needs: Recording (`Recorder`, `LocationProvider`, `WavFileStore`, `DraftRepository`, `PermissionsController`), Review (`InferenceRunner`, `BioacousticModel`, `ModelManager`, `DraftRepository`), Home (`DraftRepository`), Settings (`ModelManager`, `DataStore`). The Hilt module must provide each of these as singletons (or scoped) so ViewModels can inject them.
+
+- [ ] **Step 1 — Routes**
+
+```kotlin
+package com.sound2inat.app.nav
+
+object Routes {
+    const val HOME = "home"
+    const val RECORDING = "recording"
+    const val REVIEW = "review/{draftId}"
+    const val SETTINGS = "settings"
+    fun review(draftId: String) = "review/$draftId"
+}
+```
+
+- [ ] **Step 2 — `PermissionsController` abstraction**
+
+```kotlin
+// PermissionsController.kt
+package com.sound2inat.app.permissions
+
+import kotlinx.coroutines.flow.StateFlow
+
+enum class Permission { RECORD_AUDIO, ACCESS_FINE_LOCATION }
+enum class PermissionStatus { GRANTED, DENIED, PERMANENTLY_DENIED }
+
+interface PermissionsController {
+    val statuses: StateFlow<Map<Permission, PermissionStatus>>
+    suspend fun request(permissions: Set<Permission>): Map<Permission, PermissionStatus>
+    fun openAppSettings()
+}
+```
+
+```kotlin
+// AndroidPermissionsController.kt
+package com.sound2inat.app.permissions
+
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
+import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+
+class AndroidPermissionsController(private val activity: ComponentActivity) : PermissionsController {
+    private val _statuses = MutableStateFlow(currentStatuses())
+    override val statuses: StateFlow<Map<Permission, PermissionStatus>> = _statuses
+
+    private val launcher = activity.registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { result ->
+        val mapped = result.entries.associate { (rawName, granted) ->
+            permissionFromRaw(rawName) to if (granted) PermissionStatus.GRANTED else PermissionStatus.DENIED
+        }
+        _statuses.value = _statuses.value + mapped
+        currentRequest?.complete(mapped); currentRequest = null
+    }
+    private var currentRequest: CompletableDeferred<Map<Permission, PermissionStatus>>? = null
+
+    override suspend fun request(permissions: Set<Permission>): Map<Permission, PermissionStatus> {
+        val raw = permissions.map { rawNameFor(it) }.toTypedArray()
+        val deferred = CompletableDeferred<Map<Permission, PermissionStatus>>()
+        currentRequest = deferred
+        launcher.launch(raw)
+        return deferred.await()
+    }
+
+    override fun openAppSettings() {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            .setData(Uri.fromParts("package", activity.packageName, null))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        activity.startActivity(intent)
+    }
+
+    private fun currentStatuses(): Map<Permission, PermissionStatus> = Permission.values().associateWith {
+        val granted = ContextCompat.checkSelfPermission(activity, rawNameFor(it)) == PackageManager.PERMISSION_GRANTED
+        if (granted) PermissionStatus.GRANTED else PermissionStatus.DENIED
+    }
+
+    private fun rawNameFor(p: Permission) = when (p) {
+        Permission.RECORD_AUDIO -> Manifest.permission.RECORD_AUDIO
+        Permission.ACCESS_FINE_LOCATION -> Manifest.permission.ACCESS_FINE_LOCATION
+    }
+
+    private fun permissionFromRaw(raw: String): Permission = Permission.values().first { rawNameFor(it) == raw }
+}
+```
+
+- [ ] **Step 3 — Hilt modules**
+
+```kotlin
+// AppModule.kt
+package com.sound2inat.app.di
+
+import android.content.Context
+import androidx.room.Room
+import com.sound2inat.inference.BioacousticModel
+import com.sound2inat.inference.BirdNetTfliteModel
+import com.sound2inat.inference.InterpreterFactory
+import com.sound2inat.inference.TfliteInterpreterFactory
+import com.sound2inat.location.FusedLocationProvider
+import com.sound2inat.location.LocationProvider
+import com.sound2inat.modelmanager.ModelManager
+import com.sound2inat.recorder.AndroidAudioRecordSource
+import com.sound2inat.recorder.AudioRecordSource
+import com.sound2inat.recorder.DefaultRecorder
+import com.sound2inat.recorder.Recorder
+import com.sound2inat.storage.*
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
+import okhttp3.OkHttpClient
+import javax.inject.Singleton
+
+@Module
+@InstallIn(SingletonComponent::class)
+object AppModule {
+    @Provides @Singleton
+    fun provideDb(@ApplicationContext ctx: Context): Sound2iNatDb =
+        Room.databaseBuilder(ctx, Sound2iNatDb::class.java, "sound2inat.db").build()
+
+    @Provides fun provideDraftDao(db: Sound2iNatDb) = db.drafts()
+    @Provides fun provideDetectionDao(db: Sound2iNatDb) = db.detections()
+
+    @Provides @Singleton
+    fun provideWavFileStore(@ApplicationContext ctx: Context) = WavFileStore(ctx.filesDir)
+
+    @Provides @Singleton
+    fun provideDraftRepository(d: DraftDao, det: DetectionDao, files: WavFileStore) =
+        DraftRepository(d, det, files)
+
+    @Provides @Singleton
+    fun provideHttp() = OkHttpClient()
+
+    @Provides @Singleton
+    fun provideModelManager(@ApplicationContext ctx: Context, http: OkHttpClient) =
+        ModelManager(ctx.filesDir, http)
+
+    @Provides @Singleton
+    fun provideAudioSource(): AudioRecordSource = AndroidAudioRecordSource()
+
+    @Provides
+    fun provideRecorder(source: AudioRecordSource): Recorder = DefaultRecorder(source)
+
+    @Provides @Singleton
+    fun provideLocation(@ApplicationContext ctx: Context): LocationProvider = FusedLocationProvider(ctx)
+
+    @Provides @Singleton
+    fun provideInterpreterFactory(): InterpreterFactory = TfliteInterpreterFactory()
+
+    @Provides @Singleton
+    fun provideModel(factory: InterpreterFactory): BioacousticModel = BirdNetTfliteModel(factory)
+}
+```
+
+`PermissionsController` is **not** singleton: it depends on the current `ComponentActivity`. Provide it via an `@AssistedInject`-style factory or, simpler for Spec 1, instantiate it inside `MainActivity` and pass into the Compose tree via a `CompositionLocal` (`LocalPermissionsController`). Choose the second to keep Hilt simple.
+
+- [ ] **Step 4 — `MainActivity` and NavHost**
+
+```kotlin
+// MainActivity.kt
+package com.sound2inat.app
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import com.sound2inat.app.nav.Sound2iNatNavHost
+import com.sound2inat.app.permissions.AndroidPermissionsController
+import com.sound2inat.app.permissions.PermissionsController
+import dagger.hilt.android.AndroidEntryPoint
+
+val LocalPermissionsController = staticCompositionLocalOf<PermissionsController> {
+    error("PermissionsController not provided")
+}
+
+@AndroidEntryPoint
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val perms = AndroidPermissionsController(this)
+        setContent {
+            MaterialTheme {
+                Surface {
+                    CompositionLocalProvider(LocalPermissionsController provides perms) {
+                        Sound2iNatNavHost()
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+```kotlin
+// Sound2iNatNavHost.kt
+package com.sound2inat.app.nav
+
+import androidx.compose.runtime.Composable
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.sound2inat.app.ui.HelloScreen          // placeholder until Task 11
+
+@Composable
+fun Sound2iNatNavHost() {
+    val nav = rememberNavController()
+    NavHost(navController = nav, startDestination = Routes.HOME) {
+        composable(Routes.HOME) { HelloScreen() }            // replaced in Task 11
+        composable(Routes.RECORDING) { HelloScreen() }       // replaced in Task 12
+        composable(
+            route = Routes.REVIEW,
+            arguments = listOf(navArgument("draftId") { type = NavType.StringType }),
+        ) { /* replaced in Task 13 */ HelloScreen() }
+        composable(Routes.SETTINGS) { HelloScreen() }        // replaced in Task 16
+    }
+}
+```
+
+- [ ] **Step 5 — Contract test for `PermissionsController`**
+
+Write a `PermissionsControllerContractTest` against a `FakePermissionsController` that covers: initial statuses, `request` returns a map, `openAppSettings` is invoked. (Robolectric not required.) This locks the contract for screens that depend on it.
+
+- [ ] **Step 6 — Build and commit**
+
+```bash
+./gradlew :app:assembleDebug :app:testDebugUnitTest detekt lint
+git add app/src/main/java/com/sound2inat/app app/src/test/java/com/sound2inat/app
+git commit -m "feat(app): Hilt graph + NavHost + PermissionsController"
+git push
+```
+
+Acceptance for Task 10: APK still installs and shows placeholder screens at all routes; injection works (no Hilt errors at boot); `PermissionsController` contract tests pass.
+
+---
+
+## Task 11 — Home screen
+
+**Goal:** Home screen with `Record` button (disabled if model not installed) and a list of drafts. Tapping a draft opens Review.
+
+**Files:**
+- Create: `app/src/main/java/com/sound2inat/app/ui/home/HomeViewModel.kt`
+- Create: `app/src/main/java/com/sound2inat/app/ui/home/HomeScreen.kt`
+- Create: `app/src/main/java/com/sound2inat/app/ui/home/HomeUiState.kt`
+- Modify: `app/src/main/java/com/sound2inat/app/nav/Sound2iNatNavHost.kt` (replace HOME placeholder)
+- Create: `app/src/test/java/com/sound2inat/app/ui/home/HomeViewModelTest.kt`
+
+**Pre-task review:** Confirm Home behaviour: list latest first, status badges, top-1 species. The model status indicator (`BioacousticModel` state) should drive `isRecordEnabled` from `ModelManager.stateFor(BirdNetV24.descriptor)`. Permissions are not checked here — they are requested when user taps Record.
+
+- [ ] **Step 1 — Define `HomeUiState`**
+
+```kotlin
+package com.sound2inat.app.ui.home
+
+import com.sound2inat.storage.DraftEntity
+import com.sound2inat.storage.DraftStatus
+
+data class DraftSummary(
+    val id: String,
+    val recordedAtUtcMs: Long,
+    val durationMs: Long,
+    val status: DraftStatus,
+    val topLabel: String?,             // top-1 species commonName or scientific; null if none
+)
+
+data class HomeUiState(
+    val isModelReady: Boolean = false,
+    val drafts: List<DraftSummary> = emptyList(),
+)
+```
+
+- [ ] **Step 2 — ViewModel test**
+
+```kotlin
+package com.sound2inat.app.ui.home
+
+import app.cash.turbine.test
+import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class HomeViewModelTest {
+    @Test fun `maps drafts and model readiness`() = runTest {
+        val drafts = flowOf(listOf(/* fake DraftEntity rows */))
+        val vm = HomeViewModel(
+            observeDrafts = { drafts },
+            observeDetectionsTopLabel = { _ -> flowOf(null) },
+            isModelReady = { true },
+        )
+        vm.state.test {
+            val s = awaitItem()
+            assertThat(s.isModelReady).isTrue()
+            assertThat(s.drafts).isEmpty()
+        }
+    }
+}
+```
+
+The ViewModel takes function-typed dependencies for testability (no Hilt in unit tests). At runtime, Hilt provides a wrapper around `DraftRepository` + `ModelManager`.
+
+- [ ] **Step 3 — Implement `HomeViewModel`**
+
+```kotlin
+package com.sound2inat.app.ui.home
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.sound2inat.modelmanager.BirdNetV24
+import com.sound2inat.modelmanager.ModelInstallState
+import com.sound2inat.modelmanager.ModelManager
+import com.sound2inat.storage.DraftEntity
+import com.sound2inat.storage.DraftRepository
+import com.sound2inat.storage.DetectionDao
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.*
+import javax.inject.Inject
+
+class HomeViewModel(
+    private val observeDrafts: () -> kotlinx.coroutines.flow.Flow<List<DraftEntity>>,
+    private val observeDetectionsTopLabel: (String) -> kotlinx.coroutines.flow.Flow<String?>,
+    private val isModelReady: () -> Boolean,
+) : ViewModel() {
+
+    val state: StateFlow<HomeUiState> = observeDrafts()
+        .map { drafts ->
+            HomeUiState(
+                isModelReady = isModelReady(),
+                drafts = drafts.map { d ->
+                    DraftSummary(
+                        id = d.id,
+                        recordedAtUtcMs = d.recordedAtUtcMs,
+                        durationMs = d.durationMs,
+                        status = d.status,
+                        topLabel = null,    // computed lazily below per row in the screen
+                    )
+                },
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
+}
+
+@HiltViewModel
+class HomeViewModelHilt @Inject constructor(
+    repo: DraftRepository,
+    detectionDao: DetectionDao,
+    modelManager: ModelManager,
+) : ViewModel() {
+    val delegate = HomeViewModel(
+        observeDrafts = { repo.observeAll() },
+        observeDetectionsTopLabel = { id ->
+            detectionDao.observeForDraft(id).map { list -> list.firstOrNull()?.let { it.taxonCommonName ?: it.taxonScientificName } } },
+        isModelReady = { modelManager.stateFor(BirdNetV24.descriptor) is ModelInstallState.Ready },
+    )
+}
+```
+
+This split (`HomeViewModel` testable on JVM, `HomeViewModelHilt` is the Android-injected wrapper) avoids dragging Hilt into unit tests. `HomeScreen` takes `delegate.state` from the Hilt one.
+
+- [ ] **Step 4 — Compose UI**
+
+```kotlin
+package com.sound2inat.app.ui.home
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+
+@Composable
+fun HomeScreen(
+    onRecord: () -> Unit,
+    onOpenDraft: (String) -> Unit,
+    onSettings: () -> Unit,
+) {
+    val vm: HomeViewModelHilt = hiltViewModel()
+    val state by vm.delegate.state.collectAsState()
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        TopAppBar(
+            title = { Text("Sound2iNat") },
+            actions = { IconButton(onClick = onSettings) { Text("⚙") } },
+        )
+        Spacer(Modifier.height(16.dp))
+        Button(
+            onClick = onRecord,
+            enabled = state.isModelReady,
+            modifier = Modifier.fillMaxWidth().height(72.dp),
+        ) { Text(if (state.isModelReady) "● RECORD" else "Install model in Settings") }
+        Spacer(Modifier.height(16.dp))
+        Text("Drafts", style = MaterialTheme.typography.titleMedium)
+        LazyColumn(modifier = Modifier.weight(1f)) {
+            items(state.drafts, key = { it.id }) { d ->
+                DraftRow(d, onClick = { onOpenDraft(d.id) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun DraftRow(d: DraftSummary, onClick: () -> Unit) {
+    ListItem(
+        headlineContent = { Text(formatTimestamp(d.recordedAtUtcMs) + "  ·  " + formatDuration(d.durationMs)) },
+        supportingContent = { Text(d.topLabel ?: when (d.status) {
+            com.sound2inat.storage.DraftStatus.PENDING_INFERENCE -> "Analyzing…"
+            com.sound2inat.storage.DraftStatus.PENDING_REVIEW -> "Awaiting review"
+            com.sound2inat.storage.DraftStatus.REVIEWED -> "—"
+        }) },
+        modifier = Modifier.fillMaxWidth(),
+    )
+    HorizontalDivider()
+}
+```
+
+`formatTimestamp` and `formatDuration` are small helpers in the same file (`yyyy-MM-dd HH:mm` and `m:ss`).
+
+- [ ] **Step 5 — Wire the route**
+
+In `Sound2iNatNavHost.kt`, replace the HOME placeholder with `HomeScreen(onRecord = { nav.navigate(Routes.RECORDING) }, onOpenDraft = { nav.navigate(Routes.review(it)) }, onSettings = { nav.navigate(Routes.SETTINGS) })`.
+
+- [ ] **Step 6 — Run tests, build, commit**
+
+```bash
+./gradlew :app:testDebugUnitTest :app:assembleDebug detekt lint
+git add app/src/main/java/com/sound2inat/app/ui/home app/src/main/java/com/sound2inat/app/nav/Sound2iNatNavHost.kt app/src/test/java/com/sound2inat/app/ui/home
+git commit -m "feat(app): Home screen — drafts list + record button"
+git push
+```
+
+Acceptance for Task 11: VM test green; APK installs and Home renders with empty list + disabled Record button (until model is installed via Settings in Task 16).
+
+---
+
+## Task 12 — Recording screen
+
+**Goal:** A screen that:
+1. On enter: requests `RECORD_AUDIO` and `ACCESS_FINE_LOCATION` if not granted (via `PermissionsController`).
+2. On grant: calls `Recorder.start()` and shows timer, RMS meter, GPS status.
+3. On `Stop`: calls `Recorder.stop()`, creates a `DraftEntity` via `DraftRepository.create(...)`, navigates to Review with the draft ID.
+4. On `Cancel`: deletes the file, returns to Home.
+
+**Files:**
+- Create: `app/src/main/java/com/sound2inat/app/ui/recording/RecordingViewModel.kt`
+- Create: `app/src/main/java/com/sound2inat/app/ui/recording/RecordingScreen.kt`
+- Create: `app/src/main/java/com/sound2inat/app/ui/recording/RecordingUiState.kt`
+- Modify: `Sound2iNatNavHost.kt` (replace RECORDING placeholder)
+- Create: `app/src/test/java/com/sound2inat/app/ui/recording/RecordingViewModelTest.kt`
+
+**Pre-task review:** Confirm: timer increments on a 100 ms tick; soft cap 5:00 shows warning, hard cap 10:00 auto-stops; GPS request runs in parallel with recording start (do not block Recorder on GPS); UUID for draft generated at start; on Recorder error, surface a snackbar and return to Home with the partial WAV deleted.
+
+- [ ] **Step 1 — `RecordingUiState`**
+
+```kotlin
+package com.sound2inat.app.ui.recording
+
+sealed interface RecordingUiState {
+    data object Idle : RecordingUiState
+    data class Recording(
+        val elapsedMs: Long,
+        val rms: Float,
+        val gps: GpsStatus,
+        val warningSoftLimit: Boolean,
+    ) : RecordingUiState
+    data class Done(val draftId: String) : RecordingUiState
+    data class Error(val message: String) : RecordingUiState
+}
+
+sealed interface GpsStatus {
+    data object Acquiring : GpsStatus
+    data class Fix(val latitude: Double, val longitude: Double, val accuracyMeters: Float?) : GpsStatus
+    data object NoFix : GpsStatus
+}
+```
+
+- [ ] **Step 2 — ViewModel test (uses fakes)**
+
+Test cases:
+1. Start without RECORD_AUDIO → state stays `Idle`, error surfaced.
+2. Happy path: start → 1 second of fake samples → stop → `Done(draftId)`; `DraftRepository.create` was invoked with the right WAV path.
+3. GPS times out → draft created with `latitude == null`.
+4. Soft limit (5:00) → `warningSoftLimit = true`.
+5. Hard limit (10:00) → auto-stop, `Done`.
+
+Use `kotlinx-coroutines-test` `runTest` + virtual time. The `Recorder`, `LocationProvider`, `PermissionsController`, and `DraftRepository` are all interfaces, so fakes are straightforward.
+
+- [ ] **Step 3 — Implement `RecordingViewModel`**
+
+```kotlin
+package com.sound2inat.app.ui.recording
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.sound2inat.app.permissions.Permission
+import com.sound2inat.app.permissions.PermissionStatus
+import com.sound2inat.app.permissions.PermissionsController
+import com.sound2inat.location.Fix
+import com.sound2inat.location.LocationProvider
+import com.sound2inat.recorder.Recorder
+import com.sound2inat.storage.DraftRepository
+import com.sound2inat.storage.WavFileStore
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import java.util.UUID
+
+class RecordingViewModel(
+    private val perms: PermissionsController,
+    private val recorder: Recorder,
+    private val location: LocationProvider,
+    private val files: WavFileStore,
+    private val drafts: DraftRepository,
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
+) : ViewModel() {
+
+    private val _state = MutableStateFlow<RecordingUiState>(RecordingUiState.Idle)
+    val state: StateFlow<RecordingUiState> = _state
+
+    private var draftId: String? = null
+    private var recordingStartMs: Long = 0L
+    private var fix: Fix? = null
+
+    fun start() {
+        viewModelScope.launch {
+            val p = perms.request(setOf(Permission.RECORD_AUDIO, Permission.ACCESS_FINE_LOCATION))
+            if (p[Permission.RECORD_AUDIO] != PermissionStatus.GRANTED) {
+                _state.value = RecordingUiState.Error("Microphone permission required.")
+                return@launch
+            }
+            val id = UUID.randomUUID().toString().also { draftId = it }
+            val target = files.newRecordingFile(id)
+            recordingStartMs = nowMs()
+            recorder.start(target)
+            _state.value = RecordingUiState.Recording(0L, 0f, GpsStatus.Acquiring, false)
+
+            launch { fix = location.getCurrent(15_000) }
+            launch { tickLoop() }
+            launch { recorder.rmsLevel.collect { rms ->
+                val cur = _state.value as? RecordingUiState.Recording ?: return@collect
+                _state.value = cur.copy(rms = rms)
+            } }
+        }
+    }
+
+    private suspend fun tickLoop() {
+        while (true) {
+            delay(100)
+            val cur = _state.value as? RecordingUiState.Recording ?: return
+            val elapsed = nowMs() - recordingStartMs
+            val gps = fix?.let { GpsStatus.Fix(it.latitude, it.longitude, it.accuracyMeters) }
+                ?: if (elapsed >= 15_000) GpsStatus.NoFix else GpsStatus.Acquiring
+            val soft = elapsed >= SOFT_LIMIT_MS
+            if (elapsed >= HARD_LIMIT_MS) { stop(); return }
+            _state.value = cur.copy(elapsedMs = elapsed, gps = gps, warningSoftLimit = soft)
+        }
+    }
+
+    fun stop() {
+        viewModelScope.launch {
+            val id = draftId ?: return@launch
+            val result = recorder.stop()
+            drafts.create(
+                id = id,
+                audioPath = result.audioPath,
+                recordedAtUtcMs = recordingStartMs,
+                durationMs = result.durationMs,
+                latitude = fix?.latitude,
+                longitude = fix?.longitude,
+                accuracyMeters = fix?.accuracyMeters,
+            )
+            _state.value = RecordingUiState.Done(id)
+        }
+    }
+
+    fun cancel() {
+        recorder.cancel()
+        _state.value = RecordingUiState.Idle
+    }
+
+    companion object {
+        const val SOFT_LIMIT_MS = 5L * 60_000L
+        const val HARD_LIMIT_MS = 10L * 60_000L
+    }
+}
+```
+
+- [ ] **Step 4 — Compose UI**
+
+The Composable observes `state`, calls `vm.start()` once on first composition, renders timer/level/GPS, and on `Done(draftId)` triggers `onDone(draftId)` (used by NavHost to navigate to Review). On `Error` shows a snackbar and returns Home. (Implementation: 60–80 lines of Compose; standard Material3.)
+
+- [ ] **Step 5 — Wire route**
+
+NavHost: replace RECORDING composable with `RecordingScreen(onDone = { id -> nav.navigate(Routes.review(id)) { popUpTo(Routes.HOME) } }, onCancel = { nav.popBackStack() })`.
+
+- [ ] **Step 6 — Build + tests + commit**
+
+```bash
+./gradlew :app:testDebugUnitTest :app:assembleDebug detekt lint
+git add app/src/main/java/com/sound2inat/app/ui/recording app/src/test/java/com/sound2inat/app/ui/recording app/src/main/java/com/sound2inat/app/nav/Sound2iNatNavHost.kt
+git commit -m "feat(app): Recording screen — timer, RMS, GPS, draft creation"
+git push
+```
+
+Acceptance for Task 12: tests green; on-device, granting permissions then tapping Record + Stop produces a WAV file in `filesDir/recordings/` and a `DraftEntity` row with `PENDING_INFERENCE`.
+
+---
+
+## Task 13 — Review screen, base (no spectrogram)
+
+**Goal:** First version of the Review screen. Audio player, species list with checkboxes, save/delete, inference progress indicator while predictions are computed. NO waveform/spectrogram yet — that comes in Tasks 14–15.
+
+**Files:**
+- Create: `app/src/main/java/com/sound2inat/app/ui/review/ReviewViewModel.kt`
+- Create: `app/src/main/java/com/sound2inat/app/ui/review/ReviewScreen.kt`
+- Create: `app/src/main/java/com/sound2inat/app/ui/review/ReviewUiState.kt`
+- Create: `app/src/main/java/com/sound2inat/app/ui/review/AudioPlayer.kt` (Android-only `MediaPlayer` wrapper)
+- Modify: `Sound2iNatNavHost.kt` (replace REVIEW placeholder)
+- Create: `app/src/test/java/com/sound2inat/app/ui/review/ReviewViewModelTest.kt`
+
+**Pre-task review:** Confirm: when the screen opens with `PENDING_INFERENCE`, it triggers `InferenceRunner.run(...)` over the draft's WAV; progress updates live; on completion, predictions go through `DetectionAggregator` and into `DraftRepository.attachDetections`. The screen never blocks the user — the player works even during inference; predictions appear when ready. On `PENDING_REVIEW` open, no inference is triggered. On `REVIEWED`, the saved selection is shown.
+
+- [ ] **Step 1 — `ReviewUiState`**
+
+```kotlin
+package com.sound2inat.app.ui.review
+
+import com.sound2inat.storage.DraftStatus
+
+data class SpeciesRow(
+    val detectionId: Long,
+    val taxonScientificName: String,
+    val taxonCommonName: String?,
+    val maxConfidence: Float,
+    val detectedWindows: Int,
+    val firstSeenMs: Long,
+    val lastSeenMs: Long,
+    val isSelected: Boolean,
+)
+
+data class ReviewUiState(
+    val draftId: String,
+    val status: DraftStatus,
+    val recordedAtUtcMs: Long,
+    val latitude: Double?,
+    val longitude: Double?,
+    val durationMs: Long,
+    val audioPath: String?,
+    val inferenceProgress: Float? = null,    // null when not running
+    val species: List<SpeciesRow> = emptyList(),
+    val showLowConfidence: Boolean = false,
+    val playback: PlaybackState = PlaybackState.Idle,
+)
+
+sealed interface PlaybackState {
+    data object Idle : PlaybackState
+    data class Playing(val positionMs: Long) : PlaybackState
+    data object Paused : PlaybackState
+    data class Error(val message: String) : PlaybackState
+}
+```
+
+- [ ] **Step 2 — ViewModel + tests**
+
+Tests (against fakes):
+1. Open `PENDING_INFERENCE` draft → `inferenceProgress` increases to 1.0; species populated; status becomes `PENDING_REVIEW`.
+2. Open `PENDING_REVIEW` → no inference is triggered; species shown; checkboxes toggleable.
+3. Toggling a checkbox calls `DraftRepository.setSelection` and reflects in state.
+4. `save()` calls `markReviewed`, transitions to `REVIEWED`.
+5. `delete()` calls `DraftRepository.delete`.
+
+```kotlin
+package com.sound2inat.app.ui.review
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.sound2inat.inference.BioacousticModel
+import com.sound2inat.inference.DetectionAggregator
+import com.sound2inat.inference.InferenceRunner
+import com.sound2inat.modelmanager.BirdNetV24
+import com.sound2inat.modelmanager.ModelInstallState
+import com.sound2inat.modelmanager.ModelManager
+import com.sound2inat.storage.DraftRepository
+import com.sound2inat.storage.DraftStatus
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import java.io.File
+
+class ReviewViewModel(
+    private val draftId: String,
+    private val repo: DraftRepository,
+    private val model: BioacousticModel,
+    private val modelManager: ModelManager,
+    private val player: AudioPlayer,
+    private val aggregator: DetectionAggregator = DetectionAggregator(),
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(ReviewUiState(draftId, DraftStatus.PENDING_INFERENCE, 0L, null, null, 0L, null))
+    val state: StateFlow<ReviewUiState> = _state
+
+    init {
+        viewModelScope.launch {
+            repo.observeWithDetections(draftId).collect { dwd ->
+                _state.value = _state.value.copy(
+                    status = dwd.draft.status,
+                    recordedAtUtcMs = dwd.draft.recordedAtUtcMs,
+                    latitude = dwd.draft.latitude,
+                    longitude = dwd.draft.longitude,
+                    durationMs = dwd.draft.durationMs,
+                    audioPath = dwd.draft.audioPath,
+                    species = dwd.detections.map { e ->
+                        SpeciesRow(e.id, e.taxonScientificName, e.taxonCommonName, e.maxConfidence,
+                                   e.detectedWindows, e.firstSeenMs, e.lastSeenMs, e.isSelectedByUser)
+                    },
+                )
+                if (dwd.draft.status == DraftStatus.PENDING_INFERENCE && _state.value.inferenceProgress == null) {
+                    runInference(dwd.draft.audioPath, dwd.draft.latitude, dwd.draft.longitude, dwd.draft.recordedAtUtcMs)
+                }
+            }
+        }
+    }
+
+    private fun runInference(path: String, lat: Double?, lon: Double?, recordedAt: Long) {
+        viewModelScope.launch {
+            val ready = modelManager.stateFor(BirdNetV24.descriptor) as? ModelInstallState.Ready
+                ?: error("Model not installed")
+            model.load(ready.modelFile, ready.labelsFile)
+            val runner = InferenceRunner(model)
+            launch { runner.progress.collect { p -> _state.value = _state.value.copy(inferenceProgress = p) } }
+            val preds = runner.run(File(path), lat, lon, recordedAt)
+            val agg = aggregator.aggregate(preds)
+            repo.attachDetections(draftId, model.modelId, model.modelVersion, agg)
+            _state.value = _state.value.copy(inferenceProgress = null)
+        }
+    }
+
+    fun toggle(id: Long, selected: Boolean) { repo.setSelection(id, selected) }
+    fun save() { repo.markReviewed(draftId) }
+    fun delete() { repo.delete(draftId) }
+
+    fun play() { state.value.audioPath?.let { player.start(it) } }
+    fun pause() { player.pause() }
+    fun seekTo(ms: Long) { player.seekTo(ms) }
+}
+```
+
+- [ ] **Step 3 — `AudioPlayer` wrapper**
+
+Wraps `MediaPlayer` with `start(path)`, `pause()`, `seekTo(ms)`, exposes `position` flow at 50 ms tick. (Standard Android MediaPlayer code, ~60 lines.)
+
+- [ ] **Step 4 — Compose UI**
+
+Composable structure:
+- TopBar with back button + Delete action.
+- Header: timestamp, GPS coords (or "no location").
+- Audio player controls (play/pause + seek bar bound to `state.playback`).
+- Inference progress bar when `state.inferenceProgress != null`.
+- Species list (LazyColumn) with checkboxes; `onCheckedChange` calls `vm.toggle(id, !selected)`.
+- Save button at bottom.
+
+(Pure Material3 Composable, ~150 lines. No spectrogram in this task.)
+
+- [ ] **Step 5 — Wire route + DI for screen**
+
+`hiltViewModel<ReviewViewModelHilt>()` reads the route argument `draftId` from `SavedStateHandle`. Add a Hilt-friendly subclass of `ReviewViewModel` analogous to `HomeViewModelHilt`.
+
+- [ ] **Step 6 — Tests, build, commit**
+
+```bash
+./gradlew :app:testDebugUnitTest :app:assembleDebug detekt lint
+git add app/src/main/java/com/sound2inat/app/ui/review app/src/test/java/com/sound2inat/app/ui/review app/src/main/java/com/sound2inat/app/nav/Sound2iNatNavHost.kt
+git commit -m "feat(app): Review screen base — audio player, species list, save/delete"
+git push
+```
+
+Acceptance for Task 13: VM tests green; on-device, opening a `PENDING_INFERENCE` draft kicks off inference, populates species, transitions to `PENDING_REVIEW`. Save/Delete work. (Spectrogram not yet present.)
+
+---
+
 <!-- TASKS:CURSOR -->
 
