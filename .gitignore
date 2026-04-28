@@ -1,0 +1,25 @@
+# Android / Gradle
+*.iml
+.gradle/
+.kotlin/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Keystores
+*.jks
+*.keystore
+
+# Local artifacts
+/app/release/
+/models/*.tflite
+/models/*.partial
+
+# Python (used by the model spike, not the app)
+__pycache__/
+*.pyc
+.venv/

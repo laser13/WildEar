@@ -163,6 +163,7 @@ coroutines = "1.9.0"
 okhttp = "4.12.0"
 jtransforms = "3.1"
 tflite = "2.16.1"
+tfliteSupport = "0.4.4"
 playLocation = "21.3.0"
 material3 = "1.3.0"
 junit = "4.13.2"
@@ -199,7 +200,7 @@ okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver", version.ref = "mockwebserver" }
 jtransforms = { module = "com.github.wendykierp:JTransforms", version.ref = "jtransforms" }
 tflite = { module = "org.tensorflow:tensorflow-lite", version.ref = "tflite" }
-tflite-support = { module = "org.tensorflow:tensorflow-lite-support", version.ref = "tflite" }
+tflite-support = { module = "org.tensorflow:tensorflow-lite-support", version.ref = "tfliteSupport" }
 play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playLocation" }
 junit = { module = "junit:junit", version.ref = "junit" }
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
@@ -214,6 +215,7 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+room = { id = "androidx.room", version.ref = "room" }
 detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
 ```
 
@@ -303,8 +305,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions { jvmTarget = "17" }
-
+    // NOTE: kotlinOptions is deprecated in AGP 8.6+/Kotlin 2.0+. Use kotlin { compilerOptions {...} } below instead.
     buildFeatures { compose = true }
 
     packaging {
@@ -324,6 +325,13 @@ android {
     }
 }
 
+// kotlinOptions is deprecated; use this top-level block instead:
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
 dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -334,7 +342,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
-    implementation(libs.androidx.hilt.navigation.compose)
+    implementation(libs.hilt.navigation.compose)
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
