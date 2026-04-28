@@ -3354,5 +3354,542 @@ Acceptance for Task 13: VM tests green; on-device, opening a `PENDING_INFERENCE`
 
 ---
 
-<!-- TASKS:CURSOR -->
+## Task 14 — Review screen, waveform + mel-spectrogram
+
+**Goal:** Add a waveform stack and a coloured mel-spectrogram below the audio player. Both share the time axis with the player; play-cursor moves over both. Spectrogram is cached to disk after first render.
+
+**Files:**
+- Create: `app/src/main/java/com/sound2inat/app/ui/review/WaveformBitmap.kt`
+- Create: `app/src/main/java/com/sound2inat/app/ui/review/SpectrogramBitmap.kt`
+- Create: `app/src/main/java/com/sound2inat/app/ui/review/SpectrogramRenderer.kt`
+- Create: `app/src/main/java/com/sound2inat/app/ui/review/Colormap.kt`
+- Modify: `ReviewScreen.kt` (insert waveform/spectrogram block below the player; add cursor tracking)
+- Modify: `ReviewViewModel.kt` (expose `spectrogramFile: StateFlow<File?>` and `waveformPeaks: StateFlow<FloatArray?>`)
+- Create: `app/src/test/java/com/sound2inat/app/ui/review/SpectrogramRendererTest.kt`
+
+**Pre-task review:** Reuse `MelSpectrogram` from Task 4 — do not introduce a second pipeline. Confirm with `MODEL_SPIKE.md` whether the model uses raw audio or precomputed mel; either way, this rendering uses the same mel parameters as the model.
+
+- [ ] **Step 1 — `Colormap`**
+
+Implement Viridis as 256 RGB rows from a public-domain LUT (~70 lines, single function `colormap(value: Float): Int` returning 0xAARRGGBB). Add a unit test that the function is monotone and bounded across `[0, 1]`.
+
+- [ ] **Step 2 — `SpectrogramRenderer`**
+
+```kotlin
+package com.sound2inat.app.ui.review
+
+import com.sound2inat.inference.MelParams
+import com.sound2inat.inference.MelSpectrogram
+import java.io.File
+
+class SpectrogramRenderer(
+    private val melParams: MelParams = MelParams(),
+    private val targetWidthPx: Int = 2048,
+) {
+    fun render(samples: FloatArray): Array<IntArray> {
+        val mel = MelSpectrogram(melParams).compute(samples)
+        val frames = mel[0].size
+        val height = melParams.melBins
+        val width = targetWidthPx.coerceAtMost(frames).coerceAtLeast(1)
+        val out = Array(height) { IntArray(width) }
+        // dB normalisation across the matrix
+        var min = Float.POSITIVE_INFINITY
+        var max = Float.NEGATIVE_INFINITY
+        for (m in 0 until height) for (f in 0 until frames) {
+            val v = mel[m][f]; if (v < min) min = v; if (v > max) max = v
+        }
+        val range = (max - min).coerceAtLeast(1e-3f)
+        for (x in 0 until width) {
+            val srcStart = (x.toLong() * frames / width).toInt()
+            val srcEnd = (((x + 1).toLong() * frames / width)).toInt().coerceAtLeast(srcStart + 1)
+            for (m in 0 until height) {
+                var sum = 0f
+                for (f in srcStart until srcEnd) sum += mel[height - 1 - m][f]   // flip Y so high freq on top
+                val avg = sum / (srcEnd - srcStart)
+                val norm = ((avg - min) / range).coerceIn(0f, 1f)
+                out[m][x] = Colormap.viridis(norm)
+            }
+        }
+        return out
+    }
+
+    fun renderToFile(samples: FloatArray, target: File) {
+        val pixels = render(samples)
+        val bm = SpectrogramBitmap.fromIntMatrix(pixels)
+        bm.writePng(target)
+    }
+}
+```
+
+`SpectrogramBitmap` is a small wrapper around `android.graphics.Bitmap` (Android-only) that knows how to dump itself to PNG. For unit tests on JVM, a `RasterImageBitmap` JVM equivalent (using `BufferedImage`/`ImageIO`) is provided behind the same interface.
+
+- [ ] **Step 3 — `WaveformBitmap`**
+
+Computes peak/min envelope per pixel column: window the WAV by `samples_per_pixel`, compute min/max, draw a filled vertical line per column. Returns `IntArray` of column min/max pairs. Render lives in Compose `Canvas`.
+
+- [ ] **Step 4 — Tests**
+
+```kotlin
+@Test fun `spectrogram width matches target and height matches mel bins`() {
+    val r = SpectrogramRenderer()
+    val samples = FloatArray(48_000 * 3) { 0f }
+    val pix = r.render(samples)
+    assertThat(pix.size).isEqualTo(MelParams().melBins)
+    assertThat(pix[0].size).isAtLeast(1)
+}
+```
+
+Visual rendering itself is verified manually on-device; do not chase pixel-perfect screenshot tests in Spec 1.
+
+- [ ] **Step 5 — VM extension**
+
+Add to `ReviewViewModel`:
+
+```kotlin
+private val _spectrogramFile = MutableStateFlow<File?>(null)
+val spectrogramFile: StateFlow<File?> = _spectrogramFile
+
+fun ensureSpectrogram(filesDir: File) {
+    val cached = File(File(filesDir, "spectrograms"), "$draftId.png")
+    if (cached.exists()) { _spectrogramFile.value = cached; return }
+    viewModelScope.launch(Dispatchers.IO) {
+        val (samples, _) = WavReader.readMono16(File(state.value.audioPath ?: return@launch))
+        val asFloat = FloatArray(samples.size) { i -> samples[i] / Short.MAX_VALUE.toFloat() }
+        SpectrogramRenderer().renderToFile(asFloat, cached)
+        _spectrogramFile.value = cached
+    }
+}
+```
+
+(Inject `filesDir` via the Hilt-wrapped `ReviewViewModelHilt`.)
+
+- [ ] **Step 6 — Compose**
+
+Below the player, add two `Image`/`Canvas` blocks:
+- Waveform: `Canvas` 96 dp tall drawing the column min/max from `WaveformBitmap`.
+- Spectrogram: `Image(painter = rememberAsyncImagePainter(spectrogramFile))` (Coil) **or** `Canvas` reading bitmap; the simplest and dependency-free option is `Bitmap` decoded with `BitmapFactory` and drawn via `Image(bitmap = bitmap.asImageBitmap(), ...)`.
+- Cursor: a vertical line drawn in a `Canvas` overlay matching the `state.playback.positionMs / state.durationMs` ratio.
+
+- [ ] **Step 7 — Build, test, commit**
+
+```bash
+./gradlew :app:testDebugUnitTest :app:assembleDebug detekt lint
+git add app/src/main/java/com/sound2inat/app/ui/review app/src/test/java/com/sound2inat/app/ui/review
+git commit -m "feat(review): waveform + mel-spectrogram with cached PNG"
+git push
+```
+
+Acceptance for Task 14: spectrogram cached on first open, second open is instant; play-cursor advances over both visualisations during playback.
+
+---
+
+## Task 15 — Review screen, detection overlays + interactivity
+
+**Goal:** Draw a coloured rectangle over each detected window per species on the spectrogram, color-coded per species. Tap on rectangle highlights that row in the species list and seeks the player to the start of the window. Tap on a species row flashes its rectangles for 800 ms.
+
+**Files:**
+- Create: `app/src/main/java/com/sound2inat/app/ui/review/DetectionOverlays.kt`
+- Modify: `ReviewScreen.kt`
+- Modify: `ReviewViewModel.kt` (add `highlight: StateFlow<Long?>` for the currently flashing/selected detection id; expose computed per-window timeline from raw `WindowPrediction`s)
+
+**Pre-task review:** `WindowPrediction`s come from `InferenceRunner.run` — they are not currently persisted. To draw window-level rectangles, the VM must keep them in memory after inference. Decide: keep in `state.allWindowPredictions: List<WindowPrediction>` only for the lifetime of the screen (acceptable — overlays disappear if the user closes and reopens the screen until next visit recomputes inference). Alternative: persist to a new Room table; deferred to a later spec.
+
+- [ ] **Step 1 — VM wiring**
+
+Add `private val _windowPreds = MutableStateFlow<List<WindowPrediction>>(emptyList())`. After inference completes, set `_windowPreds.value = preds`. Public flow `windowPreds`.
+
+Add `private val _highlight = MutableStateFlow<Long?>(null)` and a `highlight(id: Long?)` setter. Schedule auto-clear after 800 ms when id != null.
+
+- [ ] **Step 2 — Per-species color assignment**
+
+```kotlin
+package com.sound2inat.app.ui.review
+
+object SpeciesPalette {
+    private val colors = listOf(
+        0xFFE57373, 0xFF64B5F6, 0xFF81C784, 0xFFFFD54F, 0xFFBA68C8,
+        0xFF4DB6AC, 0xFFFF8A65, 0xFFA1887F, 0xFF9575CD, 0xFF4FC3F7,
+    )
+    fun colorFor(taxon: String, indexHint: Int): Long = colors[(indexHint.coerceAtLeast(0)) % colors.size]
+}
+```
+
+Index hint = position in the species list sorted by max confidence.
+
+- [ ] **Step 3 — Render overlays**
+
+`DetectionOverlays.kt` is a `Canvas` block that takes `windowPreds`, `species` (for color hint), `durationMs`, and the spectrogram canvas size. For each `WindowPrediction` matching a known species, draw a translucent rectangle from `startMs/durationMs` to `endMs/durationMs` width, full mel-bin height, colour by species, alpha 0.35 normally, 0.7 if `highlight == speciesId`.
+
+Hit testing: on `PointerInput.detectTapGestures`, find the nearest `WindowPrediction` within tap bounds, set `vm.highlight(species.detectionId)` and call `vm.seekTo(startMs)`.
+
+- [ ] **Step 4 — Two-way binding to species list**
+
+In `ReviewScreen.kt`, on a species `ListItem`, add `Modifier.clickable { vm.highlight(speciesRow.detectionId) }`. The same `_highlight` flow drives both the row's selected appearance and the overlay's alpha.
+
+- [ ] **Step 5 — Tests**
+
+```kotlin
+@Test fun `tap on overlay seeks player and highlights species`() = runTest {
+    // construct fake state with two predictions, simulate tap on second region
+    // assert player.seekTo(predicted startMs); assert highlight == species id
+}
+```
+
+(Keep these as VM-level tests using fakes; do not write Compose-level Espresso tests.)
+
+- [ ] **Step 6 — Build, commit**
+
+```bash
+./gradlew :app:testDebugUnitTest :app:assembleDebug detekt lint
+git add app/src/main/java/com/sound2inat/app/ui/review app/src/test/java/com/sound2inat/app/ui/review
+git commit -m "feat(review): detection overlays with two-way tap binding"
+git push
+```
+
+Acceptance for Task 15: overlays drawn; tap → seek + highlight; tap on species row flashes overlays for ≈800 ms.
+
+---
+
+## Task 16 — Settings screen + Model install UX
+
+**Goal:** Settings screen with model status, Install/Reinstall/Remove flow with license disclosure, and inference parameter sliders bound to DataStore.
+
+**Files:**
+- Create: `app/src/main/java/com/sound2inat/app/ui/settings/SettingsViewModel.kt`
+- Create: `app/src/main/java/com/sound2inat/app/ui/settings/SettingsScreen.kt`
+- Create: `app/src/main/java/com/sound2inat/app/ui/settings/SettingsUiState.kt`
+- Create: `app/src/main/java/com/sound2inat/app/data/Settings.kt` (DataStore wrapper)
+- Modify: `Sound2iNatNavHost.kt` (replace SETTINGS placeholder)
+- Create: `app/src/test/java/com/sound2inat/app/ui/settings/SettingsViewModelTest.kt`
+
+**Pre-task review:** Replace placeholders in `BirdNetV24.descriptor` (Task 7) with real SHA-256 sums and file size from `MODEL_SPIKE.md`. The Install button must show the `license` string before download starts.
+
+- [ ] **Step 1 — `Settings` DataStore wrapper**
+
+```kotlin
+package com.sound2inat.app.data
+
+import android.content.Context
+import androidx.datastore.preferences.core.*
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
+private val Context.dataStore by preferencesDataStore("sound2inat")
+
+class Settings(private val ctx: Context) {
+    private object K {
+        val MIN_CONF = floatPreferencesKey("min_conf")
+        val TOP_K = intPreferencesKey("top_k")
+    }
+    val minConfidenceDisplay: Flow<Float> = ctx.dataStore.data.map { it[K.MIN_CONF] ?: 0.25f }
+    val topK: Flow<Int> = ctx.dataStore.data.map { it[K.TOP_K] ?: 5 }
+    suspend fun setMinConfidenceDisplay(v: Float) { ctx.dataStore.edit { it[K.MIN_CONF] = v } }
+    suspend fun setTopK(v: Int) { ctx.dataStore.edit { it[K.TOP_K] = v } }
+}
+```
+
+Provide it via Hilt as a singleton.
+
+- [ ] **Step 2 — `SettingsUiState`**
+
+```kotlin
+package com.sound2inat.app.ui.settings
+
+import com.sound2inat.modelmanager.ModelInstallState
+
+data class SettingsUiState(
+    val modelInstall: ModelInstallState = ModelInstallState.NotInstalled,
+    val modelLicense: String = "",
+    val modelDisplayName: String = "",
+    val showLicenseSheet: Boolean = false,
+    val installProgress: Float? = null,
+    val minConfidenceDisplay: Float = 0.25f,
+    val topK: Int = 5,
+)
+```
+
+- [ ] **Step 3 — ViewModel**
+
+```kotlin
+package com.sound2inat.app.ui.settings
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.sound2inat.app.data.Settings
+import com.sound2inat.modelmanager.BirdNetV24
+import com.sound2inat.modelmanager.ModelInstallState
+import com.sound2inat.modelmanager.ModelManager
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+
+class SettingsViewModel(
+    private val modelManager: ModelManager,
+    private val settings: Settings,
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(
+        SettingsUiState(
+            modelInstall = modelManager.stateFor(BirdNetV24.descriptor),
+            modelLicense = BirdNetV24.descriptor.license,
+            modelDisplayName = BirdNetV24.descriptor.displayName,
+        )
+    )
+    val state: StateFlow<SettingsUiState> = _state
+
+    init {
+        viewModelScope.launch {
+            settings.minConfidenceDisplay.collect { v -> _state.value = _state.value.copy(minConfidenceDisplay = v) }
+        }
+        viewModelScope.launch {
+            settings.topK.collect { v -> _state.value = _state.value.copy(topK = v) }
+        }
+    }
+
+    fun openLicenseSheet() { _state.value = _state.value.copy(showLicenseSheet = true) }
+    fun cancelLicenseSheet() { _state.value = _state.value.copy(showLicenseSheet = false) }
+
+    fun confirmInstall() {
+        _state.value = _state.value.copy(showLicenseSheet = false)
+        viewModelScope.launch {
+            modelManager.install(BirdNetV24.descriptor) { s ->
+                _state.value = _state.value.copy(
+                    modelInstall = s,
+                    installProgress = (s as? ModelInstallState.Downloading)?.progress,
+                )
+            }
+        }
+    }
+
+    fun remove() {
+        modelManager.remove(BirdNetV24.descriptor)
+        _state.value = _state.value.copy(modelInstall = ModelInstallState.NotInstalled, installProgress = null)
+    }
+
+    fun setMinConfidence(v: Float) { viewModelScope.launch { settings.setMinConfidenceDisplay(v) } }
+    fun setTopK(v: Int) { viewModelScope.launch { settings.setTopK(v) } }
+}
+```
+
+- [ ] **Step 4 — Compose UI**
+
+- Section "Model": display name, status (`NotInstalled` → CTA button "Install model"; `Downloading` → linear progress; `Verifying` → text; `Ready` → file size + Reinstall/Remove). Tapping Install opens a bottom sheet with the license text + Confirm button.
+- Section "Inference": slider for `topK` (1–10), slider for `minConfidenceDisplay` (0.05–0.90).
+- Section "About": app version, link to `LICENSE_NOTES.md` (open as text via FileProvider — stretch).
+
+- [ ] **Step 5 — Tests**
+
+VM tests with fake `ModelManager` and in-memory `Settings`:
+1. Initial state reflects model install state.
+2. `confirmInstall()` walks `Downloading → Verifying → Ready` (driven by the fake's `emit` callback).
+3. `setTopK`/`setMinConfidence` update DataStore and propagate.
+
+- [ ] **Step 6 — Wire route, build, commit**
+
+```bash
+./gradlew :app:testDebugUnitTest :app:assembleDebug detekt lint
+git add app/src/main/java/com/sound2inat/app/ui/settings app/src/main/java/com/sound2inat/app/data \
+        app/src/test/java/com/sound2inat/app/ui/settings app/src/main/java/com/sound2inat/app/nav/Sound2iNatNavHost.kt
+git commit -m "feat(app): Settings screen + model install/remove with license disclosure"
+git push
+```
+
+Acceptance for Task 16: VM tests green; on-device, the user can install BirdNET (sees license, downloads, verifies) and Home enables the Record button afterwards.
+
+---
+
+## Task 17 — End-to-end instrumented test
+
+**Goal:** One on-device test that walks through the §11 acceptance flow with fakes injected via Hilt test rules: a fake `Recorder` that emits a fixture WAV, a fake `BioacousticModel` that returns predetermined predictions, a fake `LocationProvider`. Other components (Room, DataStore, files) are real.
+
+**Files:**
+- Create: `app/src/androidTest/java/com/sound2inat/app/EndToEndTest.kt`
+- Create: `app/src/androidTest/java/com/sound2inat/app/TestModule.kt`
+- Create: `app/src/androidTest/java/com/sound2inat/app/HiltTestRunner.kt`
+- Modify: `app/build.gradle.kts` (add `testInstrumentationRunner = "com.sound2inat.app.HiltTestRunner"` and Hilt testing deps)
+- Add fixture: `app/src/androidTest/assets/fixtures/short_bird.wav`
+
+**Pre-task review:** Hilt instrumented tests need `@HiltAndroidTest` + a `HiltTestApplication`. Verify the AGP version supports it. The fake `Recorder` must produce a real WAV file at the requested path so that `InferenceRunner` can read it.
+
+- [ ] **Step 1 — Add test dependencies**
+
+```kotlin
+// in app/build.gradle.kts dependencies
+androidTestImplementation("androidx.test.ext:junit:1.2.1")
+androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+androidTestImplementation(libs.hilt.android)
+kspAndroidTest(libs.hilt.compiler)
+androidTestImplementation("com.google.dagger:hilt-android-testing:${libs.versions.hilt.get()}")
+```
+
+- [ ] **Step 2 — `HiltTestRunner`**
+
+```kotlin
+package com.sound2inat.app
+
+import android.app.Application
+import android.content.Context
+import androidx.test.runner.AndroidJUnitRunner
+import dagger.hilt.android.testing.HiltTestApplication
+
+class HiltTestRunner : AndroidJUnitRunner() {
+    override fun newApplication(cl: ClassLoader?, name: String?, ctx: Context?): Application =
+        super.newApplication(cl, HiltTestApplication::class.java.name, ctx)
+}
+```
+
+- [ ] **Step 3 — `TestModule`**
+
+Replace `AppModule` providers for `Recorder`, `BioacousticModel`, `LocationProvider`. Each fake is small (~30 lines).
+
+- [ ] **Step 4 — `EndToEndTest`**
+
+```kotlin
+package com.sound2inat.app
+
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import dagger.hilt.android.testing.HiltAndroidRule
+import dagger.hilt.android.testing.HiltAndroidTest
+import org.junit.Rule
+import org.junit.Test
+
+@HiltAndroidTest
+class EndToEndTest {
+    @get:Rule(order = 0) val hilt = HiltAndroidRule(this)
+    @get:Rule(order = 1) val compose = createAndroidComposeRule<MainActivity>()
+
+    @Test fun record_analyze_review_save_delete() {
+        // Steps:
+        // 1. Skip permissions (granted via test runner config)
+        // 2. Tap Record → wait for Done → ends up on Review.
+        // 3. Wait for inference progress to finish, expect species rows present.
+        // 4. Toggle a checkbox, tap Save → back on Home with REVIEWED row.
+        // 5. Open the row, tap Delete → row gone, WAV file absent.
+        // ... use compose.onNodeWithText/onNodeWithContentDescription assertions.
+    }
+}
+```
+
+(Full Espresso/Compose assertions ~120 lines; the agent writing this task fills them in based on the UI strings.)
+
+- [ ] **Step 5 — Run on Poco X3**
+
+```
+./gradlew :app:connectedDebugAndroidTest
+```
+
+Expected: 1 test passes.
+
+- [ ] **Step 6 — Commit**
+
+```bash
+git add app/src/androidTest app/build.gradle.kts
+git commit -m "test(e2e): instrumented record→review→save→delete flow"
+git push
+```
+
+Acceptance for Task 17: instrumented test green on a connected Poco X3 (or AVD with mic mocked); CI does not run instrumented tests.
+
+---
+
+## Task 18 — Manual acceptance run on Poco X3 + reports
+
+**Goal:** Walk through spec §11 (12-step manual scenario) on the real device, fix anything that breaks, and write the final reports.
+
+**Files:**
+- Create: `docs/private/MVP_REPORT.md`
+- Create: `docs/LICENSE_NOTES.md`
+
+**Pre-task review:** Confirm BirdNET license text matches what is shown in Settings (Task 16). Confirm `MODEL_SPIKE.md` numbers are still valid.
+
+- [ ] **Step 1 — Install signed-debug APK on the device**
+
+```
+./gradlew :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+- [ ] **Step 2 — Walk §11 steps 1–12**
+
+For each step, write `[PASS]` or `[FAIL]` with a short note. If anything fails, file a follow-up task and fix before continuing.
+
+- [ ] **Step 3 — Capture metrics**
+
+- `inference time on Poco X3 for a 30 s recording`: target ≤ 20 s. Measure 3 runs, record min/median/max.
+- `debug APK size without model`: target ≤ 15 MB. Read from `app/build/outputs/apk/debug/output-metadata.json`.
+- `peak native heap during analysis`: capture once via `Debug.getNativeHeapAllocatedSize()` from a temporary log statement, then remove the log.
+
+- [ ] **Step 4 — Write `docs/private/MVP_REPORT.md`**
+
+Sections:
+1. Device under test (Poco X3, MIUI 14, Android 12).
+2. APK details (commit SHA, size).
+3. Acceptance results (12 PASS/FAIL rows).
+4. Performance metrics.
+5. Known issues / follow-up tasks (if any).
+
+- [ ] **Step 5 — Write `docs/LICENSE_NOTES.md`**
+
+For the private build, document:
+- BirdNET-Analyzer source code: MIT (link, version).
+- BirdNET v2.4 weights: CC BY-NC-SA 4.0 (link, source URL, SHA-256).
+- Each Android library used (from `gradle/libs.versions.toml`): name, version, license, link. Generate a draft via `./gradlew :app:dependencies` or a license plugin (e.g., `com.mikepenz.aboutlibraries.plugin`) and curate.
+- Statement: "This is a private personal build. Not intended for redistribution. Public-track release will require a separate license audit (see initial-plans.md §4.7.2)."
+
+- [ ] **Step 6 — Commit**
+
+```bash
+git add docs/private/MVP_REPORT.md docs/LICENSE_NOTES.md
+git commit -m "docs: Spec 1 acceptance report and private-build license notes"
+git push
+git tag -a v0.1.0-mvp -m "Spec 1 (private MVP) acceptance"
+git push --tags
+```
+
+Acceptance for Task 18: all 12 §11 steps PASS; both reports committed; tag pushed.
+
+---
+
+## Self-review (writing-plans)
+
+Performed inline before the plan was committed.
+
+**1. Spec coverage.** Each spec section maps to at least one task:
+
+| Spec section | Task(s) |
+|---|---|
+| §1 Goal | 1, 11–18 |
+| §2 Decisions D1–D11 | All — D1/D2 set scope; D3 is reflected in Task 13's "inference on the screen, not in a service"; D4 → Tasks 2, 6; D5 → Tasks 7, 16; D6 → Tasks 11, 13; D7 → Tasks 14, 15; D8/D9 → Tasks 1, 10; D10 → Task 1; D11 → every TDD-driven task |
+| §3 Module structure | Task 1 (packages declared); Tasks 3–9 fill them |
+| §4 Data flow | Tasks 12, 13 implement it; Task 17 verifies it |
+| §5 Data model | Tasks 8 (Room), 16 (DataStore) |
+| §6 UI | Tasks 11–16 |
+| §7 Recording, inference, rendering | Tasks 3, 4, 6, 14 |
+| §8 Model spike | Task 2 |
+| §9 Build, dependencies, CI | Task 1 |
+| §10 Tests | Each task carries its own tests; Task 17 is end-to-end |
+| §11 Acceptance | Task 18 |
+| §12 Risks | Mitigations are baked into the relevant tasks (e.g., Task 4 spike fallback, Task 12 GPS-no-fix path) |
+| §13 Out of scope | Honoured — no upload, no live inference, no Perch in this plan |
+| §14 Hand-off rules | Reflected in Execution strategy |
+
+**2. Placeholder scan.** Three intentional placeholders flagged for replacement during execution: `BirdNetV24.descriptor` SHA-256 sums (Task 7 Step 1 → must be replaced from `MODEL_SPIKE.md` before Task 16). No "TBD" / "implement later" / "Add appropriate error handling" anywhere else.
+
+**3. Type consistency.** `WindowPrediction` field names match between Task 5 and Task 6. `AggregatedDetection` fields match Room `DetectionEntity` columns. `DraftStatus` enum values are identical across Tasks 5, 8, 11. `BioacousticModel.predict` signature is consistent with `InferenceRunner` calls.
+
+If new mismatches surface during execution, the Implementer must patch the plan before continuing (per CLAUDE.md project rule).
+
+---
+
+## Execution handoff
+
+**Plan complete and saved to** `docs/superpowers/plans/2026-04-28-sound2inat-spec1-private-mvp-plan.md`.
+
+**Two execution options:**
+
+1. **Subagent-driven (recommended).** Orchestrator dispatches one fresh subagent per task with the role split from §"Execution strategy" (Implementer = Sonnet; Reviewer = Opus between tasks; Synthesiser = Opus at integration points 6, 10, 15; Final supervisor = Codex before Tasks 17 and 18). Parallelism per the DAG. Review between tasks.
+2. **Inline execution.** Single session walks the plan top to bottom; checkpoints after each task.
+
+**Recommendation:** Subagent-driven, because (a) the DAG has clear parallel slots after Task 1 and after Task 10, (b) the user explicitly asked for cheaper-model implementers + stronger-model reviewers + a Codex final pass.
 
