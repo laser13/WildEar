@@ -1,0 +1,23 @@
+build:
+  maxIssues: 0
+
+formatting:
+  active: true
+  android: true
+  autoCorrect: true
+
+complexity:
+  TooManyFunctions:
+    active: false
+
+style:
+  MagicNumber:
+    active: false
+  ReturnCount:
+    active: false
+
+naming:
+  # Compose Composables use PascalCase. Disabling FunctionNaming wholesale; revisit once
+  # detekt-compose plugin (or ignoreAnnotated wiring) is added.
+  FunctionNaming:
+    active: false
