@@ -1557,5 +1557,990 @@ Acceptance for Task 5: tests green; sort and threshold behaviour locked.
 
 ---
 
+## Task 6 — `BirdNetTfliteModel` (`inference`)
+
+**Goal:** Implementation of `BioacousticModel` that loads `birdnet_v2_4.tflite` via `MappedByteBuffer`, runs the TFLite interpreter on each window, returns top-K `WindowPrediction`s, and is unit-tested with a fake `Interpreter`.
+
+**Files:**
+- Create: `app/src/main/java/com/sound2inat/inference/BioacousticModel.kt`
+- Create: `app/src/main/java/com/sound2inat/inference/BirdNetTfliteModel.kt`
+- Create: `app/src/main/java/com/sound2inat/inference/InterpreterFactory.kt`
+- Create: `app/src/main/java/com/sound2inat/inference/Labels.kt`
+- Create: `app/src/test/java/com/sound2inat/inference/BirdNetTfliteModelTest.kt`
+
+**Pre-task review:** Open `MODEL_SPIKE.md`. Confirm: input shape (e.g., `[1, 144000]` raw audio at 48 kHz × 3 s, OR `[1, mel_bins, frames, 1]` for mel features). The implementation here MUST match that. If the spike concluded raw audio, the `MelSpectrogram` from Task 4 is **not** part of the model path — it is only used for rendering. Update this task's code accordingly. The current draft below assumes raw audio; flip if needed.
+
+- [ ] **Step 1 — `BioacousticModel` interface**
+
+```kotlin
+package com.sound2inat.inference
+
+import java.io.File
+
+interface BioacousticModel {
+    val modelId: String
+    val modelVersion: String
+
+    suspend fun load(modelFile: File, labelsFile: File)
+    suspend fun predict(
+        pcmFloat32: FloatArray,
+        sampleRateHz: Int,
+        latitude: Double?,
+        longitude: Double?,
+        observedAtMillis: Long,
+        windowStartMs: Long,
+        windowEndMs: Long,
+    ): List<WindowPrediction>
+    fun close()
+}
+```
+
+The signature follows spec §2 from `initial-plans.md` (kept stable across the plans). `windowStartMs/EndMs` are added so the aggregator can place predictions on the timeline.
+
+- [ ] **Step 2 — `InterpreterFactory` seam for tests**
+
+```kotlin
+package com.sound2inat.inference
+
+import org.tensorflow.lite.Interpreter
+import java.io.File
+import java.nio.MappedByteBuffer
+import java.nio.channels.FileChannel
+import java.io.RandomAccessFile
+
+interface InterpreterFactory {
+    fun create(modelFile: File, threads: Int): InterpreterApi
+}
+
+interface InterpreterApi {
+    fun run(input: Any, output: Any)
+    fun close()
+}
+
+class TfliteInterpreterFactory : InterpreterFactory {
+    override fun create(modelFile: File, threads: Int): InterpreterApi {
+        val raf = RandomAccessFile(modelFile, "r")
+        val channel = raf.channel
+        val buffer: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size())
+        val opts = Interpreter.Options().apply { numThreads = threads }
+        val interpreter = Interpreter(buffer, opts)
+        return object : InterpreterApi {
+            override fun run(input: Any, output: Any) = interpreter.run(input, output)
+            override fun close() { interpreter.close(); channel.close(); raf.close() }
+        }
+    }
+}
+```
+
+- [ ] **Step 3 — `Labels` loader**
+
+```kotlin
+package com.sound2inat.inference
+
+import java.io.File
+
+data class Label(val scientificName: String, val commonName: String?)
+
+object Labels {
+    fun load(file: File): List<Label> = file.readLines()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .map { line ->
+            // BirdNET-Analyzer labels: "Scientific name_Common Name"
+            val sep = line.indexOf('_')
+            if (sep < 0) Label(line, null)
+            else Label(line.substring(0, sep), line.substring(sep + 1).ifBlank { null })
+        }
+}
+```
+
+- [ ] **Step 4 — Failing test with fake `InterpreterFactory`**
+
+```kotlin
+package com.sound2inat.inference
+
+import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.test.runTest
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+
+class BirdNetTfliteModelTest {
+    @get:Rule val tmp = TemporaryFolder()
+
+    @Test fun `top-K predictions ordered by confidence`() = runTest {
+        val labels = tmp.newFile("labels.txt").apply {
+            writeText("Sylvia melanothorax_Cyprus Warbler\nPasser domesticus_House Sparrow\nNoise\n")
+        }
+        val model = tmp.newFile("model.tflite").apply { writeBytes(byteArrayOf(0)) }
+        val fake = FakeInterpreterFactory(
+            // produce probs: noise low, warbler high, sparrow mid
+            output = floatArrayOf(0.05f, 0.7f, 0.2f),
+        )
+        val m = BirdNetTfliteModel(fake, topK = 2)
+        m.load(model, labels)
+
+        val pcm = FloatArray(48_000 * 3)
+        val out = m.predict(pcm, 48_000, null, null, 0L, 0L, 3_000L)
+        assertThat(out.map { it.taxonScientificName }).containsExactly(
+            "Sylvia melanothorax", "Passer domesticus",
+        ).inOrder()
+        assertThat(out[0].confidence).isWithin(1e-6f).of(0.7f)
+    }
+}
+```
+
+`FakeInterpreterFactory` is a minimal helper in the same test file: returns an `InterpreterApi` whose `run(input, output)` copies a fixed `FloatArray` into `output[0]`. Implement it as part of Step 4 (10–15 lines).
+
+- [ ] **Step 5 — Implement `BirdNetTfliteModel`**
+
+```kotlin
+package com.sound2inat.inference
+
+import java.io.File
+
+class BirdNetTfliteModel(
+    private val factory: InterpreterFactory,
+    private val topK: Int = 5,
+    private val threads: Int = 2,
+) : BioacousticModel {
+
+    override val modelId = "birdnet_v2_4"
+    override val modelVersion = "2.4"
+
+    private var interp: InterpreterApi? = null
+    private var labels: List<Label> = emptyList()
+
+    override suspend fun load(modelFile: File, labelsFile: File) {
+        interp = factory.create(modelFile, threads)
+        labels = Labels.load(labelsFile)
+    }
+
+    override suspend fun predict(
+        pcmFloat32: FloatArray,
+        sampleRateHz: Int,
+        latitude: Double?,
+        longitude: Double?,
+        observedAtMillis: Long,
+        windowStartMs: Long,
+        windowEndMs: Long,
+    ): List<WindowPrediction> {
+        val i = interp ?: error("Model not loaded")
+        require(sampleRateHz == 48_000) { "BirdNET v2.4 expects 48 kHz" }
+        // Match MODEL_SPIKE.md input shape. For raw audio: [1, 144_000].
+        val input = arrayOf(pcmFloat32)
+        val output = arrayOf(FloatArray(labels.size))
+        i.run(input, output)
+        val probs = output[0]
+        val idx = probs.indices.sortedByDescending { probs[it] }.take(topK)
+        return idx.map { k ->
+            val l = labels[k]
+            WindowPrediction(
+                startMs = windowStartMs,
+                endMs = windowEndMs,
+                taxonScientificName = l.scientificName,
+                taxonCommonName = l.commonName,
+                confidence = probs[k],
+            )
+        }
+    }
+
+    override fun close() {
+        interp?.close(); interp = null
+    }
+}
+```
+
+- [ ] **Step 6 — Run tests, expect PASS.**
+
+- [ ] **Step 7 — Add an inference orchestrator (`InferenceRunner`)**
+
+This object reads a WAV from disk, slices it into windows per `MelParams.hop`/`window`, calls `model.predict()` per window, exposes a progress flow, and returns `List<WindowPrediction>` to be passed to `DetectionAggregator`.
+
+`app/src/main/java/com/sound2inat/inference/InferenceRunner.kt`:
+
+```kotlin
+package com.sound2inat.inference
+
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import java.io.File
+import java.io.RandomAccessFile
+
+class InferenceRunner(
+    private val model: BioacousticModel,
+    private val windowSeconds: Float = 3f,
+    private val hopSeconds: Float = 1f,
+) {
+    private val _progress = MutableStateFlow(0f)
+    val progress: StateFlow<Float> = _progress
+
+    suspend fun run(
+        wavFile: File,
+        latitude: Double?,
+        longitude: Double?,
+        observedAtMillis: Long,
+    ): List<WindowPrediction> {
+        val (samples, sampleRate) = WavReader.readMono16(wavFile)
+        val win = (windowSeconds * sampleRate).toInt()
+        val hop = (hopSeconds * sampleRate).toInt()
+        val frames = if (samples.size < win) 0 else 1 + (samples.size - win) / hop
+        val out = ArrayList<WindowPrediction>(frames * 5)
+        for (f in 0 until frames) {
+            val s = f * hop
+            val window = FloatArray(win) { i -> samples[s + i] / Short.MAX_VALUE.toFloat() }
+            val startMs = (s.toLong() * 1000L) / sampleRate
+            val endMs = ((s + win).toLong() * 1000L) / sampleRate
+            out += model.predict(
+                pcmFloat32 = window,
+                sampleRateHz = sampleRate,
+                latitude = latitude,
+                longitude = longitude,
+                observedAtMillis = observedAtMillis,
+                windowStartMs = startMs,
+                windowEndMs = endMs,
+            )
+            _progress.value = (f + 1).toFloat() / frames.coerceAtLeast(1)
+        }
+        return out
+    }
+}
+
+internal object WavReader {
+    fun readMono16(file: File): Pair<ShortArray, Int> {
+        RandomAccessFile(file, "r").use { raf ->
+            val header = ByteArray(44).also { raf.readFully(it) }
+            require(String(header, 0, 4) == "RIFF" && String(header, 8, 4) == "WAVE") { "Not a WAV" }
+            val sr = readLeUint32(header, 24)
+            val ch = readLeUint16(header, 22)
+            val bits = readLeUint16(header, 34)
+            require(ch == 1 && bits == 16) { "Mono 16-bit only" }
+            val dataSize = readLeUint32(header, 40)
+            val samples = ShortArray(dataSize / 2)
+            val raw = ByteArray(dataSize)
+            raf.readFully(raw)
+            for (i in samples.indices) {
+                val lo = raw[2 * i].toInt() and 0xFF
+                val hi = raw[2 * i + 1].toInt()
+                samples[i] = ((hi shl 8) or lo).toShort()
+            }
+            return samples to sr
+        }
+    }
+
+    private fun readLeUint16(buf: ByteArray, o: Int): Int =
+        (buf[o].toInt() and 0xFF) or ((buf[o + 1].toInt() and 0xFF) shl 8)
+    private fun readLeUint32(buf: ByteArray, o: Int): Int =
+        (buf[o].toInt() and 0xFF) or
+        ((buf[o + 1].toInt() and 0xFF) shl 8) or
+        ((buf[o + 2].toInt() and 0xFF) shl 16) or
+        ((buf[o + 3].toInt() and 0xFF) shl 24)
+}
+```
+
+Add a unit test `InferenceRunnerTest` that uses a fake `BioacousticModel` returning predetermined predictions per window, runs against a fixture WAV from `app/src/test/resources/spike_fixtures/`, and asserts the number of windows and progress=1.0 at the end.
+
+- [ ] **Step 8 — Commit**
+
+```bash
+git add app/src/main/java/com/sound2inat/inference app/src/test/java/com/sound2inat/inference
+git commit -m "feat(inference): BirdNET TFLite model + WAV-driven inference runner"
+git push
+```
+
+Acceptance for Task 6: model and runner tests pass; on-device verification deferred to Task 17.
+
+---
+
+## Task 7 — `ModelManager` (`modelmanager`)
+
+**Goal:** A component that downloads `birdnet_v2_4.tflite` and `labels.txt` to `filesDir/models/`, verifies SHA-256, and exposes installation state. Tested with `MockWebServer`.
+
+**Files:**
+- Create: `app/src/main/java/com/sound2inat/modelmanager/ModelDescriptor.kt`
+- Create: `app/src/main/java/com/sound2inat/modelmanager/ModelManager.kt`
+- Create: `app/src/main/java/com/sound2inat/modelmanager/ModelInstallState.kt`
+- Create: `app/src/test/java/com/sound2inat/modelmanager/ModelManagerTest.kt`
+
+**Pre-task review:** SHA-256 sums and source URLs come from `MODEL_SPIKE.md`. Confirm values are the same as in `models/SHA256SUMS`. The descriptor below uses placeholders — replace them with the real values before committing.
+
+- [ ] **Step 1 — Define descriptor and state**
+
+```kotlin
+package com.sound2inat.modelmanager
+
+data class ModelDescriptor(
+    val id: String,
+    val displayName: String,
+    val version: String,
+    val modelUrl: String,
+    val labelsUrl: String,
+    val modelSha256: String,
+    val labelsSha256: String,
+    val license: String,
+    val sizeBytes: Long,
+)
+
+object BirdNetV24 {
+    val descriptor = ModelDescriptor(
+        id = "birdnet_v2_4",
+        displayName = "BirdNET v2.4",
+        version = "2.4",
+        // TODO[Task 7 Step 1]: replace from MODEL_SPIKE.md
+        modelUrl = "https://github.com/kahst/BirdNET-Analyzer/raw/main/checkpoints/V2.4/BirdNET_GLOBAL_6K_V2.4_Model_FP32.tflite",
+        labelsUrl = "https://github.com/kahst/BirdNET-Analyzer/raw/main/checkpoints/V2.4/BirdNET_GLOBAL_6K_V2.4_Labels.txt",
+        modelSha256 = "<SHA256 from MODEL_SPIKE.md>",
+        labelsSha256 = "<SHA256 from MODEL_SPIKE.md>",
+        license = "CC BY-NC-SA 4.0 (weights); MIT (BirdNET-Analyzer code)",
+        sizeBytes = 0L,
+    )
+}
+
+sealed interface ModelInstallState {
+    data object NotInstalled : ModelInstallState
+    data class Downloading(val progress: Float) : ModelInstallState
+    data class Verifying(val ready: Boolean) : ModelInstallState
+    data class Ready(val modelFile: java.io.File, val labelsFile: java.io.File) : ModelInstallState
+    data class Failed(val message: String) : ModelInstallState
+}
+```
+
+(Note the `<SHA256 from MODEL_SPIKE.md>` placeholders. They MUST be replaced before this task is closed; the agent fixing the placeholders should update the test fixture too.)
+
+- [ ] **Step 2 — Failing test using `MockWebServer`**
+
+```kotlin
+package com.sound2inat.modelmanager
+
+import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.test.runTest
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okio.Buffer
+import org.junit.After
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.security.MessageDigest
+
+class ModelManagerTest {
+    @get:Rule val tmp = TemporaryFolder()
+    private lateinit var server: MockWebServer
+
+    @Before fun setUp() { server = MockWebServer().also { it.start() } }
+    @After fun tearDown() { server.shutdown() }
+
+    private fun sha256(b: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
+
+    @Test fun `downloads and verifies model and labels`() = runTest {
+        val modelBytes = ByteArray(1024) { (it and 0x7F).toByte() }
+        val labelBytes = "A_a\nB_b\n".toByteArray()
+        server.enqueue(MockResponse().setBody(Buffer().write(modelBytes)))
+        server.enqueue(MockResponse().setBody(Buffer().write(labelBytes)))
+
+        val descriptor = BirdNetV24.descriptor.copy(
+            modelUrl = server.url("/m.tflite").toString(),
+            labelsUrl = server.url("/labels.txt").toString(),
+            modelSha256 = sha256(modelBytes),
+            labelsSha256 = sha256(labelBytes),
+        )
+        val mm = ModelManager(filesDir = tmp.root, http = OkHttpClient())
+        val states = mutableListOf<ModelInstallState>()
+        mm.install(descriptor) { states += it }
+        assertThat(states.last()).isInstanceOf(ModelInstallState.Ready::class.java)
+        val ready = states.last() as ModelInstallState.Ready
+        assertThat(ready.modelFile.readBytes()).isEqualTo(modelBytes)
+        assertThat(ready.labelsFile.readBytes()).isEqualTo(labelBytes)
+    }
+
+    @Test fun `wrong checksum results in Failed and no installed file`() = runTest {
+        server.enqueue(MockResponse().setBody(Buffer().write(ByteArray(10))))
+        val descriptor = BirdNetV24.descriptor.copy(
+            modelUrl = server.url("/m.tflite").toString(),
+            labelsUrl = server.url("/labels.txt").toString(),
+            modelSha256 = "deadbeef",
+            labelsSha256 = "cafef00d",
+        )
+        val mm = ModelManager(filesDir = tmp.root, http = OkHttpClient())
+        val states = mutableListOf<ModelInstallState>()
+        mm.install(descriptor) { states += it }
+        assertThat(states.last()).isInstanceOf(ModelInstallState.Failed::class.java)
+        assertThat(java.io.File(tmp.root, "models/birdnet_v2_4.tflite").exists()).isFalse()
+    }
+}
+```
+
+- [ ] **Step 3 — Implement `ModelManager`**
+
+```kotlin
+package com.sound2inat.modelmanager
+
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.File
+import java.io.FileOutputStream
+import java.security.MessageDigest
+
+class ModelManager(
+    private val filesDir: File,
+    private val http: OkHttpClient,
+) {
+    private val dir: File = File(filesDir, "models").apply { mkdirs() }
+
+    fun stateFor(descriptor: ModelDescriptor): ModelInstallState {
+        val m = modelFile(descriptor)
+        val l = labelsFile(descriptor)
+        return if (m.exists() && l.exists() &&
+                   sha256(m) == descriptor.modelSha256 &&
+                   sha256(l) == descriptor.labelsSha256
+        ) ModelInstallState.Ready(m, l) else ModelInstallState.NotInstalled
+    }
+
+    suspend fun install(
+        descriptor: ModelDescriptor,
+        emit: (ModelInstallState) -> Unit,
+    ) {
+        try {
+            emit(ModelInstallState.Downloading(0f))
+            val modelTmp = downloadTo(descriptor.modelUrl, partialFor(descriptor.id, "tflite")) { p ->
+                emit(ModelInstallState.Downloading(p * 0.5f))
+            }
+            val labelsTmp = downloadTo(descriptor.labelsUrl, partialFor(descriptor.id, "labels.txt")) { p ->
+                emit(ModelInstallState.Downloading(0.5f + p * 0.5f))
+            }
+            emit(ModelInstallState.Verifying(false))
+            require(sha256(modelTmp) == descriptor.modelSha256) { "Model SHA-256 mismatch" }
+            require(sha256(labelsTmp) == descriptor.labelsSha256) { "Labels SHA-256 mismatch" }
+            val mFinal = modelFile(descriptor); val lFinal = labelsFile(descriptor)
+            modelTmp.renameTo(mFinal); labelsTmp.renameTo(lFinal)
+            emit(ModelInstallState.Ready(mFinal, lFinal))
+        } catch (t: Throwable) {
+            // cleanup partials
+            partialFor(descriptor.id, "tflite").delete()
+            partialFor(descriptor.id, "labels.txt").delete()
+            emit(ModelInstallState.Failed(t.message ?: t::class.simpleName.orEmpty()))
+        }
+    }
+
+    fun remove(descriptor: ModelDescriptor) {
+        modelFile(descriptor).delete(); labelsFile(descriptor).delete()
+    }
+
+    private fun modelFile(d: ModelDescriptor) = File(dir, "${d.id}.tflite")
+    private fun labelsFile(d: ModelDescriptor) = File(dir, "${d.id}.labels.txt")
+    private fun partialFor(id: String, ext: String) = File(dir, "$id.$ext.partial")
+
+    private fun downloadTo(url: String, target: File, onProgress: (Float) -> Unit): File {
+        val req = Request.Builder().url(url).build()
+        http.newCall(req).execute().use { resp ->
+            require(resp.isSuccessful) { "HTTP ${resp.code} for $url" }
+            val total = resp.body!!.contentLength().coerceAtLeast(1L)
+            FileOutputStream(target).use { out ->
+                val src = resp.body!!.byteStream()
+                val buf = ByteArray(64 * 1024)
+                var read = 0L
+                while (true) {
+                    val n = src.read(buf); if (n <= 0) break
+                    out.write(buf, 0, n); read += n
+                    onProgress((read.toFloat() / total).coerceIn(0f, 1f))
+                }
+            }
+        }
+        return target
+    }
+
+    private fun sha256(file: File): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buf = ByteArray(64 * 1024)
+            while (true) {
+                val n = input.read(buf); if (n <= 0) break
+                md.update(buf, 0, n)
+            }
+        }
+        return md.digest().joinToString("") { "%02x".format(it) }
+    }
+}
+```
+
+- [ ] **Step 4 — Run tests, expect PASS.**
+
+- [ ] **Step 5 — Commit**
+
+```bash
+git add app/src/main/java/com/sound2inat/modelmanager app/src/test/java/com/sound2inat/modelmanager
+git commit -m "feat(modelmanager): SHA-256 verified model+labels download"
+git push
+```
+
+Acceptance for Task 7: tests green; placeholders in `BirdNetV24.descriptor` are flagged for replacement before Task 16.
+
+---
+
+## Task 8 — Storage (`storage`)
+
+**Goal:** Room database, DAOs, `DraftRepository`, WAV-file ops. In-memory Room tests with cascade verification.
+
+**Files:**
+- Create: `app/src/main/java/com/sound2inat/storage/DraftEntity.kt`
+- Create: `app/src/main/java/com/sound2inat/storage/DetectionEntity.kt`
+- Create: `app/src/main/java/com/sound2inat/storage/Sound2iNatDb.kt`
+- Create: `app/src/main/java/com/sound2inat/storage/DraftDao.kt`
+- Create: `app/src/main/java/com/sound2inat/storage/DetectionDao.kt`
+- Create: `app/src/main/java/com/sound2inat/storage/DraftRepository.kt`
+- Create: `app/src/main/java/com/sound2inat/storage/Converters.kt`
+- Create: `app/src/main/java/com/sound2inat/storage/WavFileStore.kt`
+- Create: `app/src/test/java/com/sound2inat/storage/DraftRepositoryTest.kt`
+
+**Pre-task review:** Schema MUST match spec §5.2 verbatim. `DraftStatus` must be one of `PENDING_INFERENCE | PENDING_REVIEW | REVIEWED`. Foreign-key cascade on draft delete. Read the spec, do not adjust field names without updating the spec first.
+
+- [ ] **Step 1 — Entities and Converters**
+
+```kotlin
+// DraftEntity.kt
+package com.sound2inat.storage
+
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+
+enum class DraftStatus { PENDING_INFERENCE, PENDING_REVIEW, REVIEWED }
+
+@Entity(tableName = "drafts")
+data class DraftEntity(
+    @PrimaryKey val id: String,
+    val audioPath: String,
+    val recordedAtUtcMs: Long,
+    val durationMs: Long,
+    val latitude: Double?,
+    val longitude: Double?,
+    val locationAccuracyMeters: Float?,
+    val status: DraftStatus,
+    val modelId: String?,
+    val modelVersion: String?,
+    val createdAtUtcMs: Long,
+    val updatedAtUtcMs: Long,
+)
+```
+
+```kotlin
+// DetectionEntity.kt
+package com.sound2inat.storage
+
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+import androidx.room.PrimaryKey
+
+@Entity(
+    tableName = "detections",
+    foreignKeys = [ForeignKey(
+        entity = DraftEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["draftId"],
+        onDelete = ForeignKey.CASCADE,
+    )],
+    indices = [Index("draftId")],
+)
+data class DetectionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val draftId: String,
+    val taxonScientificName: String,
+    val taxonCommonName: String?,
+    val maxConfidence: Float,
+    val detectedWindows: Int,
+    val firstSeenMs: Long,
+    val lastSeenMs: Long,
+    val isSelectedByUser: Boolean,
+)
+```
+
+```kotlin
+// Converters.kt
+package com.sound2inat.storage
+
+import androidx.room.TypeConverter
+
+class Converters {
+    @TypeConverter fun fromStatus(s: DraftStatus): String = s.name
+    @TypeConverter fun toStatus(v: String): DraftStatus = DraftStatus.valueOf(v)
+}
+```
+
+- [ ] **Step 2 — DAOs**
+
+```kotlin
+// DraftDao.kt
+package com.sound2inat.storage
+
+import androidx.room.*
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface DraftDao {
+    @Insert fun insert(d: DraftEntity)
+    @Update fun update(d: DraftEntity)
+    @Delete fun delete(d: DraftEntity)
+
+    @Query("SELECT * FROM drafts WHERE id = :id LIMIT 1")
+    fun getById(id: String): DraftEntity?
+
+    @Query("SELECT * FROM drafts ORDER BY recordedAtUtcMs DESC")
+    fun observeAll(): Flow<List<DraftEntity>>
+
+    @Query("DELETE FROM drafts WHERE id = :id")
+    fun deleteById(id: String): Int
+}
+
+// DetectionDao.kt
+package com.sound2inat.storage
+
+import androidx.room.*
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface DetectionDao {
+    @Insert fun insertAll(items: List<DetectionEntity>)
+    @Query("SELECT * FROM detections WHERE draftId = :draftId ORDER BY maxConfidence DESC")
+    fun observeForDraft(draftId: String): Flow<List<DetectionEntity>>
+    @Query("UPDATE detections SET isSelectedByUser = :selected WHERE id = :id")
+    fun setSelected(id: Long, selected: Boolean): Int
+    @Query("DELETE FROM detections WHERE draftId = :draftId")
+    fun deleteForDraft(draftId: String): Int
+}
+```
+
+- [ ] **Step 3 — Database**
+
+```kotlin
+// Sound2iNatDb.kt
+package com.sound2inat.storage
+
+import androidx.room.Database
+import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
+
+@Database(
+    entities = [DraftEntity::class, DetectionEntity::class],
+    version = 1,
+    exportSchema = true,
+)
+@TypeConverters(Converters::class)
+abstract class Sound2iNatDb : RoomDatabase() {
+    abstract fun drafts(): DraftDao
+    abstract fun detections(): DetectionDao
+}
+```
+
+- [ ] **Step 4 — `WavFileStore`**
+
+```kotlin
+package com.sound2inat.storage
+
+import java.io.File
+
+class WavFileStore(private val filesDir: File) {
+    private val recordings: File = File(filesDir, "recordings").apply { mkdirs() }
+    private val spectrograms: File = File(filesDir, "spectrograms").apply { mkdirs() }
+
+    fun newRecordingFile(id: String): File = File(recordings, "$id.wav")
+    fun spectrogramFile(id: String): File = File(spectrograms, "$id.png")
+
+    fun deleteAllFor(id: String) {
+        File(recordings, "$id.wav").delete()
+        File(spectrograms, "$id.png").delete()
+    }
+}
+```
+
+- [ ] **Step 5 — `DraftRepository`**
+
+```kotlin
+package com.sound2inat.storage
+
+import com.sound2inat.inference.AggregatedDetection
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
+data class DraftWithDetections(
+    val draft: DraftEntity,
+    val detections: List<DetectionEntity>,
+)
+
+class DraftRepository(
+    private val drafts: DraftDao,
+    private val detections: DetectionDao,
+    private val files: WavFileStore,
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
+) {
+    fun observeAll(): Flow<List<DraftEntity>> = drafts.observeAll()
+
+    fun observeWithDetections(id: String): Flow<DraftWithDetections> =
+        detections.observeForDraft(id).map { ds ->
+            DraftWithDetections(drafts.getById(id) ?: error("draft $id missing"), ds)
+        }
+
+    fun create(
+        id: String,
+        audioPath: String,
+        recordedAtUtcMs: Long,
+        durationMs: Long,
+        latitude: Double?,
+        longitude: Double?,
+        accuracyMeters: Float?,
+    ) {
+        val now = nowMs()
+        drafts.insert(DraftEntity(
+            id = id,
+            audioPath = audioPath,
+            recordedAtUtcMs = recordedAtUtcMs,
+            durationMs = durationMs,
+            latitude = latitude,
+            longitude = longitude,
+            locationAccuracyMeters = accuracyMeters,
+            status = DraftStatus.PENDING_INFERENCE,
+            modelId = null,
+            modelVersion = null,
+            createdAtUtcMs = now,
+            updatedAtUtcMs = now,
+        ))
+    }
+
+    fun attachDetections(
+        draftId: String,
+        modelId: String,
+        modelVersion: String,
+        items: List<AggregatedDetection>,
+    ) {
+        val now = nowMs()
+        val current = drafts.getById(draftId) ?: error("draft $draftId missing")
+        drafts.update(current.copy(
+            status = DraftStatus.PENDING_REVIEW,
+            modelId = modelId,
+            modelVersion = modelVersion,
+            updatedAtUtcMs = now,
+        ))
+        detections.deleteForDraft(draftId)
+        detections.insertAll(items.map {
+            DetectionEntity(
+                draftId = draftId,
+                taxonScientificName = it.taxonScientificName,
+                taxonCommonName = it.taxonCommonName,
+                maxConfidence = it.maxConfidence,
+                detectedWindows = it.detectedWindows,
+                firstSeenMs = it.firstSeenMs,
+                lastSeenMs = it.lastSeenMs,
+                isSelectedByUser = false,
+            )
+        })
+    }
+
+    fun setSelection(detectionId: Long, selected: Boolean) {
+        detections.setSelected(detectionId, selected)
+    }
+
+    fun markReviewed(draftId: String) {
+        val d = drafts.getById(draftId) ?: error("draft $draftId missing")
+        drafts.update(d.copy(status = DraftStatus.REVIEWED, updatedAtUtcMs = nowMs()))
+    }
+
+    fun delete(draftId: String) {
+        drafts.deleteById(draftId)            // cascade removes detections
+        files.deleteAllFor(draftId)
+    }
+}
+```
+
+- [ ] **Step 6 — Tests with in-memory Room**
+
+```kotlin
+package com.sound2inat.storage
+
+import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import com.google.common.truth.Truth.assertThat
+import com.sound2inat.inference.AggregatedDetection
+import kotlinx.coroutines.test.runTest
+import org.junit.After
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+
+@RunWith(RobolectricTestRunner::class)
+class DraftRepositoryTest {
+    @get:Rule val tmp = TemporaryFolder()
+    @get:Rule val instant = InstantTaskExecutorRule()
+
+    private lateinit var db: Sound2iNatDb
+    private lateinit var repo: DraftRepository
+
+    @Before fun setUp() {
+        db = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(), Sound2iNatDb::class.java,
+        ).allowMainThreadQueries().build()
+        repo = DraftRepository(db.drafts(), db.detections(), WavFileStore(tmp.root)) { 0L }
+    }
+
+    @After fun tearDown() { db.close() }
+
+    @Test fun `create then attach detections updates status and saves rows`() = runTest {
+        repo.create("d1", "/tmp/a.wav", 100L, 3000L, null, null, null)
+        repo.attachDetections("d1", "m", "1.0", listOf(
+            AggregatedDetection("Sylvia melanothorax", "Cyprus Warbler", 0.9f, 5, 0L, 5_000L),
+        ))
+        val d = db.drafts().getById("d1")!!
+        assertThat(d.status).isEqualTo(DraftStatus.PENDING_REVIEW)
+        assertThat(db.detections().observeForDraftBlocking("d1").size).isEqualTo(1)
+    }
+
+    @Test fun `delete cascades detections`() = runTest {
+        repo.create("d1", "/tmp/a.wav", 100L, 3000L, null, null, null)
+        repo.attachDetections("d1", "m", "1.0", listOf(
+            AggregatedDetection("A", null, 0.5f, 1, 0L, 3000L),
+        ))
+        repo.delete("d1")
+        assertThat(db.drafts().getById("d1")).isNull()
+        assertThat(db.detections().observeForDraftBlocking("d1")).isEmpty()
+    }
+}
+```
+
+`observeForDraftBlocking` is a small DAO test extension that returns the current value from the Flow (use `kotlinx-coroutines-test` `runTest` and `Flow.first()`). Add it as a test helper.
+
+- [ ] **Step 7 — Run, expect PASS, commit**
+
+```bash
+./gradlew :app:testDebugUnitTest --tests "com.sound2inat.storage.*"
+git add app/src/main/java/com/sound2inat/storage app/src/test/java/com/sound2inat/storage
+git commit -m "feat(storage): Room schema + DraftRepository + cascade tests"
+git push
+```
+
+Acceptance for Task 8: in-memory Room tests pass; cascade verified.
+
+---
+
+## Task 9 — Location wrapper (`location`)
+
+**Goal:** A `LocationProvider` that returns the best available fix within a timeout, falling back to last-known. Tested with a fake.
+
+**Files:**
+- Create: `app/src/main/java/com/sound2inat/location/LocationProvider.kt`
+- Create: `app/src/main/java/com/sound2inat/location/FusedLocationProvider.kt`
+- Create: `app/src/test/java/com/sound2inat/location/LocationProviderTest.kt`
+
+- [ ] **Step 1 — Define interface**
+
+```kotlin
+package com.sound2inat.location
+
+data class Fix(val latitude: Double, val longitude: Double, val accuracyMeters: Float?, val timestampMs: Long)
+
+interface LocationProvider {
+    suspend fun getCurrent(timeoutMs: Long = 15_000): Fix?
+}
+```
+
+- [ ] **Step 2 — Tests**
+
+```kotlin
+package com.sound2inat.location
+
+import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class LocationProviderTest {
+    private class Fake(val fix: Fix?, val delayMs: Long, val lastKnown: Fix? = null) : LocationProvider {
+        override suspend fun getCurrent(timeoutMs: Long): Fix? {
+            // simulate either a quick fix or a long wait
+            if (delayMs <= timeoutMs) { delay(delayMs); return fix } else { return lastKnown }
+        }
+    }
+
+    @Test fun `returns fix when delivered before timeout`() = runTest {
+        val f = Fix(34.7, 33.04, 5f, 1L)
+        val p = Fake(f, delayMs = 1_000)
+        val result = p.getCurrent(timeoutMs = 15_000)
+        advanceTimeBy(2_000)
+        assertThat(result).isEqualTo(f)
+    }
+
+    @Test fun `falls back to last known when timeout`() = runTest {
+        val last = Fix(0.0, 0.0, null, 0L)
+        val p = Fake(null, delayMs = 20_000, lastKnown = last)
+        val result = p.getCurrent(timeoutMs = 15_000)
+        assertThat(result).isEqualTo(last)
+    }
+}
+```
+
+(The real Android implementation lives in `FusedLocationProvider.kt` — it adapts Play Services `FusedLocationProviderClient.lastLocation` and `getCurrentLocation` to the same interface. It is exercised on-device only.)
+
+- [ ] **Step 3 — Implement `FusedLocationProvider`**
+
+```kotlin
+package com.sound2inat.location
+
+import android.annotation.SuppressLint
+import android.content.Context
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
+
+class FusedLocationProvider(context: Context) : LocationProvider {
+    private val client = LocationServices.getFusedLocationProviderClient(context)
+
+    @SuppressLint("MissingPermission")
+    override suspend fun getCurrent(timeoutMs: Long): Fix? {
+        val live = withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine<Fix?> { cont ->
+                client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                    .addOnSuccessListener { loc ->
+                        cont.resume(loc?.let {
+                            Fix(it.latitude, it.longitude, it.accuracy.takeIf { a -> a > 0f }, it.time)
+                        })
+                    }
+                    .addOnFailureListener { cont.resume(null) }
+            }
+        }
+        if (live != null) return live
+        // fallback to lastLocation
+        return suspendCancellableCoroutine<Fix?> { cont ->
+            client.lastLocation
+                .addOnSuccessListener { loc ->
+                    cont.resume(loc?.let {
+                        Fix(it.latitude, it.longitude, it.accuracy.takeIf { a -> a > 0f }, it.time)
+                    })
+                }
+                .addOnFailureListener { cont.resume(null) }
+        }
+    }
+}
+```
+
+- [ ] **Step 4 — Run tests, commit**
+
+```bash
+./gradlew :app:testDebugUnitTest --tests "com.sound2inat.location.*"
+git add app/src/main/java/com/sound2inat/location app/src/test/java/com/sound2inat/location
+git commit -m "feat(location): FusedLocationProvider wrapper with timeout/fallback"
+git push
+```
+
+Acceptance for Task 9: tests green; on-device behaviour verified in Task 17/18.
+
+---
+
 <!-- TASKS:CURSOR -->
 
