@@ -11,13 +11,20 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.sound2inat.app.ui.home.HomeScreen
 
 @Suppress("FunctionNaming")
 @Composable
 fun Sound2iNatNavHost() {
     val nav = rememberNavController()
     NavHost(navController = nav, startDestination = Routes.HOME) {
-        composable(Routes.HOME) { Placeholder("Home — Task 11") }
+        composable(Routes.HOME) {
+            HomeScreen(
+                onRecord = { nav.navigate(Routes.RECORDING) },
+                onOpenDraft = { id -> nav.navigate(Routes.review(id)) },
+                onSettings = { nav.navigate(Routes.SETTINGS) },
+            )
+        }
         composable(Routes.RECORDING) { Placeholder("Recording — Task 12") }
         composable(
             route = Routes.REVIEW,
