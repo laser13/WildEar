@@ -99,6 +99,7 @@ dependencies {
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.core.testing)
+    testImplementation(libs.androidx.test.core)
     testImplementation(libs.room.testing)
 
     detektPlugins("io.gitlab.arturbosch.detekt:detekt-formatting:1.23.7")
