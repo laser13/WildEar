@@ -2,6 +2,7 @@ package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.inference.AggregatedDetection
+import com.sound2inat.inference.WindowPrediction
 import com.sound2inat.storage.DetectionDao
 import com.sound2inat.storage.DetectionEntity
 import com.sound2inat.storage.DraftDao
@@ -15,6 +16,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
@@ -242,6 +245,127 @@ class ReviewViewModelTest {
             assertThat(vm.state.value.status).isEqualTo(DraftStatus.PENDING_INFERENCE)
         }
 
+    @Test
+    fun `onWindowTapped seeks player and highlights matching species`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "d8"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_INFERENCE))
+            }
+            val agg = AggregatedDetection(
+                taxonScientificName = "Turdus merula",
+                taxonCommonName = "Common Blackbird",
+                maxConfidence = 0.81f,
+                detectedWindows = 1,
+                firstSeenMs = 0L,
+                lastSeenMs = 3_000L,
+            )
+            val window = WindowPrediction(
+                startMs = 1_500L,
+                endMs = 4_500L,
+                taxonScientificName = "Turdus merula",
+                taxonCommonName = "Common Blackbird",
+                confidence = 0.81f,
+            )
+            val inference = InferenceJob { _, _, _, _, _ ->
+                InferenceOutcome.Success(
+                    "birdnet_v2_4",
+                    "2.4",
+                    listOf(agg),
+                    windows = listOf(window),
+                )
+            }
+            val player = FakeAudioPlayer()
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo(draftDao, FakeDetectionDao()),
+                player = player,
+                inference = inference,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            // Inference completed -> windows surfaced + species persisted.
+            assertThat(vm.windowPreds.value).containsExactly(window)
+            val rowId = vm.state.value.species.first().detectionId
+
+            vm.onWindowTapped(window)
+
+            assertThat(player.seekToMs).isEqualTo(1_500L)
+            assertThat(vm.highlight.value).isEqualTo(rowId)
+        }
+
+    @Test
+    fun `highlight clears after 800 ms`() = runTest(UnconfinedTestDispatcher()) {
+        val draftId = "d9"
+        val draftDao = FakeDraftDao().apply {
+            insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+        }
+        val detectionDao = FakeDetectionDao().apply {
+            insertAll(
+                listOf(
+                    DetectionEntity(
+                        id = 7L,
+                        draftId = draftId,
+                        taxonScientificName = "Parus major",
+                        taxonCommonName = null,
+                        maxConfidence = 0.9f,
+                        detectedWindows = 1,
+                        firstSeenMs = 0L,
+                        lastSeenMs = 1_000L,
+                        isSelectedByUser = false,
+                    ),
+                ),
+            )
+        }
+        val vm = ReviewViewModel(
+            draftId = draftId,
+            repo = repo(draftDao, detectionDao),
+            player = FakeAudioPlayer(),
+            inference = noopInference(),
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+            externalScope = backgroundScope,
+        )
+        vm.highlight(7L)
+        assertThat(vm.highlight.value).isEqualTo(7L)
+        // Just before the timer fires -> still highlighted.
+        advanceTimeBy(799L)
+        runCurrent()
+        assertThat(vm.highlight.value).isEqualTo(7L)
+        // After 800 ms -> auto-cleared.
+        advanceTimeBy(2L)
+        runCurrent()
+        assertThat(vm.highlight.value).isNull()
+    }
+
+    @Test
+    fun `re-highlighting cancels previous timer so new id stays for full duration`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "d10"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo(draftDao, FakeDetectionDao()),
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            vm.highlight(1L)
+            advanceTimeBy(500L)
+            runCurrent()
+            // Switch to a different id midway through the first timer.
+            vm.highlight(2L)
+            // Original timer would have fired by now; new one must still hold.
+            advanceTimeBy(500L)
+            runCurrent()
+            assertThat(vm.highlight.value).isEqualTo(2L)
+            advanceTimeBy(301L)
+            runCurrent()
+            assertThat(vm.highlight.value).isNull()
+        }
+
     private fun draftFor(id: String, status: DraftStatus): DraftEntity = DraftEntity(
         id = id,
         audioPath = "/tmp/$id.wav",
@@ -280,6 +404,7 @@ private class FakeAudioPlayer : AudioPlayer {
     var startedPath: String? = null
     var paused = false
     var released = false
+    var seekToMs: Long? = null
 
     override fun start(path: String) {
         startedPath = path
@@ -291,7 +416,11 @@ private class FakeAudioPlayer : AudioPlayer {
         _playing.value = false
     }
 
-    override fun seekTo(ms: Long) { _position.value = ms }
+    override fun seekTo(ms: Long) {
+        seekToMs = ms
+        _position.value = ms
+    }
+
     override fun release() { released = true }
 }
 
