@@ -37,8 +37,13 @@ fun DetectionOverlays(
     modifier: Modifier = Modifier,
 ) {
     if (durationMs <= 0L || windowPreds.isEmpty() || species.isEmpty()) return
-    // Sorted-by-confidence index drives the palette mapping.
-    val sortedRows = species.sortedByDescending { it.maxConfidence }
+    // Sorted-by-confidence index drives the palette mapping; taxon name is a
+    // tiebreaker so equal-confidence species don't shuffle colours between
+    // recompositions.
+    val sortedRows = species.sortedWith(
+        compareByDescending<SpeciesRow> { it.maxConfidence }
+            .thenBy { it.taxonScientificName },
+    )
     val rowByTaxon: Map<String, IndexedRow> = sortedRows
         .mapIndexed { idx, row -> row.taxonScientificName to IndexedRow(row, idx) }
         .toMap()
