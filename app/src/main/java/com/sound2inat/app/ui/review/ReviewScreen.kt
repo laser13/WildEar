@@ -23,7 +23,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -45,10 +44,6 @@ fun ReviewScreen(
     val vm = hilt.delegate
     val state by vm.state.collectAsState()
 
-    LaunchedEffect(state.status) {
-        if (state.status == DraftStatus.REVIEWED) onBack()
-    }
-
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("Review") },
@@ -56,10 +51,7 @@ fun ReviewScreen(
                 IconButton(onClick = onBack) { Text("←") }
             },
             actions = {
-                IconButton(onClick = {
-                    vm.delete()
-                    onBack()
-                }) { Text("🗑") }
+                IconButton(onClick = { vm.delete(onDeleted = onBack) }) { Text("🗑") }
             },
         )
         Column(
@@ -127,7 +119,7 @@ fun ReviewScreen(
         }
 
         Button(
-            onClick = { vm.save() },
+            onClick = { vm.save(onSaved = onBack) },
             enabled = state.status == DraftStatus.PENDING_REVIEW,
             modifier = Modifier
                 .fillMaxWidth()

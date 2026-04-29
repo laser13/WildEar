@@ -177,20 +177,31 @@ class ReviewViewModel(
         scope.launch(ioDispatcher) { repo.setSelection(detectionId, selected) }
     }
 
-    fun save() {
-        scope.launch(ioDispatcher) { repo.markReviewed(draftId) }
+    fun save(onSaved: () -> Unit = {}) {
+        scope.launch {
+            withContext(ioDispatcher) { repo.markReviewed(draftId) }
+            onSaved()
+        }
     }
 
-    fun delete() {
-        scope.launch(ioDispatcher) { repo.delete(draftId) }
+    fun delete(onDeleted: () -> Unit = {}) {
+        scope.launch {
+            withContext(ioDispatcher) { repo.delete(draftId) }
+            onDeleted()
+        }
     }
 
     fun play() { _state.value.audioPath?.let { player.start(it) } }
     fun pause() { player.pause() }
     fun seekTo(ms: Long) { player.seekTo(ms) }
 
-    override fun onCleared() {
-        super.onCleared()
+    /**
+     * Release the underlying [AudioPlayer]. Must be called by whichever
+     * scope owns the VM — Hilt's [ViewModel.onCleared] does NOT cascade to
+     * this delegate (the wrapper [ReviewViewModelHilt] is the one tied to
+     * the [androidx.lifecycle.ViewModelStore]).
+     */
+    fun release() {
         player.release()
     }
 }
@@ -216,6 +227,11 @@ class ReviewViewModelHilt @Inject constructor(
         player = player,
         inference = ProductionInferenceJob(model, modelManager, settings),
     )
+
+    override fun onCleared() {
+        super.onCleared()
+        delegate.release()
+    }
 }
 
 /**

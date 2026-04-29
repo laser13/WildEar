@@ -42,10 +42,10 @@ class ReviewViewModelTest {
                 firstSeenMs = 0L,
                 lastSeenMs = 3_000L,
             )
-            val progressTrace = mutableListOf<Float>()
+            val progressEmissions = mutableListOf<Float>()
             val inference = InferenceJob { _, _, _, _, onProgress ->
-                onProgress(0.5f)
-                onProgress(1f)
+                onProgress(0.5f).also { progressEmissions += 0.5f }
+                onProgress(1f).also { progressEmissions += 1f }
                 InferenceOutcome.Success("birdnet_v2_4", "2.4", listOf(agg))
             }
             val vm = ReviewViewModel(
@@ -56,8 +56,9 @@ class ReviewViewModelTest {
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
             )
-            // Capture progress via the state itself (the inference call ran inline).
-            progressTrace += vm.state.value.inferenceProgress ?: -1f
+            // Inference job was driven through onProgress(0.5) → onProgress(1).
+            assertThat(progressEmissions).containsExactly(0.5f, 1f).inOrder()
+            // VM cleared inferenceProgress on completion and persisted species.
             assertThat(vm.state.value.inferenceProgress).isNull()
             assertThat(vm.state.value.species).hasSize(1)
             assertThat(vm.state.value.species.first().taxonScientificName).isEqualTo("Turdus merula")
@@ -159,11 +160,11 @@ class ReviewViewModelTest {
             ioDispatcher = UnconfinedTestDispatcher(testScheduler),
             externalScope = backgroundScope,
         )
-        vm.save()
-        // Persisted via repo. Note: observeWithDetections is keyed off detection
-        // changes, so the VM state itself only mirrors the new status when a
-        // detection-row update follows; that is fine — `save()` navigates away.
+        var saved = false
+        vm.save(onSaved = { saved = true })
+        // Persisted via repo + callback fires after the IO write completes.
         assertThat(draftDao.byId(draftId)?.status).isEqualTo(DraftStatus.REVIEWED)
+        assertThat(saved).isTrue()
     }
 
     @Test
@@ -181,8 +182,10 @@ class ReviewViewModelTest {
             ioDispatcher = UnconfinedTestDispatcher(testScheduler),
             externalScope = backgroundScope,
         )
-        vm.delete()
+        var deleted = false
+        vm.delete(onDeleted = { deleted = true })
         assertThat(draftDao.byId(draftId)).isNull()
+        assertThat(deleted).isTrue()
     }
 
     @Test
