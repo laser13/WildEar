@@ -81,7 +81,10 @@ private fun ModelSection(state: SettingsUiState, vm: SettingsViewModel) {
     Text(state.modelDisplayName, style = MaterialTheme.typography.bodyLarge)
     when (val s = state.modelInstall) {
         is ModelInstallState.Ready -> {
-            Text("Status: Installed (${state.modelSizeBytes / 1024 / 1024} MB)", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "Status: Installed (${state.modelSizeBytes / 1024 / 1024} MB)",
+                style = MaterialTheme.typography.bodyMedium,
+            )
             Text("License: ${state.modelLicense}", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = { vm.openLicenseSheet() }) { Text("Reinstall") }

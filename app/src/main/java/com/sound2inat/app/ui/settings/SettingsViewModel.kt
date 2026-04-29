@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+@Suppress("LongParameterList")
 class SettingsViewModel(
     private val descriptor: ModelDescriptor,
     private val installModel: suspend (ModelDescriptor, (ModelInstallState) -> Unit) -> Unit,
