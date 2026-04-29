@@ -1,0 +1,30 @@
+package com.sound2inat.inference
+
+import java.io.File
+
+/**
+ * Pluggable bioacoustic model contract used by [InferenceRunner].
+ *
+ * Implementations are NOT required to be thread-safe; the runner serialises
+ * calls per recording. Lat/lon/observedAt are forwarded so future models
+ * (e.g. BirdNET-style metadata models) may consume them — the BirdNET v2.4
+ * raw-audio model ignores them.
+ */
+interface BioacousticModel {
+    val modelId: String
+    val modelVersion: String
+
+    suspend fun load(modelFile: File, labelsFile: File)
+
+    suspend fun predict(
+        pcmFloat32: FloatArray,
+        sampleRateHz: Int,
+        latitude: Double?,
+        longitude: Double?,
+        observedAtMillis: Long,
+        windowStartMs: Long,
+        windowEndMs: Long,
+    ): List<WindowPrediction>
+
+    fun close()
+}
