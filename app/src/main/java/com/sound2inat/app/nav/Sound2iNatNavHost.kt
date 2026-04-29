@@ -12,6 +12,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.sound2inat.app.ui.home.HomeScreen
+import com.sound2inat.app.ui.recording.RecordingScreen
 
 @Suppress("FunctionNaming")
 @Composable
@@ -25,7 +26,12 @@ fun Sound2iNatNavHost() {
                 onSettings = { nav.navigate(Routes.SETTINGS) },
             )
         }
-        composable(Routes.RECORDING) { Placeholder("Recording — Task 12") }
+        composable(Routes.RECORDING) {
+            RecordingScreen(
+                onDone = { id -> nav.navigate(Routes.review(id)) { popUpTo(Routes.HOME) } },
+                onCancel = { nav.popBackStack() },
+            )
+        }
         composable(
             route = Routes.REVIEW,
             arguments = listOf(navArgument("draftId") { type = NavType.StringType }),
