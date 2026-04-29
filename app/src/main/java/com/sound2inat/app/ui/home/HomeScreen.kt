@@ -19,13 +19,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.sound2inat.storage.DraftStatus
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -41,7 +44,14 @@ fun HomeScreen(
 ) {
     val vm: HomeViewModelHilt = hiltViewModel()
     val state by vm.delegate.state.collectAsState()
-    LaunchedEffect(Unit) { vm.refreshModelState() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) vm.refreshModelState()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -51,12 +61,19 @@ fun HomeScreen(
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.Top) {
             Button(
                 onClick = onRecord,
-                enabled = state.isModelReady,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(72.dp),
             ) {
-                Text(if (state.isModelReady) "● RECORD" else "Install model in Settings")
+                Text("● RECORD")
+            }
+            if (!state.isModelReady) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Model not installed — analysis will run after you install it in Settings.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             Spacer(Modifier.height(16.dp))
             Text("Drafts", style = MaterialTheme.typography.titleMedium)
