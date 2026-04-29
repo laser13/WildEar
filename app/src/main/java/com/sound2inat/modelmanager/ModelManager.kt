@@ -1,5 +1,7 @@
 package com.sound2inat.modelmanager
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -25,7 +27,7 @@ class ModelManager(
     suspend fun install(
         descriptor: ModelDescriptor,
         emit: (ModelInstallState) -> Unit,
-    ) {
+    ) = withContext(Dispatchers.IO) {
         try {
             emit(ModelInstallState.Downloading(0f))
             val modelTmp = downloadTo(
