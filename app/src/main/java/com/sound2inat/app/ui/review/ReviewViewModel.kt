@@ -10,6 +10,7 @@ import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.DetectionAggregator
 import com.sound2inat.inference.InferenceRunner
 import com.sound2inat.inference.WavReader
+import com.sound2inat.inference.WindowPrediction
 import com.sound2inat.modelmanager.BirdNetV24
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
@@ -39,6 +40,12 @@ sealed interface InferenceOutcome {
         val modelId: String,
         val modelVersion: String,
         val detections: List<AggregatedDetection>,
+        /**
+         * Raw per-window predictions retained for overlay rendering on the
+         * Review screen. Not persisted — overlays disappear if the user closes
+         * and reopens the screen until inference reruns. (See Task 15.)
+         */
+        val windows: List<WindowPrediction> = emptyList(),
     ) : InferenceOutcome
 
     data class Failure(val message: String) : InferenceOutcome
@@ -122,6 +129,22 @@ class ReviewViewModel(
 
     private val _waveformPeaks = MutableStateFlow<FloatArray?>(null)
     val waveformPeaks: StateFlow<FloatArray?> = _waveformPeaks
+
+    /**
+     * Raw per-window predictions surfaced from the latest inference run, kept in
+     * memory only for the lifetime of the screen — see [InferenceOutcome.Success.windows].
+     */
+    private val _windowPreds = MutableStateFlow<List<WindowPrediction>>(emptyList())
+    val windowPreds: StateFlow<List<WindowPrediction>> = _windowPreds
+
+    /**
+     * Currently flashing/selected detection id, or `null` when no row is
+     * highlighted. Auto-clears [HighlightDurationMs] ms after being set.
+     */
+    private val _highlight = MutableStateFlow<Long?>(null)
+    val highlight: StateFlow<Long?> = _highlight
+
+    private var highlightJob: Job? = null
 
     /** Latest playback position from the player; ticks every 50 ms during playback. */
     val playerPosition: StateFlow<Long> = player.position
@@ -213,6 +236,7 @@ class ReviewViewModel(
                             items = outcome.detections,
                         )
                     }
+                    _windowPreds.value = outcome.windows
                     _state.value = _state.value.copy(inferenceProgress = null)
                 }
                 is InferenceOutcome.Failure -> {
@@ -277,6 +301,36 @@ class ReviewViewModel(
     fun seekTo(ms: Long) { player.seekTo(ms) }
 
     /**
+     * Sets [_highlight] to [id] and auto-clears it after [HighlightDurationMs] ms.
+     * Re-tapping while a previous flash is in flight cancels the prior timer so
+     * the new id stays visible for the full duration. Passing `null` clears
+     * immediately.
+     */
+    fun highlight(id: Long?) {
+        highlightJob?.cancel()
+        _highlight.value = id
+        if (id == null) return
+        highlightJob = scope.launch {
+            kotlinx.coroutines.delay(HighlightDurationMs)
+            if (_highlight.value == id) _highlight.value = null
+        }
+    }
+
+    /**
+     * Maps a tapped [WindowPrediction] to its species row (by scientific name),
+     * seeks the player to the window start, and flashes the row's overlays.
+     * No-ops if the prediction does not correspond to a persisted detection
+     * (which can happen briefly between inference completion and Room write).
+     */
+    fun onWindowTapped(prediction: WindowPrediction) {
+        val row = _state.value.species.firstOrNull {
+            it.taxonScientificName == prediction.taxonScientificName
+        } ?: return
+        player.seekTo(prediction.startMs)
+        highlight(row.detectionId)
+    }
+
+    /**
      * Release the underlying [AudioPlayer]. Must be called by whichever
      * scope owns the VM — Hilt's [ViewModel.onCleared] does NOT cascade to
      * this delegate (the wrapper [ReviewViewModelHilt] is the one tied to
@@ -284,6 +338,11 @@ class ReviewViewModel(
      */
     fun release() {
         player.release()
+    }
+
+    private companion object {
+        /** Milliseconds an overlay/row stays highlighted after a tap. */
+        const val HighlightDurationMs = 800L
     }
 }
 
@@ -396,6 +455,7 @@ private class ProductionInferenceJob(
                 modelId = model.modelId,
                 modelVersion = model.modelVersion,
                 detections = aggregator.aggregate(preds),
+                windows = preds,
             )
         } catch (t: Throwable) {
             InferenceOutcome.Failure(t.message ?: t::class.simpleName.orEmpty())
