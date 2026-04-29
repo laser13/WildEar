@@ -9,13 +9,13 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.security.MessageDigest
 
-class ModelManager(
+open class ModelManager(
     private val filesDir: File,
     private val http: OkHttpClient,
 ) {
     private val dir: File = File(filesDir, "models").apply { mkdirs() }
 
-    fun stateFor(descriptor: ModelDescriptor): ModelInstallState {
+    open fun stateFor(descriptor: ModelDescriptor): ModelInstallState {
         val m = modelFile(descriptor)
         val l = labelsFile(descriptor)
         val bothExist = m.exists() && l.exists()
@@ -24,7 +24,7 @@ class ModelManager(
     }
 
     @Suppress("TooGenericExceptionCaught")
-    suspend fun install(
+    open suspend fun install(
         descriptor: ModelDescriptor,
         emit: (ModelInstallState) -> Unit,
     ) = withContext(Dispatchers.IO) {
@@ -59,7 +59,7 @@ class ModelManager(
         }
     }
 
-    fun remove(descriptor: ModelDescriptor) {
+    open fun remove(descriptor: ModelDescriptor) {
         modelFile(descriptor).delete()
         labelsFile(descriptor).delete()
     }
