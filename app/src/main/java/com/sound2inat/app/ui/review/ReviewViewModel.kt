@@ -253,7 +253,7 @@ class ReviewViewModel(
      * audio path is known. Failures are silent (the on-screen visuals simply
      * do not appear) — a missing PNG is not a UX-blocking error.
      */
-    @Suppress("TooGenericExceptionCaught", "SwallowedException")
+    @Suppress("TooGenericExceptionCaught")
     fun ensureVisuals(filesDir: File) {
         if (visualsStarted) return
         val path = _state.value.audioPath ?: return
@@ -264,10 +264,10 @@ class ReviewViewModel(
                 _spectrogramFile.value = v.spectrogramFile
                 _waveformPeaks.value = v.waveformPeaks
             } catch (t: Throwable) {
-                // Reset so a later retry (e.g. after process death) can run.
+                // Reset so a later retry (e.g. process restart, screen re-entry)
+                // can run. State stays null, screen renders without visuals.
                 visualsStarted = false
-                _spectrogramFile.value = null
-                _waveformPeaks.value = null
+                android.util.Log.w("ReviewViewModel", "ensureVisuals failed for draft $draftId", t)
             }
         }
     }

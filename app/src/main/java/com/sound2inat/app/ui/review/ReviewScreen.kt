@@ -40,6 +40,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sound2inat.storage.DraftStatus
+import kotlinx.coroutines.flow.StateFlow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -55,7 +56,6 @@ fun ReviewScreen(
     val state by vm.state.collectAsState()
     val spectrogramFile by vm.spectrogramFile.collectAsState()
     val waveformPeaks by vm.waveformPeaks.collectAsState()
-    val playerPosition by vm.playerPosition.collectAsState()
 
     LaunchedEffect(state.audioPath) {
         if (state.audioPath != null) vm.ensureVisuals(hilt.filesDir)
@@ -94,7 +94,7 @@ fun ReviewScreen(
             peaks = waveformPeaks,
             spectrogramPath = spectrogramFile?.takeIf { it.exists() }?.absolutePath,
             durationMs = state.durationMs,
-            positionMs = playerPosition,
+            positionFlow = vm.playerPosition,
         )
 
         if (state.inferenceProgress != null) {
@@ -224,8 +224,11 @@ private fun WaveformAndSpectrogram(
     peaks: FloatArray?,
     spectrogramPath: String?,
     durationMs: Long,
-    positionMs: Long,
+    positionFlow: StateFlow<Long>,
 ) {
+    // Position read is local to this subtree so the 50 ms tick from
+    // MediaPlayer does not trigger recomposition of the entire Review screen.
+    val positionMs by positionFlow.collectAsState()
     val cursor: Float = if (durationMs > 0L) {
         (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
     } else {
