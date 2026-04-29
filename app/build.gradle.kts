@@ -18,7 +18,7 @@ android {
         targetSdk = 35
         versionCode = 10000
         versionName = "0.1.0"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "com.sound2inat.app.HiltTestRunner"
     }
 
     buildTypes {
@@ -101,6 +101,15 @@ dependencies {
     testImplementation(libs.androidx.core.testing)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.room.testing)
+
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.espresso.core)
+    androidTestImplementation(libs.androidx.test.rules)
+    androidTestImplementation(libs.compose.ui.test.junit4)
+    androidTestImplementation(libs.hilt.android.testing)
+    kspAndroidTest(libs.hilt.compiler)
+    debugImplementation(libs.compose.ui.test.manifest)
 
     detektPlugins("io.gitlab.arturbosch.detekt:detekt-formatting:1.23.7")
 }
