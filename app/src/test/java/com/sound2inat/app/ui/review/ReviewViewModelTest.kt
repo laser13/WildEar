@@ -189,6 +189,37 @@ class ReviewViewModelTest {
     }
 
     @Test
+    fun `ensureVisuals populates spectrogramFile and waveformPeaks`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "d7"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val expectedPng = tmp.newFile("expected.png")
+            val expectedPeaks = floatArrayOf(-0.5f, 0.5f, -0.25f, 0.25f)
+            var calls = 0
+            val provider = VisualsProvider { _, _, _ ->
+                calls++
+                Visuals(spectrogramFile = expectedPng, waveformPeaks = expectedPeaks)
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo(draftDao, FakeDetectionDao()),
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                visuals = provider,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            vm.ensureVisuals(tmp.root)
+            assertThat(vm.spectrogramFile.value).isEqualTo(expectedPng)
+            assertThat(vm.waveformPeaks.value).isEqualTo(expectedPeaks)
+            // Subsequent calls do NOT re-invoke the provider.
+            vm.ensureVisuals(tmp.root)
+            assertThat(calls).isEqualTo(1)
+        }
+
+    @Test
     fun `inference failure surfaces error and clears progress`() =
         runTest(UnconfinedTestDispatcher()) {
             val draftId = "d6"

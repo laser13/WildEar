@@ -1,5 +1,6 @@
 package com.sound2inat.app.ui.review
 
+import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -8,12 +9,14 @@ import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.DetectionAggregator
 import com.sound2inat.inference.InferenceRunner
+import com.sound2inat.inference.WavReader
 import com.sound2inat.modelmanager.BirdNetV24
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
 import com.sound2inat.storage.DraftRepository
 import com.sound2inat.storage.DraftStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +45,43 @@ sealed interface InferenceOutcome {
 }
 
 /**
+ * Builds (or loads cached) waveform and spectrogram artifacts for a draft.
+ * Decoupled from Android's `Bitmap` so the VM can be unit-tested on the JVM.
+ *
+ * Production wiring: [ProductionVisualsProvider] reads the WAV via
+ * [WavReader.readMono16], runs [SpectrogramRenderer], persists the PNG via
+ * [SpectrogramBitmap.writePng], and computes per-column peaks via
+ * [WaveformBitmap.peaks].
+ */
+fun interface VisualsProvider {
+    suspend fun build(audioPath: String, draftId: String, filesDir: File): Visuals
+}
+
+/**
+ * Output of [VisualsProvider]. [spectrogramFile] points at a PNG cached on
+ * disk; [waveformPeaks] is the interleaved (min, max) envelope used by the
+ * Compose waveform canvas.
+ */
+data class Visuals(
+    val spectrogramFile: File,
+    val waveformPeaks: FloatArray,
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is Visuals) return false
+        return spectrogramFile == other.spectrogramFile &&
+            waveformPeaks.contentEquals(other.waveformPeaks)
+    }
+
+    override fun hashCode(): Int =
+        spectrogramFile.hashCode() * HASH_PRIME + waveformPeaks.contentHashCode()
+
+    companion object {
+        private const val HASH_PRIME = 31
+    }
+}
+
+/**
  * Runs inference for a single draft. Implementations are responsible for:
  * - resolving the on-disk model & labels,
  * - loading the model,
@@ -67,6 +107,7 @@ class ReviewViewModel(
     private val repo: DraftRepository,
     private val player: AudioPlayer,
     private val inference: InferenceJob,
+    private val visuals: VisualsProvider = NoopVisualsProvider,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
@@ -76,8 +117,19 @@ class ReviewViewModel(
     private val _state = MutableStateFlow(ReviewUiState(draftId = draftId))
     val state: StateFlow<ReviewUiState> = _state
 
+    private val _spectrogramFile = MutableStateFlow<File?>(null)
+    val spectrogramFile: StateFlow<File?> = _spectrogramFile
+
+    private val _waveformPeaks = MutableStateFlow<FloatArray?>(null)
+    val waveformPeaks: StateFlow<FloatArray?> = _waveformPeaks
+
+    /** Latest playback position from the player; ticks every 50 ms during playback. */
+    val playerPosition: StateFlow<Long> = player.position
+
     private var inferenceStarted = false
     private var inferenceJob: Job? = null
+    private var visualsStarted = false
+    private var visualsJob: Job? = null
 
     init {
         scope.launch {
@@ -191,6 +243,35 @@ class ReviewViewModel(
         }
     }
 
+    /**
+     * Lazily builds (or loads cached) waveform peaks and spectrogram PNG for
+     * the current draft. Safe to call repeatedly — only the first call kicks
+     * off the work; subsequent calls are no-ops while the work is in flight
+     * or after it completes successfully.
+     *
+     * The screen calls this from a `LaunchedEffect(state.audioPath)` once the
+     * audio path is known. Failures are silent (the on-screen visuals simply
+     * do not appear) — a missing PNG is not a UX-blocking error.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    fun ensureVisuals(filesDir: File) {
+        if (visualsStarted) return
+        val path = _state.value.audioPath ?: return
+        visualsStarted = true
+        visualsJob = scope.launch {
+            try {
+                val v = withContext(ioDispatcher) { visuals.build(path, draftId, filesDir) }
+                _spectrogramFile.value = v.spectrogramFile
+                _waveformPeaks.value = v.waveformPeaks
+            } catch (t: Throwable) {
+                // Reset so a later retry (e.g. process restart, screen re-entry)
+                // can run. State stays null, screen renders without visuals.
+                visualsStarted = false
+                android.util.Log.w("ReviewViewModel", "ensureVisuals failed for draft $draftId", t)
+            }
+        }
+    }
+
     fun play() { _state.value.audioPath?.let { player.start(it) } }
     fun pause() { player.pause() }
     fun seekTo(ms: Long) { player.seekTo(ms) }
@@ -209,6 +290,7 @@ class ReviewViewModel(
 @HiltViewModel
 class ReviewViewModelHilt @Inject constructor(
     savedStateHandle: SavedStateHandle,
+    @ApplicationContext context: Context,
     private val repo: DraftRepository,
     private val model: BioacousticModel,
     private val modelManager: ModelManager,
@@ -219,6 +301,9 @@ class ReviewViewModelHilt @Inject constructor(
         "Review screen requires draftId nav arg"
     }
 
+    /** Cache root used by the screen's `ensureVisuals` call. */
+    val filesDir: File = context.filesDir
+
     private val player: AudioPlayer = MediaPlayerAudioPlayer()
 
     val delegate = ReviewViewModel(
@@ -226,11 +311,49 @@ class ReviewViewModelHilt @Inject constructor(
         repo = repo,
         player = player,
         inference = ProductionInferenceJob(model, modelManager, settings),
+        visuals = ProductionVisualsProvider(),
     )
 
     override fun onCleared() {
         super.onCleared()
         delegate.release()
+    }
+}
+
+/** Default sink used in tests; never builds anything. */
+internal object NoopVisualsProvider : VisualsProvider {
+    override suspend fun build(audioPath: String, draftId: String, filesDir: File): Visuals =
+        error("NoopVisualsProvider should not be invoked; supply a real VisualsProvider")
+}
+
+/**
+ * Production [VisualsProvider]. Reads the WAV via [WavReader.readMono16],
+ * normalises to `[-1, 1]`, runs [SpectrogramRenderer] + [SpectrogramBitmap]
+ * to cache a PNG under `<filesDir>/spectrograms/<draftId>.png`, and computes
+ * waveform peaks via [WaveformBitmap.peaks].
+ *
+ * Cache policy: if the PNG already exists, the spectrogram step is skipped
+ * (we only re-read the WAV for waveform peaks, which are not cached). This
+ * keeps the second open instant for the spectrogram while the cheap peak
+ * computation runs again on each open.
+ */
+internal class ProductionVisualsProvider(
+    private val renderer: SpectrogramRenderer = SpectrogramRenderer(),
+) : VisualsProvider {
+
+    override suspend fun build(audioPath: String, draftId: String, filesDir: File): Visuals {
+        val (shorts, _) = WavReader.readMono16(File(audioPath))
+        val floats = FloatArray(shorts.size) { i -> shorts[i] / Short.MAX_VALUE.toFloat() }
+        val pngDir = File(filesDir, "spectrograms").apply { mkdirs() }
+        val pngFile = File(pngDir, "$draftId.png")
+        if (!pngFile.exists()) {
+            val pixels = renderer.render(floats)
+            if (pixels.isNotEmpty()) {
+                SpectrogramBitmap.writePng(pixels, pngFile)
+            }
+        }
+        val peaks = WaveformBitmap.peaks(floats)
+        return Visuals(spectrogramFile = pngFile, waveformPeaks = peaks)
     }
 }
 
