@@ -16,6 +16,10 @@ interface BioacousticModel {
 
     suspend fun load(modelFile: File, labelsFile: File)
 
+    // Signature is locked by the plan (Step 1) and by the spike's metadata
+    // contract — lat/lon/observedAt flow through to future location-aware
+    // models. Splitting into a request DTO would change the contract.
+    @Suppress("LongParameterList")
     suspend fun predict(
         pcmFloat32: FloatArray,
         sampleRateHz: Int,

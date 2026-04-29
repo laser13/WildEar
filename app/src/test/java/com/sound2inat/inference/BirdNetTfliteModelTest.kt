@@ -56,9 +56,9 @@ class BirdNetTfliteModelTest {
         val out = m.predict(pcm, 48_000, null, null, 0L, 0L, 3_000L)
 
         assertThat(out).hasSize(2)
-        assertThat(out.map { it.taxonScientificName }).containsExactly(
-            "Sylvia melanothorax", "Passer domesticus",
-        ).inOrder()
+        assertThat(out.map { it.taxonScientificName })
+            .containsExactly("Sylvia melanothorax", "Passer domesticus")
+            .inOrder()
         assertThat(out[0].confidence).isWithin(1e-6f).of(0.7f)
         assertThat(out[0].taxonCommonName).isEqualTo("Cyprus Warbler")
         assertThat(out[1].confidence).isWithin(1e-6f).of(0.2f)
@@ -90,7 +90,7 @@ class BirdNetTfliteModelTest {
         m.load(model, labels)
 
         m.close()
-        assertThat(fake).isNotNull() // sanity
+        assertThat(fake.closed).isTrue()
         // Re-using the model after close must fail because interp is null.
         val ex = runCatching {
             m.predict(FloatArray(0), 48_000, null, null, 0L, 0L, 0L)

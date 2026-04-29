@@ -30,6 +30,7 @@ class BirdNetTfliteModel(
         labels = Labels.load(labelsFile)
     }
 
+    @Suppress("LongParameterList")
     override suspend fun predict(
         pcmFloat32: FloatArray,
         sampleRateHz: Int,
