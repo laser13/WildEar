@@ -40,6 +40,7 @@ class DefaultRecorder(
     private val source: AudioRecordSource,
     private val clock: Clock = SystemClock(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val externalScope: CoroutineScope? = null,
 ) : Recorder {
     private val _rms = MutableStateFlow(0f)
     override val rmsLevel: StateFlow<Float> = _rms
@@ -48,7 +49,7 @@ class DefaultRecorder(
     private var target: File? = null
     private var startMs = 0L
     private var job: Job? = null
-    private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
+    private val scope = externalScope ?: CoroutineScope(SupervisorJob() + ioDispatcher)
 
     override suspend fun start(target: File) {
         this.target = target

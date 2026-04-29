@@ -18,10 +18,9 @@ class RecorderTest {
     fun `produces a WAV with the recorded duration`() = runTest {
         val testDispatcher = UnconfinedTestDispatcher(testScheduler)
         val source = FakeAudioSource(emitFrames = 48_000) // 1 second
-        val recorder = DefaultRecorder(source, clock = TestClock(), ioDispatcher = testDispatcher)
+        val recorder = DefaultRecorder(source, clock = TestClock(), ioDispatcher = testDispatcher, externalScope = this)
         val target = tmp.newFile("rec.wav")
         recorder.start(target)
-        // With UnconfinedTestDispatcher the pump loop runs eagerly until blocked (source exhausted)
         testScheduler.advanceUntilIdle()
         val result = recorder.stop()
         assertThat(result.audioPath).isEqualTo(target.absolutePath)
@@ -32,7 +31,7 @@ class RecorderTest {
     fun `cancel deletes the file`() = runTest {
         val testDispatcher = UnconfinedTestDispatcher(testScheduler)
         val source = FakeAudioSource(emitFrames = 0)
-        val recorder = DefaultRecorder(source, clock = TestClock(), ioDispatcher = testDispatcher)
+        val recorder = DefaultRecorder(source, clock = TestClock(), ioDispatcher = testDispatcher, externalScope = this)
         val target = tmp.newFile("rec.wav")
         recorder.start(target)
         recorder.cancel()
@@ -43,7 +42,7 @@ class RecorderTest {
     fun `rmsLevel emits non-negative bounded values`() = runTest {
         val testDispatcher = UnconfinedTestDispatcher(testScheduler)
         val source = FakeAudioSource(emitFrames = 48_000, amplitude = 0.5f)
-        val recorder = DefaultRecorder(source, clock = TestClock(), ioDispatcher = testDispatcher)
+        val recorder = DefaultRecorder(source, clock = TestClock(), ioDispatcher = testDispatcher, externalScope = this)
         val target = tmp.newFile("rec.wav")
         recorder.start(target)
         testScheduler.advanceUntilIdle()
