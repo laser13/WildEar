@@ -24,6 +24,9 @@ import kotlin.math.pow
  *
  * The implementation is deterministic — the window, filterbank, and FFT plan
  * are precomputed once per instance.
+ *
+ * NOT thread-safe: `DoubleFFT_1D` mutates internal scratch buffers on each
+ * `compute` call. Use one instance per consumer, or guard externally.
  */
 class MelSpectrogram(private val p: MelParams) {
 
@@ -68,6 +71,7 @@ class MelSpectrogram(private val p: MelParams) {
     }
 
     companion object {
+        // dB floor at ~-100 dB to avoid log(0) and keep visualisation finite.
         const val EPS = 1e-10
 
         fun hzToMel(hz: Double) = 2595.0 * log10(1 + hz / 700.0)
