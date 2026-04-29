@@ -2,6 +2,7 @@ package com.sound2inat.app.di
 
 import android.content.Context
 import androidx.room.Room
+import com.sound2inat.app.data.Settings
 import com.sound2inat.location.FusedLocationProvider
 import com.sound2inat.location.LocationProvider
 import com.sound2inat.modelmanager.ModelManager
@@ -44,6 +45,9 @@ object AppModule {
         det: DetectionDao,
         files: WavFileStore,
     ): DraftRepository = DraftRepository(d, det, files)
+
+    @Provides @Singleton
+    fun provideSettings(@ApplicationContext ctx: Context): Settings = Settings(ctx)
 
     @Provides @Singleton
     fun provideHttp(): OkHttpClient = OkHttpClient()
