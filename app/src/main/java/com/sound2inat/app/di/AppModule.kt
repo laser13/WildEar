@@ -3,6 +3,10 @@ package com.sound2inat.app.di
 import android.content.Context
 import androidx.room.Room
 import com.sound2inat.app.data.Settings
+import com.sound2inat.inference.BioacousticModel
+import com.sound2inat.inference.BirdNetTfliteModel
+import com.sound2inat.inference.InterpreterFactory
+import com.sound2inat.inference.TfliteInterpreterFactory
 import com.sound2inat.location.FusedLocationProvider
 import com.sound2inat.location.LocationProvider
 import com.sound2inat.modelmanager.ModelManager
@@ -68,7 +72,10 @@ object AppModule {
     fun provideLocation(@ApplicationContext ctx: Context): LocationProvider =
         FusedLocationProvider(ctx)
 
-    // TODO[Task 6]: provide BioacousticModel and InterpreterFactory once com.sound2inat.inference
-    // gains BirdNetTfliteModel + TfliteInterpreterFactory. Until then, Review screen and
-    // InferenceRunner cannot be wired through Hilt.
+    @Provides @Singleton
+    fun provideInterpreterFactory(): InterpreterFactory = TfliteInterpreterFactory()
+
+    @Provides @Singleton
+    fun provideBioacousticModel(factory: InterpreterFactory): BioacousticModel =
+        BirdNetTfliteModel(factory)
 }
