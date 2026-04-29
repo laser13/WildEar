@@ -104,7 +104,6 @@ class RecordingViewModelTest {
             drafts = drafts,
         )
         vm.start()
-        advanceUntilIdle()
         val s = vm.state.value as RecordingUiState.Error
         assertThat(s.message).contains("Microphone")
     }
@@ -126,7 +125,6 @@ class RecordingViewModelTest {
             nowMs = { 0L },
         )
         vm.start()
-        advanceUntilIdle()
         vm.stop()
         advanceUntilIdle()
         val done = vm.state.value as RecordingUiState.Done
@@ -155,7 +153,6 @@ class RecordingViewModelTest {
             drafts = drafts,
         )
         vm.start()
-        advanceUntilIdle()
         vm.cancel()
         advanceUntilIdle()
         assertThat(vm.state.value).isEqualTo(RecordingUiState.Idle)
