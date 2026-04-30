@@ -11,11 +11,14 @@ import com.sound2inat.recorder.Recorder
 import com.sound2inat.storage.DraftRepository
 import com.sound2inat.storage.WavFileStore
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
 
@@ -31,10 +34,14 @@ class RecordingViewModel(
     private val tickIntervalMs: Long = TICK_INTERVAL_MS,
     private val softLimitMs: Long = SOFT_LIMIT_MS,
     private val hardLimitMs: Long = HARD_LIMIT_MS,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<RecordingUiState>(RecordingUiState.Idle)
     val state: StateFlow<RecordingUiState> = _state
+
+    /** Forwarded so the live waveform composable can collect it directly. */
+    val rmsHistory: StateFlow<FloatArray> = recorder.rmsHistory
 
     private var draftId: String? = null
     private var recordingStartMs: Long = 0L
@@ -91,15 +98,17 @@ class RecordingViewModel(
         val id = draftId ?: return
         val result = recorder.stop()
         cancelJobs()
-        drafts.create(
-            id = id,
-            audioPath = result.audioPath,
-            recordedAtUtcMs = recordingStartMs,
-            durationMs = result.durationMs,
-            latitude = fix?.latitude,
-            longitude = fix?.longitude,
-            accuracyMeters = fix?.accuracyMeters,
-        )
+        withContext(ioDispatcher) {
+            drafts.create(
+                id = id,
+                audioPath = result.audioPath,
+                recordedAtUtcMs = recordingStartMs,
+                durationMs = result.durationMs,
+                latitude = fix?.latitude,
+                longitude = fix?.longitude,
+                accuracyMeters = fix?.accuracyMeters,
+            )
+        }
         _state.value = RecordingUiState.Done(id)
     }
 

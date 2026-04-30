@@ -6,16 +6,20 @@ import java.io.File
 import java.io.RandomAccessFile
 
 /**
- * Slices a mono 16-bit WAV into fixed `windowSeconds`-second windows hopped by
- * `hopSeconds`, calls [model] per window, and aggregates predictions.
+ * Slices a mono 16-bit WAV into fixed windows hopped by [hopSeconds], calls
+ * [model] per window, and aggregates predictions.
+ *
+ * Window length and target sample rate come from the model itself
+ * ([BioacousticModel.windowMs] / [BioacousticModel.expectedSampleRateHz]).
+ * When the WAV's native rate differs from the model's expected rate, the
+ * runner linearly resamples the entire signal once before slicing.
  *
  * Progress is reported in [progress] as a fraction in `[0, 1]`. The runner is
- * NOT designed to be invoked concurrently for the same instance — there is one
- * progress flow per runner.
+ * NOT designed to be invoked concurrently for the same instance — there is
+ * one progress flow per runner.
  */
 class InferenceRunner(
     private val model: BioacousticModel,
-    private val windowSeconds: Float = 3f,
     private val hopSeconds: Float = 1f,
 ) {
     private val _progress = MutableStateFlow(0f)
@@ -28,9 +32,16 @@ class InferenceRunner(
         observedAtMillis: Long,
     ): List<WindowPrediction> {
         _progress.value = 0f
-        val (samples, sampleRate) = WavReader.readMono16(wavFile)
-        val win = (windowSeconds * sampleRate).toInt()
-        val hop = (hopSeconds * sampleRate).toInt()
+        val (rawSamples, nativeRate) = WavReader.readMono16(wavFile)
+        val targetRate = model.expectedSampleRateHz
+        val samples = if (nativeRate == targetRate) {
+            rawSamples
+        } else {
+            Resampler.resample(rawSamples, nativeRate, targetRate)
+        }
+        val windowSeconds = model.windowMs / MS_PER_SECOND
+        val win = (windowSeconds * targetRate).toInt()
+        val hop = (hopSeconds * targetRate).toInt()
         require(win > 0 && hop > 0) { "Invalid window/hop: win=$win hop=$hop" }
         val frames = if (samples.size < win) 0 else 1 + (samples.size - win) / hop
         if (frames == 0) {
@@ -41,11 +52,11 @@ class InferenceRunner(
         for (f in 0 until frames) {
             val s = f * hop
             val window = FloatArray(win) { idx -> samples[s + idx] / Short.MAX_VALUE.toFloat() }
-            val startMs = (s.toLong() * 1000L) / sampleRate
-            val endMs = ((s + win).toLong() * 1000L) / sampleRate
+            val startMs = (s.toLong() * MS_PER_SECOND_LONG) / targetRate
+            val endMs = ((s + win).toLong() * MS_PER_SECOND_LONG) / targetRate
             out += model.predict(
                 pcmFloat32 = window,
-                sampleRateHz = sampleRate,
+                sampleRateHz = targetRate,
                 latitude = latitude,
                 longitude = longitude,
                 observedAtMillis = observedAtMillis,
@@ -55,6 +66,11 @@ class InferenceRunner(
             _progress.value = (f + 1).toFloat() / frames
         }
         return out
+    }
+
+    private companion object {
+        const val MS_PER_SECOND = 1_000f
+        const val MS_PER_SECOND_LONG = 1_000L
     }
 }
 

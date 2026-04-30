@@ -1,5 +1,6 @@
 package com.sound2inat.modelmanager
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -12,16 +13,25 @@ import java.security.MessageDigest
 open class ModelManager(
     private val filesDir: File,
     private val http: OkHttpClient,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val dir: File = File(filesDir, "models").apply { mkdirs() }
 
-    open fun stateFor(descriptor: ModelDescriptor): ModelInstallState {
-        val m = modelFile(descriptor)
-        val l = labelsFile(descriptor)
-        val bothExist = m.exists() && l.exists()
-        val shaMatch = bothExist && sha256(m) == descriptor.modelSha256 && sha256(l) == descriptor.labelsSha256
-        return if (shaMatch) ModelInstallState.Ready(m, l) else ModelInstallState.NotInstalled
-    }
+    /**
+     * Reports whether the model is on disk and SHA-256-verified. SHA-256 over the
+     * 50 MB model file takes ~1 s; this method is `suspend` so callers always
+     * dispatch off Main.
+     */
+    open suspend fun stateFor(descriptor: ModelDescriptor): ModelInstallState =
+        withContext(ioDispatcher) {
+            val m = modelFile(descriptor)
+            val l = labelsFile(descriptor)
+            val bothExist = m.exists() && l.exists()
+            val shaMatch = bothExist &&
+                sha256(m) == descriptor.modelSha256 &&
+                sha256(l) == descriptor.labelsSha256
+            if (shaMatch) ModelInstallState.Ready(m, l) else ModelInstallState.NotInstalled
+        }
 
     @Suppress("TooGenericExceptionCaught")
     open suspend fun install(

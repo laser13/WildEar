@@ -65,7 +65,9 @@ class ReviewViewModelTest {
             assertThat(vm.state.value.inferenceProgress).isNull()
             assertThat(vm.state.value.species).hasSize(1)
             assertThat(vm.state.value.species.first().taxonScientificName).isEqualTo("Turdus merula")
-            assertThat(vm.state.value.status).isEqualTo(DraftStatus.PENDING_REVIEW)
+            // VM auto-promotes to REVIEWED after a successful inference with
+            // non-empty detections so Submit is enabled by checkbox alone.
+            assertThat(vm.state.value.status).isEqualTo(DraftStatus.REVIEWED)
         }
 
     @Test
@@ -383,7 +385,13 @@ class ReviewViewModelTest {
 
     private fun repo(drafts: DraftDao, detections: DetectionDao): DraftRepository {
         val files = WavFileStore(tmp.root)
-        return DraftRepository(drafts, detections, files) { 0L }
+        return DraftRepository(
+            drafts = drafts,
+            detections = detections,
+            files = files,
+            nowMs = { 0L },
+            ioDispatcher = UnconfinedTestDispatcher(),
+        )
     }
 
     private fun noopInference(): InferenceJob = InferenceJob { _, _, _, _, _ ->

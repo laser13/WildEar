@@ -5,7 +5,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,15 +24,15 @@ import com.sound2inat.inference.WindowPrediction
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Stacked waveform + cached mel-spectrogram view with the play cursor and
- * (when supplied) per-detection rectangles. The spectrogram `Box` shares its
- * coordinate system with [DetectionOverlays] so taps on overlay rectangles
- * map back to `WindowPrediction`s without extra DPI math.
+ * Cached mel-spectrogram view with the play cursor and (when supplied)
+ * per-detection rectangles. The waveform strip was removed — at typical
+ * Compose dp sizes individual peaks were unreadable and the strip just
+ * stole vertical space from the spectrogram.
  */
-@Suppress("FunctionNaming", "LongMethod", "LongParameterList")
+@Suppress("FunctionNaming", "LongParameterList")
 @Composable
 internal fun WaveformAndSpectrogram(
-    peaks: FloatArray?,
+    @Suppress("UNUSED_PARAMETER") peaks: FloatArray?,
     spectrogramPath: String?,
     durationMs: Long,
     positionFlow: StateFlow<Long>,
@@ -55,47 +54,6 @@ internal fun WaveformAndSpectrogram(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        // Waveform — 96 dp tall.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(WAVEFORM_HEIGHT.dp),
-        ) {
-            val waveColor = MaterialTheme.colorScheme.primary
-            val cursorColor = MaterialTheme.colorScheme.error
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val w = size.width
-                val h = size.height
-                val mid = h / 2f
-                val p = peaks
-                if (p != null && p.size >= 2) {
-                    val cols = p.size / 2
-                    val colW = w / cols
-                    for (i in 0 until cols) {
-                        val lo = p[2 * i]
-                        val hi = p[2 * i + 1]
-                        val y0 = mid - hi * mid
-                        val y1 = mid - lo * mid
-                        val x = i * colW + colW / 2f
-                        drawLine(
-                            color = waveColor,
-                            start = Offset(x, y0),
-                            end = Offset(x, y1),
-                            strokeWidth = 1f,
-                        )
-                    }
-                }
-                val cx = cursor * w
-                drawLine(
-                    color = cursorColor,
-                    start = Offset(cx, 0f),
-                    end = Offset(cx, h),
-                    strokeWidth = CURSOR_STROKE_PX,
-                )
-            }
-        }
-        Spacer(Modifier.height(SPACER_HEIGHT.dp))
-        // Spectrogram from cached PNG.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -133,7 +91,5 @@ internal fun WaveformAndSpectrogram(
     }
 }
 
-private const val WAVEFORM_HEIGHT = 96
-private const val SPECTROGRAM_HEIGHT = 160
-private const val SPACER_HEIGHT = 4
+private const val SPECTROGRAM_HEIGHT = 220
 private const val CURSOR_STROKE_PX = 2f

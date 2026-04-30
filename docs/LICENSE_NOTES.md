@@ -30,19 +30,23 @@ Notable licenses below.
 
 ## Models and labels (downloaded at runtime)
 
-The BirdNET TFLite model and its label file are NOT bundled in the APK; they
-are downloaded into the app's private files dir on user request from Settings.
-Both come from the `whoBIRD` / `whoBIRD-TFlite` mirror, which mirrors the
-official BirdNET-Analyzer artifact.
+Models and labels are NOT bundled in the APK; they are downloaded into the
+app's private files dir on user request from Settings. The Settings screen
+exposes one section per known model (BirdNET v2.4, Perch v2) and each can be
+installed/removed independently. Inference at recording time runs every
+installed model in sequence over the same WAV; the Review screen surfaces the
+per-model max confidence on each species row.
 
 | Asset | Version | Source URL | SHA-256 | License |
 |---|---|---|---|---|
 | `BirdNET_GLOBAL_6K_V2.4_Model_FP32.tflite` | 2.4 | `https://github.com/woheller69/whoBIRD-TFlite/raw/master/BirdNET_GLOBAL_6K_V2.4_Model_FP32.tflite` | `55f3e4055b1a13bfa9a2452731d0d34f6a02d6b775a334362665892794165e4c` | **CC BY-NC-SA 4.0** (BirdNET weights — non-commercial, share-alike) |
 | `labels_en_uk.txt` | matching v2.4 labels | `https://raw.githubusercontent.com/woheller69/whoBIRD/master/app/src/main/assets/labels_en_uk.txt` | `af05ad18573f6ecdd14b1e457ba9265043ad8b60ec273816660125c82690e693` | MIT (whoBIRD app, code) |
+| `perch_v2.tflite` | 2 | `https://huggingface.co/justinchuby/Perch-onnx/resolve/main/perch_v2.tflite` | `15a7497851afcb26cadfb7f537e799bd0e3e0c4f87bcb5211ca3ce88418e25d4` | **Apache 2.0** (Google Perch v2 weights) |
+| `labels.csv` (Perch) | matching Perch v2 | `https://huggingface.co/cgeorgiaw/Perch/resolve/main/assets/labels.csv` | `e4d5c0397d8fb08bf90c6b13a34810af53504faad927e472fcc567793c9de057` | Apache 2.0 (mirrored from Google's `cgeorgiaw/Perch` SavedModel release) |
 
 The license string surfaced in Settings before the user confirms the download
-matches the BirdNET weights license: **CC BY-NC-SA 4.0**. Verify on-device
-before sign-off (Task 18 §3).
+matches each model's weights license. Verify on-device before sign-off
+(Task 18 §3).
 
 ## Public-track preparation (out of scope for Spec 1)
 

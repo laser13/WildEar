@@ -14,9 +14,21 @@ import kotlin.math.sqrt
 
 interface Recorder {
     val rmsLevel: StateFlow<Float>
+
+    /**
+     * Rolling history of the last [HISTORY_SIZE] RMS samples (oldest first).
+     * Lets the UI render a live waveform/VU bar without re-deriving anything.
+     * Reset to an empty array on each [start].
+     */
+    val rmsHistory: StateFlow<FloatArray>
+
     suspend fun start(target: File)
     suspend fun stop(): RecordingResult
     fun cancel()
+
+    companion object {
+        const val HISTORY_SIZE = 200
+    }
 }
 
 interface AudioRecordSource {
@@ -45,6 +57,9 @@ class DefaultRecorder(
     private val _rms = MutableStateFlow(0f)
     override val rmsLevel: StateFlow<Float> = _rms
 
+    private val _rmsHistory = MutableStateFlow(FloatArray(0))
+    override val rmsHistory: StateFlow<FloatArray> = _rmsHistory
+
     private var writer: WavWriter? = null
     private var target: File? = null
     private var startMs = 0L
@@ -55,6 +70,7 @@ class DefaultRecorder(
         this.target = target
         writer = WavWriter(target, source.sampleRate, source.channels, source.bitsPerSample).also { it.open() }
         startMs = clock.nowMs()
+        _rmsHistory.value = FloatArray(0)
         source.start()
         job = scope.launch { pump() }
     }
@@ -65,8 +81,27 @@ class DefaultRecorder(
             val n = source.read(buf, 0, buf.size)
             if (n <= 0) break
             writer?.writeShorts(buf, 0, n)
-            _rms.value = computeRms(buf, n)
+            val rms = computeRms(buf, n)
+            _rms.value = rms
+            pushRms(rms)
         }
+    }
+
+    private fun pushRms(value: Float) {
+        val cur = _rmsHistory.value
+        val cap = Recorder.HISTORY_SIZE
+        val next = if (cur.size < cap) {
+            FloatArray(cur.size + 1).also {
+                System.arraycopy(cur, 0, it, 0, cur.size)
+                it[cur.size] = value
+            }
+        } else {
+            FloatArray(cap).also {
+                System.arraycopy(cur, 1, it, 0, cap - 1)
+                it[cap - 1] = value
+            }
+        }
+        _rmsHistory.value = next
     }
 
     private fun computeRms(buf: ShortArray, len: Int): Float {

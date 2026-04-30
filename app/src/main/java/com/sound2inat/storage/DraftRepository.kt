@@ -1,8 +1,12 @@
 package com.sound2inat.storage
 
 import com.sound2inat.inference.AggregatedDetection
+import com.sound2inat.inference.SourceConfidences
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.mapNotNull
 
 data class DraftWithDetections(
     val draft: DraftEntity,
@@ -14,19 +18,20 @@ class DraftRepository(
     private val detections: DetectionDao,
     private val files: WavFileStore,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     fun observeAll(): Flow<List<DraftEntity>> = drafts.observeAll()
 
     /**
      * Emits the latest [DraftWithDetections] each time the draft row OR its detections change.
-     * The draft row is loaded synchronously inside the flow (no separate observable for the
-     * single row in v1). Returns null inside the flow if the draft no longer exists (deleted).
+     * Skips emissions where the draft row no longer exists — that race is normal during
+     * delete (the detections-flow lingers until the VM scope is cancelled).
      */
     fun observeWithDetections(id: String): Flow<DraftWithDetections> =
-        detections.observeForDraft(id).map { ds ->
-            val d = drafts.getById(id) ?: error("draft $id missing")
+        detections.observeForDraft(id).mapNotNull { ds ->
+            val d = drafts.getById(id) ?: return@mapNotNull null
             DraftWithDetections(d, ds)
-        }
+        }.flowOn(ioDispatcher)
 
     @Suppress("LongParameterList")
     fun create(
@@ -85,6 +90,7 @@ class DraftRepository(
                     firstSeenMs = it.firstSeenMs,
                     lastSeenMs = it.lastSeenMs,
                     isSelectedByUser = false,
+                    sources = SourceConfidences.encode(it.confidenceBySource),
                 )
             },
         )

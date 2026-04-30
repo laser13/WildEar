@@ -1,0 +1,256 @@
+package com.sound2inat.inat
+
+import com.sound2inat.storage.DetectionEntity
+import com.sound2inat.storage.DraftDao
+import com.sound2inat.storage.DraftStatus
+import com.sound2inat.storage.DraftWithDetections
+import com.sound2inat.storage.InatObservationDao
+import com.sound2inat.storage.InatObservationEntity
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+
+/**
+ * Pushes a draft to iNaturalist, materialising one observation per selected
+ * species (this is iNat's data model — one observation = one organism).
+ *
+ * For each selected detection:
+ *   1. Resolve scientific name → iNat taxon id.
+ *   2. Slice the WAV around that species' detected windows
+ *      (`firstSeenMs..lastSeenMs` ± [PADDING_MS]) into a per-species temp file.
+ *   3. POST /observations with the resolved taxon, GPS, and observed_on.
+ *   4. POST /observation_sounds attaching the per-species clip.
+ *   5. Persist a row in `inat_observations`.
+ *
+ * After all observations are created:
+ *   6. PUT /observations/{id} on each, writing a description that links to
+ *      the sibling observations in the same recording.
+ *
+ * Failure model:
+ *   * If a species fails to resolve, it's skipped (logged into `inatLastError`)
+ *     but the rest of the submission proceeds.
+ *   * If create-observation or upload-sound fails for a species, that species
+ *     is dropped; siblings still get persisted.
+ *   * The whole submission fails (and the draft stays REVIEWED) only if
+ *     **zero** observations got created.
+ *   * Cross-link PUT failures are non-fatal — the observations remain on iNat.
+ */
+class INatSubmitter(
+    private val client: INaturalistClient,
+    private val drafts: DraftDao,
+    private val inatObservations: InatObservationDao,
+    private val tmpRoot: File,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
+) {
+
+    sealed interface Result {
+        /** [primaryUrl] is the first observation created — surfaced in `drafts`. */
+        data class Ok(val primaryUrl: String, val urls: List<String>) : Result
+        data class Failure(val message: String) : Result
+    }
+
+    @Suppress("ReturnCount", "LongMethod", "TooGenericExceptionCaught")
+    suspend fun submit(
+        token: String,
+        draft: DraftWithDetections,
+    ): Result = withContext(ioDispatcher) {
+        if (token.isBlank()) return@withContext Result.Failure("No iNaturalist token in Settings")
+        val selected = draft.detections.filter { it.isSelectedByUser }
+        if (selected.isEmpty()) return@withContext Result.Failure("No species selected")
+        val srcAudio = File(draft.draft.audioPath)
+        if (!srcAudio.exists()) return@withContext Result.Failure("Audio file missing on disk")
+
+        // Wipe any previous observations for this draft so re-submit starts clean.
+        // (The user re-submits on Review when something failed mid-flow last time.)
+        inatObservations.deleteForDraft(draft.draft.id)
+
+        val cropDir = File(tmpRoot, "inat_uploads").apply { mkdirs() }
+        val createdRows = mutableListOf<InatObservationEntity>()
+        val failures = mutableListOf<String>()
+
+        for (det in selected) {
+            val outcome = runCatching { submitOne(token, draft, srcAudio, cropDir, det) }
+            outcome.onSuccess { row ->
+                if (row != null) {
+                    android.util.Log.i(
+                        LOG_TAG,
+                        "Uploaded ${det.taxonScientificName} -> ${row.observationUrl}",
+                    )
+                    createdRows += row
+                } else {
+                    android.util.Log.w(LOG_TAG, "No iNat match for ${det.taxonScientificName}")
+                    failures += "${det.taxonScientificName}: no iNat match"
+                }
+            }
+            outcome.onFailure { e ->
+                // Full stack into logcat; only a clamped, HTML-stripped
+                // message bubbles up to the UI via INatException.
+                android.util.Log.w(LOG_TAG, "Submit failed for ${det.taxonScientificName}", e)
+                failures += "${det.taxonScientificName}: ${e.message}"
+            }
+            // Per-species crop is consumed; clean up so we don't pile MB
+            // of WAVs in cache between sessions.
+            runCatching { File(cropDir, cropFileName(draft.draft.id, det)).delete() }
+        }
+
+        if (createdRows.isEmpty()) {
+            val msg = "All species failed: ${failures.joinToString(" | ")}"
+            drafts.update(
+                draft.draft.copy(inatLastError = msg, updatedAtUtcMs = nowMs()),
+            )
+            return@withContext Result.Failure(msg)
+        }
+
+        // Cross-link pass — best-effort; failures don't unwind the upload.
+        if (createdRows.size > 1) {
+            crossLink(token, createdRows)
+        }
+
+        val primary = createdRows.first()
+        drafts.update(
+            draft.draft.copy(
+                status = DraftStatus.UPLOADED,
+                inatObservationId = primary.observationId,
+                inatObservationUrl = primary.observationUrl,
+                inatLastError = if (failures.isEmpty()) null else failures.joinToString(" | "),
+                updatedAtUtcMs = nowMs(),
+            ),
+        )
+        Result.Ok(primary.observationUrl, createdRows.map { it.observationUrl })
+    }
+
+    /**
+     * Resolves, creates and uploads a single species' observation. Returns
+     * the persisted [InatObservationEntity] (with its DAO-assigned `id`),
+     * or null if the taxon name didn't match anything on iNat.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun submitOne(
+        token: String,
+        draft: DraftWithDetections,
+        srcAudio: File,
+        cropDir: File,
+        det: DetectionEntity,
+    ): InatObservationEntity? {
+        val taxonId = client.resolveTaxon(det.taxonScientificName, token) ?: return null
+        val cropFile = File(cropDir, cropFileName(draft.draft.id, det))
+        cropPerSpecies(srcAudio, det, draft.draft.durationMs, cropFile)
+        val obsBody = ObservationBody(
+            observedAtIso = formatIso(draft.draft.recordedAtUtcMs),
+            latitude = draft.draft.latitude,
+            longitude = draft.draft.longitude,
+            positionalAccuracy = draft.draft.locationAccuracyMeters,
+            taxonId = taxonId,
+            description = baseDescription(det),
+            licenseCode = "cc-by-nc",
+        )
+        val created = client.createObservation(token, obsBody)
+        check(created.uuid.isNotBlank()) {
+            "iNat /observations did not return a uuid; cannot link sound (id=${created.id})"
+        }
+        // Sound upload is the most fragile step (multipart on a v2 endpoint).
+        // If it fails we delete the just-created observation so the user's
+        // iNat account doesn't accumulate empty records on retry.
+        try {
+            client.uploadSound(token, created.uuid, cropFile)
+        } catch (t: Throwable) {
+            runCatching { client.deleteObservation(token, created.id) }
+                .onFailure { android.util.Log.w(LOG_TAG, "Cleanup failed for ${created.id}", it) }
+            throw t
+        }
+        // Best-effort iNaturalist annotations: every recorded vocalisation is
+        // by definition a living organism, so we set "Alive or Dead = Alive"
+        // and "Evidence of Presence = Organism" without any species-level
+        // gating. A 4xx here doesn't roll back the upload — annotations are
+        // metadata polish, not core data.
+        for ((attr, value) in DEFAULT_ANNOTATIONS) {
+            runCatching { client.createAnnotation(token, created.uuid, attr, value) }
+                .onFailure {
+                    android.util.Log.w(
+                        LOG_TAG,
+                        "Annotation attr=$attr value=$value on ${created.id} failed",
+                        it,
+                    )
+                }
+        }
+        val row = InatObservationEntity(
+            draftId = draft.draft.id,
+            taxonScientificName = det.taxonScientificName,
+            taxonInatId = taxonId,
+            observationId = created.id,
+            observationUrl = created.url,
+            createdAtUtcMs = nowMs(),
+        )
+        val savedId = inatObservations.insert(row)
+        return row.copy(id = savedId)
+    }
+
+    private fun cropPerSpecies(
+        src: File,
+        det: DetectionEntity,
+        draftDurationMs: Long,
+        dst: File,
+    ) {
+        // BirdNET window length is 3 s; with PADDING_MS=1000 ms we end up with
+        // a clip around 5 s minimum, which is plenty of context for a reviewer.
+        val start = (det.firstSeenMs - PADDING_MS).coerceAtLeast(0L)
+        val end = (det.lastSeenMs + PADDING_MS).coerceAtMost(draftDurationMs)
+        WavTrimmer.trimMono16(src.absolutePath, dst, start, end)
+    }
+
+    private fun cropFileName(draftId: String, det: DetectionEntity): String {
+        // Stable but uncollidable across species in the same draft.
+        val safe = det.taxonScientificName.replace("[^A-Za-z0-9]+".toRegex(), "_")
+        return "${draftId}__$safe.wav"
+    }
+
+    private fun baseDescription(det: DetectionEntity): String =
+        "Recorded with sound2iNat (BirdNET v2.4). Detected ${det.detectedWindows} window(s)" +
+            " between ${det.firstSeenMs / MS}–${det.lastSeenMs / MS} s," +
+            " max confidence ${"%.0f".format(det.maxConfidence * PCT)}%."
+
+    private suspend fun crossLink(token: String, rows: List<InatObservationEntity>) {
+        for (row in rows) {
+            val others = rows.filter { it.id != row.id }
+            val description = buildString {
+                append("Recorded with sound2iNat (BirdNET v2.4) as part of a multi-species clip. ")
+                append("Sibling observations from the same recording: ")
+                append(others.joinToString(", ") { "${it.taxonScientificName} → ${it.observationUrl}" })
+            }
+            runCatching { client.updateObservationDescription(token, row.observationId, description) }
+        }
+    }
+
+    private fun formatIso(epochMs: Long): String {
+        val df = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.US)
+        df.timeZone = TimeZone.getTimeZone("UTC")
+        return df.format(Date(epochMs))
+    }
+
+    companion object {
+        private const val PADDING_MS = 1_000L
+        private const val MS = 1000L
+        private const val PCT = 100f
+        private const val LOG_TAG = "INatSubmitter"
+
+        // iNaturalist controlled-vocabulary IDs. Source: iNaturalist Helper
+        // Chrome extension (`scripts/vision.js`). The pairs we apply to every
+        // sound2iNat observation:
+        //   17 → 18 = "Alive or Dead" → "Alive"
+        //   22 → 24 = "Evidence of Presence" → "Organism"
+        private const val ATTR_ALIVE_OR_DEAD = 17
+        private const val VALUE_ALIVE = 18
+        private const val ATTR_EVIDENCE = 22
+        private const val VALUE_ORGANISM = 24
+        private val DEFAULT_ANNOTATIONS: List<Pair<Int, Int>> = listOf(
+            ATTR_ALIVE_OR_DEAD to VALUE_ALIVE,
+            ATTR_EVIDENCE to VALUE_ORGANISM,
+        )
+    }
+}

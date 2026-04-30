@@ -13,7 +13,10 @@ import java.io.File
  * per call labelled with the supplied window timestamps so the test can assert
  * window slicing.
  */
-private class RecordingFakeModel : BioacousticModel {
+private class RecordingFakeModel(
+    override val expectedSampleRateHz: Int = 48_000,
+    override val windowMs: Long = 3_000L,
+) : BioacousticModel {
     override val modelId = "fake"
     override val modelVersion = "0"
     val calls = mutableListOf<Pair<Long, Long>>()
@@ -77,7 +80,7 @@ class InferenceRunnerTest {
     fun `slices 5s WAV into three 3s windows at 1s hop`() = runTest {
         val wav = writeSilentWav(durationSeconds = 5)
         val model = RecordingFakeModel()
-        val runner = InferenceRunner(model, windowSeconds = 3f, hopSeconds = 1f)
+        val runner = InferenceRunner(model, hopSeconds = 1f)
 
         val out = runner.run(wav, latitude = null, longitude = null, observedAtMillis = 0L)
 
@@ -103,5 +106,24 @@ class InferenceRunnerTest {
         assertThat(out).isEmpty()
         assertThat(model.calls).isEmpty()
         assertThat(runner.progress.value).isEqualTo(1.0f)
+    }
+
+    @Test
+    fun `48k WAV is resampled to model's 32k expected rate before slicing`() = runTest {
+        val wav = writeSilentWav(durationSeconds = 6, sampleRate = 48_000)
+        val model = RecordingFakeModel(expectedSampleRateHz = 32_000, windowMs = 5_000L)
+        val runner = InferenceRunner(model, hopSeconds = 1f)
+
+        val out = runner.run(wav, null, null, 0L)
+
+        // After resample to 32k there are 6 s of audio. 5 s window @ 1 s hop
+        // gives floor((6-5)/1)+1 = 2 windows. Model sees the model rate, not
+        // the WAV's native rate.
+        assertThat(out).hasSize(2)
+        assertThat(model.lastSampleRate).isEqualTo(32_000)
+        assertThat(model.calls).containsExactly(
+            0L to 5_000L,
+            1_000L to 6_000L,
+        ).inOrder()
     }
 }

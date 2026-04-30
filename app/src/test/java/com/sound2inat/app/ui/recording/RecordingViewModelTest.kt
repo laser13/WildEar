@@ -44,6 +44,8 @@ private class FakePerms(
 private class FakeRecorder : Recorder {
     private val _rms = MutableStateFlow(0f)
     override val rmsLevel: StateFlow<Float> = _rms
+    private val _rmsHistory = MutableStateFlow(FloatArray(0))
+    override val rmsHistory: StateFlow<FloatArray> = _rmsHistory
     var startCalled = false
     var stopCalled = false
     var cancelled = false
@@ -88,7 +90,7 @@ class RecordingViewModelTest {
         files = WavFileStore(tmp.root)
         draftDao = FakeDraftDao()
         detectionDao = FakeDetectionDao()
-        drafts = DraftRepository(draftDao, detectionDao, files) { 0L }
+        drafts = DraftRepository(draftDao, detectionDao, files, nowMs = { 0L })
     }
 
     @After
@@ -102,6 +104,7 @@ class RecordingViewModelTest {
             location = FakeLocation(null),
             files = files,
             drafts = drafts,
+            ioDispatcher = dispatcher,
         )
         vm.start()
         val s = vm.state.value as RecordingUiState.Error
@@ -123,6 +126,7 @@ class RecordingViewModelTest {
             files = files,
             drafts = drafts,
             nowMs = { 0L },
+            ioDispatcher = dispatcher,
         )
         vm.start()
         vm.stop()
@@ -151,6 +155,7 @@ class RecordingViewModelTest {
             location = FakeLocation(null),
             files = files,
             drafts = drafts,
+            ioDispatcher = dispatcher,
         )
         vm.start()
         vm.cancel()

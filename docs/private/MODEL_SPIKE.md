@@ -1,11 +1,36 @@
 # BirdNET v2.4 — model spike
 
-**Date:** 2026-04-29
-**Decision:** **BirdNET v2.4 (FP32 TFLite) is locked for Spec 1.**
+**Date:** 2026-04-29 (BirdNET); updated 2026-04-30 (Perch v2 dual-model addition).
+**Decision:** **BirdNET v2.4 (FP32 TFLite) is locked for Spec 1. Google Perch v2 (TFLite)
+runs alongside it as a second installable model.**
 
 This document captures the model artifact, sources, frozen checksums, and tensor
 contract — these values feed Tasks 4 (mel preprocessor), 6 (BirdNet wrapper) and
 7 (ModelManager).
+
+## Dual-model wiring (added 2026-04-30)
+
+The `inference` package now supports more than one model running per recording.
+Implementations: [`BirdNetTfliteModel`](../../app/src/main/java/com/sound2inat/inference/BirdNetTfliteModel.kt)
+and [`PerchTfliteModel`](../../app/src/main/java/com/sound2inat/inference/PerchTfliteModel.kt),
+both behind the [`BioacousticModel`](../../app/src/main/java/com/sound2inat/inference/BioacousticModel.kt)
+contract. `BioacousticModel` now exposes `expectedSampleRateHz` and `windowMs`,
+so [`InferenceRunner`](../../app/src/main/java/com/sound2inat/inference/InferenceRunner.kt)
+can size its window per model and (via [`Resampler`](../../app/src/main/java/com/sound2inat/inference/Resampler.kt))
+drop the WAV from 48 kHz to whatever rate the model expects (e.g. 32 kHz for
+Perch). Settings shows one Install/Remove section per known descriptor; whichever
+combination of models is installed is what the inference layer runs.
+
+`WindowPrediction` carries a `source` tag (modelId), and `DetectionAggregator`
+collapses windows per taxon while preserving a `confidenceBySource` map. That
+map is persisted on `DetectionEntity.sources` (Room v4 — see `MIGRATION_3_4`)
+and surfaces on the Review screen as small badges (e.g. `BirdNET 78%`,
+`Perch 62%`) so the user can tell at a glance which model agreed.
+
+**Why sequential, not parallel:** TFLite interpreters are not thread-safe for
+concurrent inference, and Perch v2 alone is ~388 MB on disk + non-trivial peak
+memory during `Interpreter.run()`. Sequential keeps the device responsive even
+on mid-tier hardware.
 
 ## Frozen artifact
 

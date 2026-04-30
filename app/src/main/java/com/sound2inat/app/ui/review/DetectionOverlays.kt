@@ -100,8 +100,12 @@ fun DetectionOverlays(
 private data class IndexedRow(val row: SpeciesRow, val index: Int)
 private data class Match(val prediction: WindowPrediction, val indexed: IndexedRow)
 
-private const val BASE_ALPHA = 0.35f
-private const val HIGHLIGHT_ALPHA = 0.7f
+// 0.35 was visually overwhelming when detections covered most of the clip:
+// viridis spectrogram (cool blues/greens) + a translucent species-colored
+// rectangle reads as a fully-opaque red/pink band. Drop the base alpha so the
+// spectrogram stays the dominant visual; highlights still pop above it.
+private const val BASE_ALPHA = 0.15f
+private const val HIGHLIGHT_ALPHA = 0.55f
 private const val HIGHLIGHT_STROKE_ALPHA = 0.9f
 private const val HIGHLIGHT_STROKE_WIDTH_PX = 3f
 private const val MIN_RECT_WIDTH_PX = 2f

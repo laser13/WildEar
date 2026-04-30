@@ -67,6 +67,8 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.extended)
+    implementation(libs.compose.ui.text.google.fonts)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -88,6 +90,7 @@ dependencies {
     implementation(libs.tflite)
     implementation(libs.tflite.support)
     implementation(libs.play.services.location)
+    implementation(libs.coil.compose)
 
     debugImplementation(libs.compose.ui.tooling)
 

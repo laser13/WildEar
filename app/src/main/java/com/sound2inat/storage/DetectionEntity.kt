@@ -27,4 +27,9 @@ data class DetectionEntity(
     val firstSeenMs: Long,
     val lastSeenMs: Long,
     val isSelectedByUser: Boolean,
+    /**
+     * Per-source max confidence serialised as `"src1=0.85;src2=0.62"`. `null`
+     * for rows written before v4 (legacy single-model path).
+     */
+    val sources: String? = null,
 )
