@@ -5,17 +5,21 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sound2inat.app.data.Settings
+import com.sound2inat.inat.INatSubmitter
+import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.DetectionAggregator
 import com.sound2inat.inference.InferenceRunner
+import com.sound2inat.inference.SourceConfidences
 import com.sound2inat.inference.WavReader
 import com.sound2inat.inference.WindowPrediction
-import com.sound2inat.modelmanager.BirdNetV24
+import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
 import com.sound2inat.storage.DraftRepository
 import com.sound2inat.storage.DraftStatus
+import com.sound2inat.storage.InatObservationDao
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
@@ -25,7 +29,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -108,6 +115,20 @@ fun interface InferenceJob {
     ): InferenceOutcome
 }
 
+/**
+ * Submission seam abstracted from the production [INatSubmitter] so the VM
+ * is unit-testable without going near OkHttp. Test fakes return canned
+ * outcomes; the production wiring forwards to [INatSubmitter.submit].
+ */
+fun interface InatSubmissionJob {
+    suspend fun submit(token: String, draftId: String): InatSubmissionOutcome
+}
+
+sealed interface InatSubmissionOutcome {
+    data class Success(val urls: List<String>) : InatSubmissionOutcome
+    data class Failure(val message: String) : InatSubmissionOutcome
+}
+
 @Suppress("LongParameterList")
 class ReviewViewModel(
     private val draftId: String,
@@ -116,6 +137,14 @@ class ReviewViewModel(
     private val inference: InferenceJob,
     private val visuals: VisualsProvider = NoopVisualsProvider,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val submission: InatSubmissionJob = InatSubmissionJob { _, _ ->
+        InatSubmissionOutcome.Failure("No iNaturalist submitter configured")
+    },
+    private val tokenProvider: suspend () -> String? = { null },
+    private val inatObservationsFlow: kotlinx.coroutines.flow.Flow<List<Pair<String, String>>> =
+        kotlinx.coroutines.flow.flowOf(emptyList()),
+    /** Returns the iNaturalist default photo medium_url for a scientific name, or null. */
+    private val photoFetcher: suspend (String) -> String? = { null },
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -156,6 +185,40 @@ class ReviewViewModel(
 
     init {
         scope.launch {
+            inatObservationsFlow.collect { rows ->
+                _state.value = _state.value.copy(inatObservations = rows)
+            }
+        }
+        // Lazily fetch iNat taxon photos for each species as the list is populated.
+        // distinctUntilChanged on names avoids re-fetching on playback-position updates.
+        scope.launch {
+            var fetched = emptySet<String>()
+            _state
+                .map { s -> s.species.map { it.taxonScientificName } }
+                .distinctUntilChanged()
+                .collect { names ->
+                    val newNames = names.toSet() - fetched
+                    if (newNames.isEmpty()) return@collect
+                    fetched = fetched + newNames
+                    for (name in newNames) {
+                        scope.launch {
+                            val url = runCatching { photoFetcher(name) }.getOrNull()
+                            _state.update { cur ->
+                                cur.copy(
+                                    species = cur.species.map { row ->
+                                        if (row.taxonScientificName == name) {
+                                            row.copy(taxonPhotoUrl = url)
+                                        } else {
+                                            row
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+        }
+        scope.launch {
             repo.observeWithDetections(draftId).collect { dwd ->
                 val draft = dwd.draft
                 _state.value = _state.value.copy(
@@ -175,6 +238,7 @@ class ReviewViewModel(
                             firstSeenMs = e.firstSeenMs,
                             lastSeenMs = e.lastSeenMs,
                             isSelected = e.isSelectedByUser,
+                            confidenceBySource = SourceConfidences.decode(e.sources),
                         )
                     },
                 )
@@ -235,6 +299,13 @@ class ReviewViewModel(
                             modelVersion = outcome.modelVersion,
                             items = outcome.detections,
                         )
+                        // Auto-promote PENDING_REVIEW → REVIEWED so the Submit
+                        // button is enabled by the user's checkbox selection
+                        // alone — no separate Save tap. Skipped when nothing
+                        // was detected (REVIEWED on empty draft is misleading).
+                        if (outcome.detections.isNotEmpty()) {
+                            repo.markReviewed(draftId)
+                        }
                     }
                     _windowPreds.value = outcome.windows
                     _state.value = _state.value.copy(inferenceProgress = null)
@@ -265,6 +336,58 @@ class ReviewViewModel(
             withContext(ioDispatcher) { repo.delete(draftId) }
             onDeleted()
         }
+    }
+
+    /**
+     * Pushes the current draft to iNaturalist. Reflects progress on
+     * [ReviewUiState.inatSubmission] so the screen can show a spinner and
+     * the resulting observation URL or error.
+     *
+     * Logs the caller's stack trace so we can debug stray re-invocations —
+     * users have reported it firing without an explicit tap, which would
+     * otherwise be invisible (the lambda is just `vm::submitToINaturalist`).
+     */
+    fun submitToINaturalist() {
+        if (_state.value.inatSubmission == InatSubmissionState.InProgress) return
+        // Already finished in this VM instance — block re-fire so a stray
+        // recomposition or second click doesn't duplicate the upload.
+        if (_state.value.inatSubmission is InatSubmissionState.Done) return
+        // If a prior session already marked the draft UPLOADED, the user must
+        // explicitly reset before re-submitting (no safe-by-default re-fire).
+        if (_state.value.status == DraftStatus.UPLOADED) {
+            android.util.Log.w(
+                "ReviewViewModel",
+                "submitToINaturalist ignored — draft is already UPLOADED",
+                Throwable("call site"),
+            )
+            return
+        }
+        android.util.Log.i(
+            "ReviewViewModel",
+            "submitToINaturalist invoked",
+            Throwable("call site"),
+        )
+        _state.value = _state.value.copy(inatSubmission = InatSubmissionState.InProgress)
+        scope.launch {
+            val token = tokenProvider()
+            if (token.isNullOrBlank()) {
+                _state.value = _state.value.copy(
+                    inatSubmission = InatSubmissionState.Failed("Set iNaturalist token in Settings first"),
+                )
+                return@launch
+            }
+            val outcome = submission.submit(token, draftId)
+            _state.value = _state.value.copy(
+                inatSubmission = when (outcome) {
+                    is InatSubmissionOutcome.Success -> InatSubmissionState.Done(outcome.urls)
+                    is InatSubmissionOutcome.Failure -> InatSubmissionState.Failed(outcome.message)
+                },
+            )
+        }
+    }
+
+    fun resetInatSubmission() {
+        _state.value = _state.value.copy(inatSubmission = InatSubmissionState.Idle)
     }
 
     /**
@@ -347,13 +470,18 @@ class ReviewViewModel(
 }
 
 @HiltViewModel
+@Suppress("LongParameterList")
 class ReviewViewModelHilt @Inject constructor(
     savedStateHandle: SavedStateHandle,
     @ApplicationContext context: Context,
     private val repo: DraftRepository,
-    private val model: BioacousticModel,
+    private val models: List<@JvmSuppressWildcards BioacousticModel>,
+    private val descriptors: List<@JvmSuppressWildcards ModelDescriptor>,
     private val modelManager: ModelManager,
     private val settings: Settings,
+    private val submitter: INatSubmitter,
+    private val inatObservationsDao: InatObservationDao,
+    private val inatClient: INaturalistClient,
 ) : ViewModel() {
 
     private val draftId: String = checkNotNull(savedStateHandle.get<String>("draftId")) {
@@ -369,8 +497,21 @@ class ReviewViewModelHilt @Inject constructor(
         draftId = draftId,
         repo = repo,
         player = player,
-        inference = ProductionInferenceJob(model, modelManager, settings),
+        inference = ProductionInferenceJob(models, descriptors, modelManager, settings),
         visuals = ProductionVisualsProvider(),
+        submission = InatSubmissionJob { token, id ->
+            // Pulling the freshest draft + detections so the submitter sees the
+            // user's current selection, not a stale snapshot.
+            val dwd = repo.observeWithDetections(id).first()
+            when (val r = submitter.submit(token, dwd)) {
+                is INatSubmitter.Result.Ok -> InatSubmissionOutcome.Success(r.urls)
+                is INatSubmitter.Result.Failure -> InatSubmissionOutcome.Failure(r.message)
+            }
+        },
+        tokenProvider = { settings.inatToken.first() },
+        inatObservationsFlow = inatObservationsDao.observeForDraft(draftId)
+            .map { rows -> rows.map { it.taxonScientificName to it.observationUrl } },
+        photoFetcher = { name -> inatClient.fetchTaxonPhotoUrl(name) },
     )
 
     override fun onCleared() {
@@ -417,18 +558,28 @@ internal class ProductionVisualsProvider(
 }
 
 /**
- * Wires the production stack: [ModelManager.stateFor] (off Main),
- * [BioacousticModel.load], [InferenceRunner], [DetectionAggregator]
- * (with min-confidence pulled from [Settings]). The progress-collector
- * coroutine is bounded by [coroutineScope] so it cannot leak past `run()`.
+ * Wires the production stack: pairs each [BioacousticModel] with its
+ * [ModelDescriptor] by `modelId`, runs every installed (Ready) model
+ * sequentially over the same WAV, and concatenates per-window predictions
+ * before [DetectionAggregator] groups them per taxon.
+ *
+ * Sequential — not parallel — because TFLite interpreters are not
+ * thread-safe for concurrent inference and Perch v2 alone already pegs
+ * memory on a phone. Progress is reported as a smoothed fraction across
+ * the full multi-model run.
+ *
+ * If no model is installed, returns [InferenceOutcome.Failure]. If only
+ * one is installed, the run is identical to the legacy single-model path,
+ * with `confidenceBySource` reflecting just that one source.
  */
 private class ProductionInferenceJob(
-    private val model: BioacousticModel,
+    private val models: List<BioacousticModel>,
+    private val descriptors: List<ModelDescriptor>,
     private val modelManager: ModelManager,
     private val settings: Settings,
 ) : InferenceJob {
 
-    @Suppress("TooGenericExceptionCaught")
+    @Suppress("TooGenericExceptionCaught", "LongMethod", "NestedBlockDepth")
     override suspend fun run(
         audioPath: String,
         latitude: Double?,
@@ -436,29 +587,77 @@ private class ProductionInferenceJob(
         observedAtMillis: Long,
         onProgress: (Float) -> Unit,
     ): InferenceOutcome = withContext(Dispatchers.IO) {
-        try {
-            val ready = modelManager.stateFor(BirdNetV24.descriptor) as? ModelInstallState.Ready
-                ?: return@withContext InferenceOutcome.Failure("Model not installed")
-            model.load(ready.modelFile, ready.labelsFile)
-            val runner = InferenceRunner(model)
-            val minConf = settings.minConfidenceDisplay.first()
-            val aggregator = DetectionAggregator(minConfidence = minConf)
-            val preds = coroutineScope {
-                val collector = launch {
-                    runner.progress.collect { onProgress(it) }
-                }
-                val result = runner.run(File(audioPath), latitude, longitude, observedAtMillis)
-                collector.cancel()
-                result
-            }
-            InferenceOutcome.Success(
-                modelId = model.modelId,
-                modelVersion = model.modelVersion,
-                detections = aggregator.aggregate(preds),
-                windows = preds,
-            )
-        } catch (t: Throwable) {
-            InferenceOutcome.Failure(t.message ?: t::class.simpleName.orEmpty())
+        val descriptorsById = descriptors.associateBy { it.id }
+        val ready = models.mapNotNull { m ->
+            val d = descriptorsById[m.modelId] ?: return@mapNotNull null
+            val state = modelManager.stateFor(d) as? ModelInstallState.Ready
+                ?: return@mapNotNull null
+            Triple(m, d, state)
         }
+        if (ready.isEmpty()) {
+            android.util.Log.w(TAG, "No model installed; skipping inference")
+            return@withContext InferenceOutcome.Failure("No model installed")
+        }
+        val minConf = settings.minConfidenceDisplay.first()
+        // Perch: 5 s windows / 1 s hop → 2 windows = ≥6 s of evidence; drops single-window noise.
+        val aggregator = DetectionAggregator(minConfidence = minConf, minWindows = 2)
+        val allPreds = ArrayList<WindowPrediction>()
+        val succeeded = ArrayList<BioacousticModel>()
+        val perModelErrors = ArrayList<String>()
+        val total = ready.size
+        // Per-model try/catch so a broken model (e.g. wrong output shape)
+        // doesn't kill the entire run — the other models still produce
+        // detections. The user sees a partial-success banner with the
+        // failing model's error message.
+        for ((idx, triple) in ready.withIndex()) {
+            val (model, _, state) = triple
+            try {
+                android.util.Log.i(
+                    TAG,
+                    "Running ${model.modelId} v${model.modelVersion} " +
+                        "(${idx + 1}/$total) on $audioPath",
+                )
+                model.load(state.modelFile, state.labelsFile)
+                val runner = InferenceRunner(model)
+                val perModel = coroutineScope {
+                    val collector = launch {
+                        runner.progress.collect { p ->
+                            onProgress((idx + p) / total)
+                        }
+                    }
+                    val result = runner.run(File(audioPath), latitude, longitude, observedAtMillis)
+                    collector.cancel()
+                    result
+                }
+                allPreds += perModel
+                succeeded += model
+                android.util.Log.i(TAG, "${model.modelId} produced ${perModel.size} window predictions")
+            } catch (t: Throwable) {
+                android.util.Log.e(TAG, "Inference failed for ${model.modelId}", t)
+                perModelErrors += "${model.modelId}: ${t.message ?: t::class.simpleName.orEmpty()}"
+            } finally {
+                runCatching { model.close() }
+                    .onFailure { android.util.Log.w(TAG, "model.close() threw", it) }
+            }
+        }
+        onProgress(1f)
+        if (succeeded.isEmpty()) {
+            android.util.Log.e(TAG, "All ${ready.size} model(s) failed: $perModelErrors")
+            return@withContext InferenceOutcome.Failure(
+                perModelErrors.joinToString(separator = "; ").ifEmpty { "Inference failed" },
+            )
+        }
+        val ids = succeeded.joinToString(separator = "+") { it.modelId }
+        val versions = succeeded.joinToString(separator = "+") { it.modelVersion }
+        InferenceOutcome.Success(
+            modelId = ids,
+            modelVersion = versions,
+            detections = aggregator.aggregate(allPreds),
+            windows = allPreds,
+        )
+    }
+
+    private companion object {
+        const val TAG = "ProductionInferenceJob"
     }
 }
