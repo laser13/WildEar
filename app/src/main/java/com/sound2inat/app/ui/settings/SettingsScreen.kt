@@ -179,13 +179,6 @@ private fun ModelSectionRow(sec: ModelSection, vm: SettingsViewModel) {
 @Suppress("FunctionNaming")
 @Composable
 private fun InferenceSection(state: SettingsUiState, vm: SettingsViewModel) {
-    Text("Top K species: ${state.topK}")
-    Slider(
-        value = state.topK.toFloat(),
-        onValueChange = { vm.setTopK(it.toInt().coerceIn(MIN_TOP_K, MAX_TOP_K)) },
-        valueRange = MIN_TOP_K.toFloat()..MAX_TOP_K.toFloat(),
-        steps = MAX_TOP_K - MIN_TOP_K - 1,
-    )
     Text("Min display confidence: ${"%.2f".format(state.minConfidenceDisplay)}")
     Slider(
         value = state.minConfidenceDisplay,
@@ -283,8 +276,6 @@ private fun AboutSection() {
     Text("Sound2iNat 0.1.0", style = MaterialTheme.typography.bodyMedium)
 }
 
-private const val MIN_TOP_K = 1
-private const val MAX_TOP_K = 10
 private const val MIN_CONF = 0.05f
 private const val MAX_CONF = 0.90f
 private const val MIN_REGION_RADIUS = 50

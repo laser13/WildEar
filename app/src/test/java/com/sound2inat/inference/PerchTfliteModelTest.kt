@@ -58,17 +58,17 @@ class PerchTfliteModelTest {
     @get:Rule val tmp = TemporaryFolder()
 
     @Test
-    fun `top-K predictions ordered by confidence`() = runTest {
+    fun `predictions above floor ordered by confidence`() = runTest {
         // Row 0 is the CSV header/dataset tag — dropped by Labels.parsePerch.
         // Rows 1-3 are the actual classes; output tensor must be size 3.
         val labels = tmp.newFile("labels.csv").apply {
             writeText("inat2024_fsd50k\nSylvia melanothorax\nPasser domesticus\nNoise\n")
         }
         val model = tmp.newFile("model.tflite").apply { writeBytes(byteArrayOf(0)) }
-        val fake = PerchFakeInterpreterFactory(
-            output = floatArrayOf(0.7f, 0.2f, 0.0f),
-        )
-        val m = PerchTfliteModel(fake, topK = 2)
+        val logits = floatArrayOf(0.7f, 0.2f, -4.0f)
+        val fake = PerchFakeInterpreterFactory(output = logits)
+        // softmax(-4.0) over these logits ≈ 0.0056 < 0.01 floor → Noise excluded
+        val m = PerchTfliteModel(fake)
         m.load(model, labels)
 
         val pcm = FloatArray(32_000 * 5)
@@ -78,7 +78,7 @@ class PerchTfliteModelTest {
         assertThat(out.map { it.taxonScientificName })
             .containsExactly("Sylvia melanothorax", "Passer domesticus")
             .inOrder()
-        val expectedProb = softmax(floatArrayOf(0.7f, 0.2f, 0.0f))[0]
+        val expectedProb = softmax(logits)[0]
         assertThat(out[0].confidence).isWithin(1e-6f).of(expectedProb)
         assertThat(out[0].taxonCommonName).isNull()
         assertThat(out[0].startMs).isEqualTo(0L)

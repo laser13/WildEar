@@ -48,23 +48,6 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `setTopK propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
-        val captured = mutableListOf<Int>()
-        val topKFlow = MutableStateFlow(5)
-        val vm = build(
-            initial = ModelInstallState.NotInstalled,
-            topKFlow = topKFlow,
-            writeTopK = {
-                captured += it
-                topKFlow.value = it
-            },
-            scope = backgroundScope,
-        )
-        vm.setTopK(8)
-        assertThat(captured).containsExactly(8)
-    }
-
-    @Test
     fun `remove transitions section state to NotInstalled`() = runTest(UnconfinedTestDispatcher()) {
         val ready = ModelInstallState.Ready(File("/m"), File("/l"))
         val vm = build(initial = ready, scope = backgroundScope)
@@ -80,8 +63,6 @@ class SettingsViewModelTest {
             descriptors = listOf(descriptor, second),
             installModel = { _, _ -> },
             removeModel = {},
-            // Different initial states for each id — proves the VM resolves
-            // each descriptor independently rather than sharing state.
             resolveState = { d ->
                 if (d.id == descriptor.id) {
                     ModelInstallState.NotInstalled
@@ -90,9 +71,7 @@ class SettingsViewModelTest {
                 }
             },
             minConfFlow = MutableStateFlow(0.25f),
-            topKFlow = MutableStateFlow(5),
             writeMinConf = {},
-            writeTopK = {},
             inatTokenFlow = MutableStateFlow<String?>(null),
             inatLoginFlow = MutableStateFlow<String?>(null),
             writeInatToken = {},
@@ -160,11 +139,9 @@ class SettingsViewModelTest {
     private fun build(
         initial: ModelInstallState,
         install: suspend (ModelDescriptor, (ModelInstallState) -> Unit) -> Unit = { _, _ -> },
-        topKFlow: MutableStateFlow<Int> = MutableStateFlow(5),
-        writeTopK: suspend (Int) -> Unit = {},
-        regionalFilterEnabledFlow: kotlinx.coroutines.flow.MutableStateFlow<Boolean> = MutableStateFlow(true),
+        regionalFilterEnabledFlow: MutableStateFlow<Boolean> = MutableStateFlow(true),
         writeRegionalFilterEnabled: suspend (Boolean) -> Unit = {},
-        regionRadiusKmFlow: kotlinx.coroutines.flow.MutableStateFlow<Int> = MutableStateFlow(200),
+        regionRadiusKmFlow: MutableStateFlow<Int> = MutableStateFlow(200),
         writeRegionRadiusKm: suspend (Int) -> Unit = {},
         minWindowsFlow: MutableStateFlow<Int> = MutableStateFlow(2),
         writeMinWindows: suspend (Int) -> Unit = {},
@@ -175,9 +152,7 @@ class SettingsViewModelTest {
         removeModel = {},
         resolveState = { initial },
         minConfFlow = MutableStateFlow(0.25f),
-        topKFlow = topKFlow,
         writeMinConf = {},
-        writeTopK = writeTopK,
         inatTokenFlow = MutableStateFlow<String?>(null),
         inatLoginFlow = MutableStateFlow<String?>(null),
         writeInatToken = {},

@@ -21,7 +21,6 @@ data class ModelSection(
 data class SettingsUiState(
     val sections: List<ModelSection> = emptyList(),
     val minConfidenceDisplay: Float = 0.25f,
-    val topK: Int = 5,
     val inatTokenField: String = "",
     val inatLogin: String? = null,
     val inatTestStatus: InatTestStatus = InatTestStatus.Idle,

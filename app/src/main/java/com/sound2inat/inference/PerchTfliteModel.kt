@@ -21,7 +21,6 @@ import kotlin.math.exp
  */
 class PerchTfliteModel(
     private val factory: InterpreterFactory,
-    private val topK: Int = 5,
     private val threads: Int = 2,
 ) : BioacousticModel {
 
@@ -79,8 +78,9 @@ class PerchTfliteModel(
 
         val logits = labelBuf[0]
         val probabilities = softmax(logits)
-        val k = topK.coerceAtMost(probabilities.size)
-        val idx = probabilities.indices.sortedByDescending { probabilities[it] }.take(k)
+        val idx = probabilities.indices
+            .filter { probabilities[it] >= PREDICTION_FLOOR }
+            .sortedByDescending { probabilities[it] }
         return idx.map { ki ->
             val l = labels[ki]
             WindowPrediction(
@@ -99,6 +99,10 @@ class PerchTfliteModel(
         val exps = FloatArray(logits.size) { exp(logits[it] - maxLogit) }
         val sumExp = exps.sum()
         return FloatArray(exps.size) { exps[it] / sumExp }
+    }
+
+    private companion object {
+        const val PREDICTION_FLOOR = 0.01f
     }
 
     override fun close() {

@@ -23,9 +23,7 @@ class SettingsViewModel(
     private val removeModel: (ModelDescriptor) -> Unit,
     private val resolveState: suspend (ModelDescriptor) -> ModelInstallState,
     private val minConfFlow: Flow<Float>,
-    private val topKFlow: Flow<Int>,
     private val writeMinConf: suspend (Float) -> Unit,
-    private val writeTopK: suspend (Int) -> Unit,
     private val inatTokenFlow: Flow<String?>,
     private val inatLoginFlow: Flow<String?>,
     private val writeInatToken: suspend (String?) -> Unit,
@@ -65,9 +63,6 @@ class SettingsViewModel(
         }
         scope.launch {
             minConfFlow.collect { v -> _state.value = _state.value.copy(minConfidenceDisplay = v) }
-        }
-        scope.launch {
-            topKFlow.collect { v -> _state.value = _state.value.copy(topK = v) }
         }
         scope.launch {
             inatTokenFlow.collect { v ->
@@ -122,7 +117,6 @@ class SettingsViewModel(
     }
 
     fun setMinConfidence(v: Float) { scope.launch { writeMinConf(v) } }
-    fun setTopK(v: Int) { scope.launch { writeTopK(v) } }
 
     fun setInatTokenField(v: String) {
         _state.value = _state.value.copy(
@@ -198,9 +192,7 @@ class SettingsViewModelHilt @Inject constructor(
         removeModel = { d -> modelManager.remove(d) },
         resolveState = { d -> modelManager.stateFor(d) },
         minConfFlow = settings.minConfidenceDisplay,
-        topKFlow = settings.topK,
         writeMinConf = { settings.setMinConfidenceDisplay(it) },
-        writeTopK = { settings.setTopK(it) },
         inatTokenFlow = settings.inatToken,
         inatLoginFlow = settings.inatLogin,
         writeInatToken = { settings.setInatToken(it) },
