@@ -69,6 +69,7 @@ class AudioPreprocessorTest {
 
         val rmsIn = sqrt(loud.fold(0.0) { a, s -> a + s.toDouble() * s } / loud.size)
         val rmsOut = sqrt(result.fold(0.0) { a, s -> a + s.toDouble() * s } / result.size)
+        assertThat(rmsOut).isGreaterThan(0.0)
         assertThat(rmsOut).isLessThan(rmsIn)
     }
 }

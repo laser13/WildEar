@@ -46,16 +46,21 @@ fun highPassFilter(samples: FloatArray, sampleRateHz: Int, cutoffHz: Int = 250):
  *
  * NOT thread-safe — create one instance per InferenceRunner run.
  */
-@Suppress("TooManyFunctions")
 class SpectralSubtractor {
 
     private var noiseProfile: FloatArray? = null
 
     fun process(window: FloatArray): FloatArray {
+        val fftSize = nextPow2(window.size)
+        val expectedProfileSize = fftSize / 2 + 1
+        val existingProfile = noiseProfile
+        require(existingProfile == null || existingProfile.size == expectedProfileSize) {
+            "SpectralSubtractor window size changed mid-stream — create a new instance per stream"
+        }
+
         val rms = sqrt(window.fold(0.0) { acc, s -> acc + s.toDouble() * s } / window.size).toFloat()
         val profileSnapshot = noiseProfile
 
-        val fftSize = nextPow2(window.size)
         val spectrum = FloatArray(fftSize * 2)
         for (i in window.indices) spectrum[2 * i] = window[i]   // zero-pad imag parts stay 0
         fftInPlace(spectrum, fftSize, inverse = false)
@@ -77,7 +82,7 @@ class SpectralSubtractor {
             val re = spectrum[2 * i]; val im = spectrum[2 * i + 1]
             val powerIn = re * re + im * im
             val powerOut = max(powerIn - BETA * profile[i], GAMMA * powerIn)
-            val scale = if (powerIn > 1e-20f) sqrt(powerOut / powerIn) else 0f
+            val scale = if (powerIn > POWER_FLOOR) sqrt(powerOut / powerIn) else 0f
             outSpec[2 * i] = re * scale; outSpec[2 * i + 1] = im * scale
         }
         // Conjugate symmetry so IFFT produces a real signal
@@ -136,5 +141,7 @@ class SpectralSubtractor {
         private const val ALPHA = 0.1f
         private const val BETA = 1.5f
         private const val GAMMA = 0.002f
+        // Numerical guard against divide-by-zero in spectral domain
+        private const val POWER_FLOOR = 1e-20f
     }
 }
