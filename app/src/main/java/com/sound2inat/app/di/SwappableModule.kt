@@ -6,6 +6,8 @@ import com.sound2inat.inference.BirdNetTfliteModel
 import com.sound2inat.inference.InterpreterFactory
 import com.sound2inat.location.FusedLocationProvider
 import com.sound2inat.location.LocationProvider
+import com.sound2inat.modelmanager.KnownModels
+import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelManager
 import com.sound2inat.recorder.AndroidAudioRecordSource
 import com.sound2inat.recorder.AudioRecordSource
@@ -43,7 +45,18 @@ object SwappableModule {
     fun provideLocation(@ApplicationContext ctx: Context): LocationProvider =
         FusedLocationProvider(ctx)
 
+    /**
+     * Models the inference layer can run for a draft. Order matters only for
+     * test-mode determinism — production callers pick an installed subset by
+     * [BioacousticModel.modelId]. Adding a new model = appending a new
+     * implementation here AND a matching [com.sound2inat.modelmanager.ModelDescriptor]
+     * in [com.sound2inat.modelmanager.KnownModels].
+     */
     @Provides @Singleton
-    fun provideBioacousticModel(factory: InterpreterFactory): BioacousticModel =
-        BirdNetTfliteModel(factory)
+    fun provideBioacousticModels(factory: InterpreterFactory): List<BioacousticModel> =
+        listOf(BirdNetTfliteModel(factory))
+
+    /** Descriptors paired (by [BioacousticModel.modelId]) with installed models. */
+    @Provides @Singleton
+    fun provideModelDescriptors(): List<ModelDescriptor> = KnownModels
 }
