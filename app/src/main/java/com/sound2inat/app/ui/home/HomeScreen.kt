@@ -44,11 +44,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import coil.compose.AsyncImage
 import com.sound2inat.storage.DraftStatus
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -178,6 +180,9 @@ private fun RecordingCard(
     onClick: () -> Unit,
 ) {
     val topLabel by remember(summary.id) { vm.observeTopLabel(summary.id) }.collectAsState(initial = null)
+    val topSpecies by remember(summary.id) {
+        vm.observeTopSpecies(summary.id)
+    }.collectAsState(initial = emptyList())
     val inatCount by remember(summary.id) {
         vm.observeInatObservationCount(summary.id)
     }.collectAsState(initial = 0)
@@ -213,14 +218,47 @@ private fun RecordingCard(
                 Text(topLabel ?: statusHeadline(summary.status))
             },
             supportingContent = {
-                Text(
-                    "${formatTimestamp(summary.recordedAtUtcMs)}  ·  ${formatDuration(summary.durationMs)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (topSpecies.isNotEmpty()) {
+                        SpeciesAvatarRow(items = topSpecies, vm = vm)
+                    }
+                    Text(
+                        "${formatTimestamp(summary.recordedAtUtcMs)}  ·  ${formatDuration(summary.durationMs)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             },
             trailingContent = uploadBadge(summary, inatCount),
         )
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun SpeciesAvatarRow(items: List<TopSpeciesItem>, vm: HomeViewModelHilt) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        items.forEach { item ->
+            val photoUrl by vm.observeTaxonPhoto(item.scientificName).collectAsState()
+            Box(
+                modifier = Modifier
+                    .size(SPECIES_AVATAR_SIZE_DP.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            ) {
+                if (photoUrl != null) {
+                    AsyncImage(
+                        model = photoUrl,
+                        contentDescription = item.commonName ?: item.scientificName,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -294,6 +332,7 @@ private const val SECONDS_PER_MINUTE = 60L
 private const val STATUS_ICON_SIZE_DP = 40
 private const val STATUS_ICON_INNER_DP = 20
 private const val BADGE_ICON_SIZE_DP = 14
+private const val SPECIES_AVATAR_SIZE_DP = 22
 private const val DAY_MS = 24L * 60L * 60L * 1000L
 private const val WEEK_DAYS = 7
 
