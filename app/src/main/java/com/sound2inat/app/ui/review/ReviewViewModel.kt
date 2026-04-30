@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.sound2inat.app.data.Settings
 import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INaturalistClient
+import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.DetectionAggregator
@@ -482,6 +483,7 @@ class ReviewViewModelHilt @Inject constructor(
     private val submitter: INatSubmitter,
     private val inatObservationsDao: InatObservationDao,
     private val inatClient: INaturalistClient,
+    private val regionFilter: RegionFilter,
 ) : ViewModel() {
 
     private val draftId: String = checkNotNull(savedStateHandle.get<String>("draftId")) {
@@ -497,7 +499,7 @@ class ReviewViewModelHilt @Inject constructor(
         draftId = draftId,
         repo = repo,
         player = player,
-        inference = ProductionInferenceJob(models, descriptors, modelManager, settings),
+        inference = ProductionInferenceJob(models, descriptors, modelManager, settings, regionFilter),
         visuals = ProductionVisualsProvider(),
         submission = InatSubmissionJob { token, id ->
             // Pulling the freshest draft + detections so the submitter sees the
@@ -577,6 +579,7 @@ private class ProductionInferenceJob(
     private val descriptors: List<ModelDescriptor>,
     private val modelManager: ModelManager,
     private val settings: Settings,
+    private val regionFilter: RegionFilter,
 ) : InferenceJob {
 
     @Suppress("TooGenericExceptionCaught", "LongMethod", "NestedBlockDepth")
@@ -649,10 +652,34 @@ private class ProductionInferenceJob(
         }
         val ids = succeeded.joinToString(separator = "+") { it.modelId }
         val versions = succeeded.joinToString(separator = "+") { it.modelVersion }
+        val rawDetections = aggregator.aggregate(allPreds)
+
+        if (latitude != null && longitude != null) {
+            settings.setLastKnownCoords(latitude, longitude)
+        }
+
+        val filteredDetections = when {
+            !settings.regionalFilterEnabled.first() -> rawDetections
+            latitude != null && longitude != null -> {
+                val radius = settings.regionRadiusKm.first()
+                regionFilter.filter(rawDetections, latitude, longitude, radius)
+            }
+            else -> {
+                val lastLat = settings.lastKnownLat.first()
+                val lastLon = settings.lastKnownLon.first()
+                if (lastLat != null && lastLon != null) {
+                    val radius = settings.regionRadiusKm.first()
+                    regionFilter.filter(rawDetections, lastLat, lastLon, radius)
+                } else {
+                    rawDetections
+                }
+            }
+        }
+
         InferenceOutcome.Success(
             modelId = ids,
             modelVersion = versions,
-            detections = aggregator.aggregate(allPreds),
+            detections = filteredDetections,
             windows = allPreds,
         )
     }
