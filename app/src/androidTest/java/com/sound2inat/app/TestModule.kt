@@ -3,6 +3,7 @@ package com.sound2inat.app
 import com.sound2inat.app.di.SwappableModule
 import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.WindowPrediction
+import com.sound2inat.inference.YamNetGate
 import com.sound2inat.location.Fix
 import com.sound2inat.location.LocationProvider
 import com.sound2inat.modelmanager.BirdNetV24
@@ -56,6 +57,10 @@ object TestSwappableModule {
     @Provides @Singleton
     fun provideModelManager(http: OkHttpClient): ModelManager =
         FakeModelManager(File("/dev/null"), http)
+
+    /** Bypass YAMNet in e2e tests — InferenceRunner sees null and never calls the gate. */
+    @Provides @Singleton
+    fun provideYamNetGate(): YamNetGate? = null
 }
 
 /**

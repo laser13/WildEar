@@ -5,11 +5,14 @@ import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.BirdNetTfliteModel
 import com.sound2inat.inference.InterpreterFactory
 import com.sound2inat.inference.PerchTfliteModel
+import com.sound2inat.inference.YamNetGate
+import com.sound2inat.inference.YamNetTfliteGate
 import com.sound2inat.location.FusedLocationProvider
 import com.sound2inat.location.LocationProvider
 import com.sound2inat.modelmanager.KnownModels
 import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelManager
+import com.sound2inat.modelmanager.YamNetV1
 import com.sound2inat.recorder.AndroidAudioRecordSource
 import com.sound2inat.recorder.AudioRecordSource
 import com.sound2inat.recorder.DefaultRecorder
@@ -34,7 +37,21 @@ object SwappableModule {
     fun provideModelManager(
         @ApplicationContext ctx: Context,
         http: OkHttpClient,
-    ): ModelManager = ModelManager(ctx.filesDir, http)
+    ): ModelManager = ModelManager(
+        ctx.filesDir,
+        http,
+        hiddenDescriptors = listOf(YamNetV1.descriptor),
+    )
+
+    /**
+     * YAMNet biological gate. Returned as nullable so [TestSwappableModule]
+     * can override with `null` to bypass YAMNet inference in instrumented tests.
+     */
+    @Provides @Singleton
+    fun provideYamNetGate(
+        factory: InterpreterFactory,
+        manager: ModelManager,
+    ): YamNetGate? = YamNetTfliteGate(factory, manager)
 
     @Provides @Singleton
     fun provideAudioSource(): AudioRecordSource = AndroidAudioRecordSource()

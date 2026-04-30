@@ -13,8 +13,10 @@ import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.DetectionAggregator
 import com.sound2inat.inference.InferenceRunner
 import com.sound2inat.inference.SourceConfidences
+import com.sound2inat.inference.SpectralSubtractor
 import com.sound2inat.inference.WavReader
 import com.sound2inat.inference.WindowPrediction
+import com.sound2inat.inference.YamNetGate
 import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
@@ -503,6 +505,7 @@ class ReviewViewModelHilt @Inject constructor(
     private val inatObservationsDao: InatObservationDao,
     private val inatClient: INaturalistClient,
     private val regionFilter: RegionFilter,
+    private val yamNetGate: YamNetGate?,
 ) : ViewModel() {
 
     private val draftId: String = checkNotNull(savedStateHandle.get<String>("draftId")) {
@@ -518,7 +521,14 @@ class ReviewViewModelHilt @Inject constructor(
         draftId = draftId,
         repo = repo,
         player = player,
-        inference = ProductionInferenceJob(models, descriptors, modelManager, settings, regionFilter),
+        inference = ProductionInferenceJob(
+            models,
+            descriptors,
+            modelManager,
+            settings,
+            regionFilter,
+            yamNetGate,
+        ),
         visuals = ProductionVisualsProvider(),
         submission = InatSubmissionJob { token, id ->
             // Pulling the freshest draft + detections so the submitter sees the
@@ -599,6 +609,7 @@ private class ProductionInferenceJob(
     private val modelManager: ModelManager,
     private val settings: Settings,
     private val regionFilter: RegionFilter,
+    private val yamNetGate: YamNetGate?,
 ) : InferenceJob {
 
     @Suppress("TooGenericExceptionCaught", "LongMethod", "NestedBlockDepth")
@@ -622,6 +633,9 @@ private class ProductionInferenceJob(
         }
         val minConf = settings.minConfidenceDisplay.first()
         val minWin = settings.minWindows.first()
+        val spectralEnabled = settings.spectralSubtractionEnabled.first()
+        val yamNetEnabled = settings.yamNetGateEnabled.first()
+        val activeGate = if (yamNetEnabled) yamNetGate else null
         val aggregator = DetectionAggregator(minConfidence = minConf, minWindows = minWin)
         val allPreds = ArrayList<WindowPrediction>()
         val succeeded = ArrayList<BioacousticModel>()
@@ -640,7 +654,14 @@ private class ProductionInferenceJob(
                         "(${idx + 1}/$total) on $audioPath",
                 )
                 model.load(state.modelFile, state.labelsFile)
-                val runner = InferenceRunner(model)
+                // Fresh SpectralSubtractor per model — its EMA noise profile is sized to
+                // the FFT of this model's window length and must not leak between models.
+                val subtractor = if (spectralEnabled) SpectralSubtractor() else null
+                val runner = InferenceRunner(
+                    model,
+                    spectralSubtractor = subtractor,
+                    yamNetGate = activeGate,
+                )
                 val perModel = coroutineScope {
                     val collector = launch {
                         runner.progress.collect { p ->
