@@ -50,6 +50,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.sound2inat.storage.DraftStatus
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -115,12 +116,23 @@ fun HomeScreen(
             if (state.drafts.isEmpty()) {
                 EmptyState(modifier = Modifier.fillMaxSize())
             } else {
+                val groups = remember(state.drafts) { groupDraftsByDate(state.drafts) }
                 LazyColumn(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(state.drafts, key = { it.id }) { d ->
-                        RecordingCard(d, vm = vm, onClick = { onOpenDraft(d.id) })
+                    groups.forEach { group ->
+                        item(key = "header_${group.label}") {
+                            Text(
+                                group.label,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                            )
+                        }
+                        items(group.drafts, key = { it.id }) { d ->
+                            RecordingCard(d, vm = vm, onClick = { onOpenDraft(d.id) })
+                        }
                     }
                 }
             }
@@ -253,3 +265,46 @@ private const val MS_PER_SECOND = 1000L
 private const val SECONDS_PER_MINUTE = 60L
 private const val STATUS_ICON_SIZE_DP = 40
 private const val STATUS_ICON_INNER_DP = 20
+private const val DAY_MS = 24L * 60L * 60L * 1000L
+private const val WEEK_DAYS = 7
+
+private data class DateGroup(val label: String, val drafts: List<DraftSummary>)
+
+/**
+ * Groups recording drafts by the local calendar day they were recorded on.
+ * Today / Yesterday get human labels; days within a week show weekday + date;
+ * older entries fall back to a full date stamp. Order: newest-first within
+ * each group, groups themselves newest-first.
+ */
+private fun groupDraftsByDate(
+    drafts: List<DraftSummary>,
+    now: Long = System.currentTimeMillis(),
+): List<DateGroup> {
+    if (drafts.isEmpty()) return emptyList()
+    val cal = Calendar.getInstance()
+    val todayStart = startOfDay(now, cal)
+    val yesterdayStart = todayStart - DAY_MS
+    val recentFmt = SimpleDateFormat("EEEE, MMM d", Locale.US)
+    val olderFmt = SimpleDateFormat("MMMM d, yyyy", Locale.US)
+    val groups = LinkedHashMap<String, MutableList<DraftSummary>>()
+    for (d in drafts.sortedByDescending { it.recordedAtUtcMs }) {
+        val dayStart = startOfDay(d.recordedAtUtcMs, cal)
+        val label = when {
+            dayStart >= todayStart -> "Today"
+            dayStart >= yesterdayStart -> "Yesterday"
+            (todayStart - dayStart) < WEEK_DAYS * DAY_MS -> recentFmt.format(Date(d.recordedAtUtcMs))
+            else -> olderFmt.format(Date(d.recordedAtUtcMs))
+        }
+        groups.getOrPut(label) { mutableListOf() }.add(d)
+    }
+    return groups.map { (label, ds) -> DateGroup(label, ds) }
+}
+
+private fun startOfDay(ms: Long, cal: Calendar): Long {
+    cal.timeInMillis = ms
+    cal.set(Calendar.HOUR_OF_DAY, 0)
+    cal.set(Calendar.MINUTE, 0)
+    cal.set(Calendar.SECOND, 0)
+    cal.set(Calendar.MILLISECOND, 0)
+    return cal.timeInMillis
+}
