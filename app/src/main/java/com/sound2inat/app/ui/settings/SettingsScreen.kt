@@ -76,6 +76,9 @@ fun SettingsScreen(onBack: () -> Unit) {
             SectionCard(title = "Inference") {
                 InferenceSection(state, vm)
             }
+            SectionCard(title = "Noise reduction") {
+                NoiseReductionSection(state, vm)
+            }
             SectionCard(title = "Regional filter") {
                 RegionalFilterSection(state, vm)
             }
@@ -192,6 +195,33 @@ private fun InferenceSection(state: SettingsUiState, vm: SettingsViewModel) {
         valueRange = MIN_MIN_WINDOWS.toFloat()..MAX_MIN_WINDOWS.toFloat(),
         steps = MAX_MIN_WINDOWS - MIN_MIN_WINDOWS - 1,
     )
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun NoiseReductionSection(state: SettingsUiState, vm: SettingsViewModel) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Spectral noise reduction")
+        Switch(
+            checked = state.spectralSubtractionEnabled,
+            onCheckedChange = { vm.setSpectralSubtractionEnabled(it) },
+        )
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("YAMNet biological gate")
+        Switch(
+            checked = state.yamNetGateEnabled,
+            onCheckedChange = { vm.setYamNetGateEnabled(it) },
+        )
+    }
 }
 
 @Suppress("FunctionNaming", "LongMethod")

@@ -27,6 +27,8 @@ data class SettingsUiState(
     val regionalFilterEnabled: Boolean = true,
     val regionRadiusKm: Int = 200,
     val minWindows: Int = 2,
+    val spectralSubtractionEnabled: Boolean = true,
+    val yamNetGateEnabled: Boolean = true,
 )
 
 sealed interface InatTestStatus {

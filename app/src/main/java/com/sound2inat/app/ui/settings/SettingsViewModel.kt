@@ -35,6 +35,10 @@ class SettingsViewModel(
     private val writeRegionRadiusKm: suspend (Int) -> Unit,
     private val minWindowsFlow: Flow<Int>,
     private val writeMinWindows: suspend (Int) -> Unit,
+    private val spectralSubtractionEnabledFlow: Flow<Boolean>,
+    private val writeSpectralSubtractionEnabled: suspend (Boolean) -> Unit,
+    private val yamNetGateEnabledFlow: Flow<Boolean>,
+    private val writeYamNetGateEnabled: suspend (Boolean) -> Unit,
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -84,6 +88,16 @@ class SettingsViewModel(
         }
         scope.launch {
             minWindowsFlow.collect { v -> _state.value = _state.value.copy(minWindows = v) }
+        }
+        scope.launch {
+            spectralSubtractionEnabledFlow.collect { v ->
+                _state.value = _state.value.copy(spectralSubtractionEnabled = v)
+            }
+        }
+        scope.launch {
+            yamNetGateEnabledFlow.collect { v ->
+                _state.value = _state.value.copy(yamNetGateEnabled = v)
+            }
         }
     }
 
@@ -170,6 +184,10 @@ class SettingsViewModel(
     fun setRegionalFilterEnabled(v: Boolean) { scope.launch { writeRegionalFilterEnabled(v) } }
     fun setRegionRadiusKm(v: Int) { scope.launch { writeRegionRadiusKm(v) } }
     fun setMinWindows(v: Int) { scope.launch { writeMinWindows(v) } }
+    fun setSpectralSubtractionEnabled(v: Boolean) {
+        scope.launch { writeSpectralSubtractionEnabled(v) }
+    }
+    fun setYamNetGateEnabled(v: Boolean) { scope.launch { writeYamNetGateEnabled(v) } }
 
     private fun updateSection(modelId: String, transform: (ModelSection) -> ModelSection) {
         _state.value = _state.value.copy(
@@ -204,5 +222,9 @@ class SettingsViewModelHilt @Inject constructor(
         writeRegionRadiusKm = { settings.setRegionRadiusKm(it) },
         minWindowsFlow = settings.minWindows,
         writeMinWindows = { settings.setMinWindows(it) },
+        spectralSubtractionEnabledFlow = settings.spectralSubtractionEnabled,
+        writeSpectralSubtractionEnabled = { settings.setSpectralSubtractionEnabled(it) },
+        yamNetGateEnabledFlow = settings.yamNetGateEnabled,
+        writeYamNetGateEnabled = { settings.setYamNetGateEnabled(it) },
     )
 }

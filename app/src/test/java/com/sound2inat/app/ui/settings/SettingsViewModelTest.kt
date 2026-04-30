@@ -83,6 +83,10 @@ class SettingsViewModelTest {
             writeRegionRadiusKm = {},
             minWindowsFlow = MutableStateFlow(2),
             writeMinWindows = {},
+            spectralSubtractionEnabledFlow = MutableStateFlow(true),
+            writeSpectralSubtractionEnabled = {},
+            yamNetGateEnabledFlow = MutableStateFlow(true),
+            writeYamNetGateEnabled = {},
             externalScope = backgroundScope,
         )
         val sections = vm.state.value.sections.associateBy { it.modelId }
@@ -136,6 +140,36 @@ class SettingsViewModelTest {
         assertThat(vm.state.value.minWindows).isEqualTo(5)
     }
 
+    @Test
+    fun `setSpectralSubtractionEnabled propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
+        val captured = mutableListOf<Boolean>()
+        val flow = MutableStateFlow(true)
+        val vm = build(
+            initial = ModelInstallState.NotInstalled,
+            spectralSubtractionEnabledFlow = flow,
+            writeSpectralSubtractionEnabled = { captured += it; flow.value = it },
+            scope = backgroundScope,
+        )
+        vm.setSpectralSubtractionEnabled(false)
+        assertThat(captured).containsExactly(false)
+        assertThat(vm.state.value.spectralSubtractionEnabled).isFalse()
+    }
+
+    @Test
+    fun `setYamNetGateEnabled propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
+        val captured = mutableListOf<Boolean>()
+        val flow = MutableStateFlow(true)
+        val vm = build(
+            initial = ModelInstallState.NotInstalled,
+            yamNetGateEnabledFlow = flow,
+            writeYamNetGateEnabled = { captured += it; flow.value = it },
+            scope = backgroundScope,
+        )
+        vm.setYamNetGateEnabled(false)
+        assertThat(captured).containsExactly(false)
+        assertThat(vm.state.value.yamNetGateEnabled).isFalse()
+    }
+
     private fun build(
         initial: ModelInstallState,
         install: suspend (ModelDescriptor, (ModelInstallState) -> Unit) -> Unit = { _, _ -> },
@@ -145,6 +179,10 @@ class SettingsViewModelTest {
         writeRegionRadiusKm: suspend (Int) -> Unit = {},
         minWindowsFlow: MutableStateFlow<Int> = MutableStateFlow(2),
         writeMinWindows: suspend (Int) -> Unit = {},
+        spectralSubtractionEnabledFlow: MutableStateFlow<Boolean> = MutableStateFlow(true),
+        writeSpectralSubtractionEnabled: suspend (Boolean) -> Unit = {},
+        yamNetGateEnabledFlow: MutableStateFlow<Boolean> = MutableStateFlow(true),
+        writeYamNetGateEnabled: suspend (Boolean) -> Unit = {},
         scope: CoroutineScope,
     ): SettingsViewModel = SettingsViewModel(
         descriptors = listOf(descriptor),
@@ -164,6 +202,10 @@ class SettingsViewModelTest {
         writeRegionRadiusKm = writeRegionRadiusKm,
         minWindowsFlow = minWindowsFlow,
         writeMinWindows = writeMinWindows,
+        spectralSubtractionEnabledFlow = spectralSubtractionEnabledFlow,
+        writeSpectralSubtractionEnabled = writeSpectralSubtractionEnabled,
+        yamNetGateEnabledFlow = yamNetGateEnabledFlow,
+        writeYamNetGateEnabled = writeYamNetGateEnabled,
         externalScope = scope,
     )
 }
