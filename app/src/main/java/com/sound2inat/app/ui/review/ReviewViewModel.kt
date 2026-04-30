@@ -346,6 +346,30 @@ class ReviewViewModel(
         scope.launch(ioDispatcher) { repo.setSelection(detectionId, selected) }
     }
 
+    /**
+     * Re-runs inference on the current draft. Clears existing detections and
+     * candidate rows, rolls draft status back to PENDING_INFERENCE; the init
+     * flow watching [DraftRepository.observeWithDetections] picks up the new
+     * status and re-triggers [startInference]. No-op while inference is
+     * already running.
+     */
+    fun reanalyze() {
+        if (_state.value.inferenceProgress != null) return
+        if (_state.value.audioPath == null) return
+        inferenceJob?.cancel()
+        inferenceStarted = false
+        _windowPreds.value = emptyList()
+        // Set progress = 0f immediately so the button hides without flicker
+        // before the repo flow re-emits PENDING_INFERENCE and startInference
+        // takes over the progress field for real.
+        _state.value = _state.value.copy(
+            candidates = emptyList(),
+            inferenceError = null,
+            inferenceProgress = 0f,
+        )
+        scope.launch(ioDispatcher) { repo.resetForReanalysis(draftId) }
+    }
+
     fun save(onSaved: () -> Unit = {}) {
         scope.launch {
             withContext(ioDispatcher) { repo.markReviewed(draftId) }

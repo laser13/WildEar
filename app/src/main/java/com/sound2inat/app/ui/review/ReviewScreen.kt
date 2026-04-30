@@ -115,6 +115,17 @@ fun ReviewScreen(
             }
             if (state.inferenceProgress != null) {
                 item { InferenceProgressBlock(state.inferenceProgress!!) }
+            } else if (state.audioPath != null && state.status != DraftStatus.UPLOADED) {
+                item {
+                    OutlinedButton(
+                        onClick = { vm.reanalyze() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text("Re-analyze")
+                    }
+                }
             }
             state.inferenceError?.let { err ->
                 item {

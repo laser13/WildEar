@@ -105,6 +105,26 @@ class DraftRepository(
         drafts.update(d.copy(status = DraftStatus.REVIEWED, updatedAtUtcMs = nowMs()))
     }
 
+    /**
+     * Resets a draft so the inference pipeline runs again on next observe.
+     * Drops any previously attached detections, clears the recorded model id,
+     * and rolls status back to [DraftStatus.PENDING_INFERENCE]. Used when the
+     * user changes settings (e.g. noise reduction, min confidence) and wants
+     * to re-analyze a recording without re-recording it.
+     */
+    fun resetForReanalysis(draftId: String) {
+        val d = drafts.getById(draftId) ?: error("draft $draftId missing")
+        drafts.update(
+            d.copy(
+                status = DraftStatus.PENDING_INFERENCE,
+                modelId = null,
+                modelVersion = null,
+                updatedAtUtcMs = nowMs(),
+            ),
+        )
+        detections.deleteForDraft(draftId)
+    }
+
     fun delete(draftId: String) {
         drafts.deleteById(draftId)
         files.deleteAllFor(draftId)
