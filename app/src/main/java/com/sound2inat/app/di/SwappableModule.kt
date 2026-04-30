@@ -4,6 +4,7 @@ import android.content.Context
 import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.BirdNetTfliteModel
 import com.sound2inat.inference.InterpreterFactory
+import com.sound2inat.inference.PerchTfliteModel
 import com.sound2inat.location.FusedLocationProvider
 import com.sound2inat.location.LocationProvider
 import com.sound2inat.modelmanager.KnownModels
@@ -54,7 +55,7 @@ object SwappableModule {
      */
     @Provides @Singleton
     fun provideBioacousticModels(factory: InterpreterFactory): List<BioacousticModel> =
-        listOf(BirdNetTfliteModel(factory))
+        listOf(BirdNetTfliteModel(factory), PerchTfliteModel(factory))
 
     /** Descriptors paired (by [BioacousticModel.modelId]) with installed models. */
     @Provides @Singleton
