@@ -11,6 +11,10 @@ data class SpeciesRow(
     val firstSeenMs: Long,
     val lastSeenMs: Long,
     val isSelected: Boolean,
+    /** `modelId → maxConfidence` per source. Empty for legacy single-model rows. */
+    val confidenceBySource: Map<String, Float> = emptyMap(),
+    /** iNaturalist default_photo.medium_url; null until fetched or if unavailable. */
+    val taxonPhotoUrl: String? = null,
 )
 
 data class ReviewUiState(
@@ -25,6 +29,15 @@ data class ReviewUiState(
     val inferenceError: String? = null,
     val species: List<SpeciesRow> = emptyList(),
     val playback: PlaybackState = PlaybackState.Idle,
+    /**
+     * Persisted observations attached to this draft from prior submissions.
+     * Each entry is `(scientificName, observationUrl)`.
+     */
+    val inatObservations: List<Pair<String, String>> = emptyList(),
+    val inatSubmission: InatSubmissionState = InatSubmissionState.Idle,
+    /** Species that passed the absolute floor (≥1 window, confidence ≥ 1%) but were
+     *  filtered out by the user's minConfidence/minWindows/region settings. Not persisted. */
+    val candidates: List<SpeciesRow> = emptyList(),
 )
 
 sealed interface PlaybackState {
@@ -32,4 +45,11 @@ sealed interface PlaybackState {
     data class Playing(val positionMs: Long) : PlaybackState
     data class Paused(val positionMs: Long) : PlaybackState
     data class Error(val message: String) : PlaybackState
+}
+
+sealed interface InatSubmissionState {
+    data object Idle : InatSubmissionState
+    data object InProgress : InatSubmissionState
+    data class Done(val urls: List<String>) : InatSubmissionState
+    data class Failed(val message: String) : InatSubmissionState
 }

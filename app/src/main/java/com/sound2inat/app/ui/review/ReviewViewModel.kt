@@ -54,6 +54,9 @@ sealed interface InferenceOutcome {
          * and reopens the screen until inference reruns. (See Task 15.)
          */
         val windows: List<WindowPrediction> = emptyList(),
+        /** Species that passed the absolute floor but were filtered by current settings.
+         *  Shown grayed-out in the UI; not saved to DB. */
+        val candidateDetections: List<AggregatedDetection> = emptyList(),
     ) : InferenceOutcome
 
     data class Failure(val message: String) : InferenceOutcome
@@ -309,7 +312,23 @@ class ReviewViewModel(
                         }
                     }
                     _windowPreds.value = outcome.windows
-                    _state.value = _state.value.copy(inferenceProgress = null)
+                    val candidateRows = outcome.candidateDetections.mapIndexed { i, det ->
+                        SpeciesRow(
+                            detectionId = -(i + 1L),
+                            taxonScientificName = det.taxonScientificName,
+                            taxonCommonName = det.taxonCommonName,
+                            maxConfidence = det.maxConfidence,
+                            detectedWindows = det.detectedWindows,
+                            firstSeenMs = det.firstSeenMs,
+                            lastSeenMs = det.lastSeenMs,
+                            isSelected = false,
+                            confidenceBySource = det.confidenceBySource,
+                        )
+                    }
+                    _state.value = _state.value.copy(
+                        inferenceProgress = null,
+                        candidates = candidateRows,
+                    )
                 }
                 is InferenceOutcome.Failure -> {
                     _state.value = _state.value.copy(
@@ -676,15 +695,22 @@ private class ProductionInferenceJob(
             }
         }
 
+        val acceptedNames = filteredDetections.map { it.taxonScientificName }.toSet()
+        val floorAggregator = DetectionAggregator(minConfidence = CANDIDATE_MIN_CONFIDENCE, minWindows = 1)
+        val candidateDetections = floorAggregator.aggregate(allPreds)
+            .filter { it.taxonScientificName !in acceptedNames }
+
         InferenceOutcome.Success(
             modelId = ids,
             modelVersion = versions,
             detections = filteredDetections,
             windows = allPreds,
+            candidateDetections = candidateDetections,
         )
     }
 
     private companion object {
         const val TAG = "ProductionInferenceJob"
+        const val CANDIDATE_MIN_CONFIDENCE = 0.01f
     }
 }
