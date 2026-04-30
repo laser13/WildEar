@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -218,18 +219,45 @@ private fun RecordingCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             },
-            trailingContent = if (inatCount > 0) {
-                {
-                    Text(
-                        "✓ $inatCount",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            } else {
-                null
-            },
+            trailingContent = uploadBadge(summary, inatCount),
         )
+    }
+}
+
+/**
+ * Returns a composable that renders the "Uploaded" chip on the right side of
+ * a recording card, or null when the draft has nothing to brag about. A chip
+ * is shown when the draft has at least one persisted iNaturalist observation
+ * OR its status is UPLOADED (covers the brief gap between submit success and
+ * the per-draft observation rows landing in Room).
+ */
+@Composable
+private fun uploadBadge(summary: DraftSummary, inatCount: Int): (@Composable () -> Unit)? {
+    val uploaded = inatCount > 0 || summary.status == DraftStatus.UPLOADED
+    if (!uploaded) return null
+    return {
+        Surface(
+            color = MaterialTheme.colorScheme.primaryContainer,
+            shape = MaterialTheme.shapes.small,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(
+                    Icons.Filled.CloudDone,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(BADGE_ICON_SIZE_DP.dp),
+                )
+                Text(
+                    if (inatCount > 1) "Uploaded · $inatCount" else "Uploaded",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        }
     }
 }
 
@@ -265,6 +293,7 @@ private const val MS_PER_SECOND = 1000L
 private const val SECONDS_PER_MINUTE = 60L
 private const val STATUS_ICON_SIZE_DP = 40
 private const val STATUS_ICON_INNER_DP = 20
+private const val BADGE_ICON_SIZE_DP = 14
 private const val DAY_MS = 24L * 60L * 60L * 1000L
 private const val WEEK_DAYS = 7
 
