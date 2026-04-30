@@ -6,21 +6,23 @@ import java.io.File
 import java.io.RandomAccessFile
 
 /**
- * Slices a mono 16-bit WAV into fixed windows hopped by [hopSeconds], calls
- * [model] per window, and aggregates predictions.
+ * Slices a mono 16-bit WAV into fixed windows hopped by [hopSeconds], optionally
+ * applies spectral subtraction and a YAMNet biological gate, and calls [model]
+ * per window that passes the gate.
  *
- * Window length and target sample rate come from the model itself
- * ([BioacousticModel.windowMs] / [BioacousticModel.expectedSampleRateHz]).
- * When the WAV's native rate differs from the model's expected rate, the
- * runner linearly resamples the entire signal once before slicing.
+ * Pipeline per run:
+ *   1. Read + resample to model rate (ShortArray).
+ *   2. Normalize to [-1, 1] and apply high-pass filter to full signal (FloatArray).
+ *   3. Per window: SpectralSubtractor → YamNetGate check → model.predict().
  *
- * Progress is reported in [progress] as a fraction in `[0, 1]`. The runner is
- * NOT designed to be invoked concurrently for the same instance — there is
- * one progress flow per runner.
+ * Pass null for [spectralSubtractor] or [yamNetGate] to skip those steps.
+ * Fail-open: the gate's own error handling returns true on any exception.
  */
 class InferenceRunner(
     private val model: BioacousticModel,
     private val hopSeconds: Float = 1f,
+    private val spectralSubtractor: SpectralSubtractor? = null,
+    private val yamNetGate: YamNetGate? = null,
 ) {
     private val _progress = MutableStateFlow(0f)
     val progress: StateFlow<Float> = _progress
@@ -34,16 +36,22 @@ class InferenceRunner(
         _progress.value = 0f
         val (rawSamples, nativeRate) = WavReader.readMono16(wavFile)
         val targetRate = model.expectedSampleRateHz
-        val samples = if (nativeRate == targetRate) {
+        val resampled = if (nativeRate == targetRate) {
             rawSamples
         } else {
             Resampler.resample(rawSamples, nativeRate, targetRate)
         }
+
+        // Normalize and apply high-pass filter to the full signal before slicing
+        // so the IIR filter has no edge effects at window boundaries.
+        val normalized = FloatArray(resampled.size) { i -> resampled[i] / Short.MAX_VALUE.toFloat() }
+        val filtered = highPassFilter(normalized, targetRate)
+
         val windowSeconds = model.windowMs / MS_PER_SECOND
         val win = (windowSeconds * targetRate).toInt()
         val hop = (hopSeconds * targetRate).toInt()
         require(win > 0 && hop > 0) { "Invalid window/hop: win=$win hop=$hop" }
-        val frames = if (samples.size < win) 0 else 1 + (samples.size - win) / hop
+        val frames = if (filtered.size < win) 0 else 1 + (filtered.size - win) / hop
         if (frames == 0) {
             _progress.value = 1f
             return emptyList()
@@ -51,7 +59,10 @@ class InferenceRunner(
         val out = ArrayList<WindowPrediction>(frames * 5)
         for (f in 0 until frames) {
             val s = f * hop
-            val window = FloatArray(win) { idx -> samples[s + idx] / Short.MAX_VALUE.toFloat() }
+            var window = filtered.copyOfRange(s, s + win)
+            window = spectralSubtractor?.process(window) ?: window
+            _progress.value = (f + 1).toFloat() / frames
+            if (yamNetGate?.isBiological(window, targetRate) == false) continue
             val startMs = (s.toLong() * MS_PER_SECOND_LONG) / targetRate
             val endMs = ((s + win).toLong() * MS_PER_SECOND_LONG) / targetRate
             out += model.predict(
@@ -63,7 +74,6 @@ class InferenceRunner(
                 windowStartMs = startMs,
                 windowEndMs = endMs,
             )
-            _progress.value = (f + 1).toFloat() / frames
         }
         return out
     }

@@ -126,4 +126,18 @@ class InferenceRunnerTest {
             1_000L to 6_000L,
         ).inOrder()
     }
+
+    @Test
+    fun `gate returning false skips all windows — no model predictions`() = runTest {
+        val wav = writeSilentWav(durationSeconds = 5)
+        val model = RecordingFakeModel()
+        val alwaysSkipGate = YamNetGate { _, _ -> false }
+        val runner = InferenceRunner(model, hopSeconds = 1f, yamNetGate = alwaysSkipGate)
+
+        val out = runner.run(wav, latitude = null, longitude = null, observedAtMillis = 0L)
+
+        assertThat(out).isEmpty()
+        assertThat(model.calls).isEmpty()
+        assertThat(runner.progress.value).isEqualTo(1.0f)
+    }
 }
