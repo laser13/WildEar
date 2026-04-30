@@ -192,6 +192,13 @@ private fun InferenceSection(state: SettingsUiState, vm: SettingsViewModel) {
         onValueChange = { vm.setMinConfidence(it) },
         valueRange = MIN_CONF..MAX_CONF,
     )
+    Text("Min detected windows: ${state.minWindows}")
+    Slider(
+        value = state.minWindows.toFloat(),
+        onValueChange = { vm.setMinWindows(it.toInt().coerceIn(MIN_MIN_WINDOWS, MAX_MIN_WINDOWS)) },
+        valueRange = MIN_MIN_WINDOWS.toFloat()..MAX_MIN_WINDOWS.toFloat(),
+        steps = MAX_MIN_WINDOWS - MIN_MIN_WINDOWS - 1,
+    )
 }
 
 @Suppress("FunctionNaming", "LongMethod")
@@ -283,3 +290,5 @@ private const val MAX_CONF = 0.90f
 private const val MIN_REGION_RADIUS = 50
 private const val MAX_REGION_RADIUS = 500
 private const val REGION_RADIUS_STEP = 50
+private const val MIN_MIN_WINDOWS = 1
+private const val MAX_MIN_WINDOWS = 10

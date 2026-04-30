@@ -102,6 +102,8 @@ class SettingsViewModelTest {
             writeRegionalFilterEnabled = {},
             regionRadiusKmFlow = MutableStateFlow(200),
             writeRegionRadiusKm = {},
+            minWindowsFlow = MutableStateFlow(2),
+            writeMinWindows = {},
             externalScope = backgroundScope,
         )
         val sections = vm.state.value.sections.associateBy { it.modelId }
@@ -140,6 +142,21 @@ class SettingsViewModelTest {
         assertThat(vm.state.value.regionRadiusKm).isEqualTo(350)
     }
 
+    @Test
+    fun `setMinWindows propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
+        val captured = mutableListOf<Int>()
+        val flow = MutableStateFlow(2)
+        val vm = build(
+            initial = ModelInstallState.NotInstalled,
+            minWindowsFlow = flow,
+            writeMinWindows = { captured += it; flow.value = it },
+            scope = backgroundScope,
+        )
+        vm.setMinWindows(5)
+        assertThat(captured).containsExactly(5)
+        assertThat(vm.state.value.minWindows).isEqualTo(5)
+    }
+
     private fun build(
         initial: ModelInstallState,
         install: suspend (ModelDescriptor, (ModelInstallState) -> Unit) -> Unit = { _, _ -> },
@@ -149,6 +166,8 @@ class SettingsViewModelTest {
         writeRegionalFilterEnabled: suspend (Boolean) -> Unit = {},
         regionRadiusKmFlow: kotlinx.coroutines.flow.MutableStateFlow<Int> = MutableStateFlow(200),
         writeRegionRadiusKm: suspend (Int) -> Unit = {},
+        minWindowsFlow: MutableStateFlow<Int> = MutableStateFlow(2),
+        writeMinWindows: suspend (Int) -> Unit = {},
         scope: CoroutineScope,
     ): SettingsViewModel = SettingsViewModel(
         descriptors = listOf(descriptor),
@@ -168,6 +187,8 @@ class SettingsViewModelTest {
         writeRegionalFilterEnabled = writeRegionalFilterEnabled,
         regionRadiusKmFlow = regionRadiusKmFlow,
         writeRegionRadiusKm = writeRegionRadiusKm,
+        minWindowsFlow = minWindowsFlow,
+        writeMinWindows = writeMinWindows,
         externalScope = scope,
     )
 }

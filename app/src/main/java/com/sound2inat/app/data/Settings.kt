@@ -23,6 +23,7 @@ class Settings(private val ctx: Context) {
         val REGION_RADIUS_KM = intPreferencesKey("region_radius_km")
         val LAST_KNOWN_LAT = doublePreferencesKey("last_known_lat")
         val LAST_KNOWN_LON = doublePreferencesKey("last_known_lon")
+        val MIN_WINDOWS = intPreferencesKey("min_windows")
     }
 
     val minConfidenceDisplay: Flow<Float> = ctx.dataStore.data.map { it[K.MIN_CONF] ?: DEFAULT_MIN_CONF }
@@ -33,6 +34,7 @@ class Settings(private val ctx: Context) {
     val regionRadiusKm: Flow<Int> = ctx.dataStore.data.map { it[K.REGION_RADIUS_KM] ?: DEFAULT_REGION_RADIUS_KM }
     val lastKnownLat: Flow<Double?> = ctx.dataStore.data.map { it[K.LAST_KNOWN_LAT] }
     val lastKnownLon: Flow<Double?> = ctx.dataStore.data.map { it[K.LAST_KNOWN_LON] }
+    val minWindows: Flow<Int> = ctx.dataStore.data.map { it[K.MIN_WINDOWS] ?: DEFAULT_MIN_WINDOWS }
 
     suspend fun setMinConfidenceDisplay(v: Float) { ctx.dataStore.edit { it[K.MIN_CONF] = v } }
     suspend fun setTopK(v: Int) { ctx.dataStore.edit { it[K.TOP_K] = v } }
@@ -48,6 +50,7 @@ class Settings(private val ctx: Context) {
     }
     suspend fun setRegionalFilterEnabled(v: Boolean) { ctx.dataStore.edit { it[K.REGION_FILTER_ENABLED] = v } }
     suspend fun setRegionRadiusKm(v: Int) { ctx.dataStore.edit { it[K.REGION_RADIUS_KM] = v } }
+    suspend fun setMinWindows(v: Int) { ctx.dataStore.edit { it[K.MIN_WINDOWS] = v } }
     suspend fun setLastKnownCoords(lat: Double, lon: Double) {
         ctx.dataStore.edit {
             it[K.LAST_KNOWN_LAT] = lat
@@ -59,5 +62,6 @@ class Settings(private val ctx: Context) {
         const val DEFAULT_MIN_CONF = 0.25f
         const val DEFAULT_TOP_K = 5
         const val DEFAULT_REGION_RADIUS_KM = 200
+        const val DEFAULT_MIN_WINDOWS = 2
     }
 }

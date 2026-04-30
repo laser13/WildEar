@@ -602,8 +602,8 @@ private class ProductionInferenceJob(
             return@withContext InferenceOutcome.Failure("No model installed")
         }
         val minConf = settings.minConfidenceDisplay.first()
-        // Perch: 5 s windows / 1 s hop → 2 windows = ≥6 s of evidence; drops single-window noise.
-        val aggregator = DetectionAggregator(minConfidence = minConf, minWindows = 2)
+        val minWin = settings.minWindows.first()
+        val aggregator = DetectionAggregator(minConfidence = minConf, minWindows = minWin)
         val allPreds = ArrayList<WindowPrediction>()
         val succeeded = ArrayList<BioacousticModel>()
         val perModelErrors = ArrayList<String>()

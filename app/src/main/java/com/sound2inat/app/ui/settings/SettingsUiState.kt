@@ -27,6 +27,7 @@ data class SettingsUiState(
     val inatTestStatus: InatTestStatus = InatTestStatus.Idle,
     val regionalFilterEnabled: Boolean = true,
     val regionRadiusKm: Int = 200,
+    val minWindows: Int = 2,
 )
 
 sealed interface InatTestStatus {

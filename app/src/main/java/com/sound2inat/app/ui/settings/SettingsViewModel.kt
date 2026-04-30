@@ -35,6 +35,8 @@ class SettingsViewModel(
     private val regionRadiusKmFlow: Flow<Int>,
     private val writeRegionalFilterEnabled: suspend (Boolean) -> Unit,
     private val writeRegionRadiusKm: suspend (Int) -> Unit,
+    private val minWindowsFlow: Flow<Int>,
+    private val writeMinWindows: suspend (Int) -> Unit,
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -84,6 +86,9 @@ class SettingsViewModel(
             regionRadiusKmFlow.collect { v ->
                 _state.value = _state.value.copy(regionRadiusKm = v)
             }
+        }
+        scope.launch {
+            minWindowsFlow.collect { v -> _state.value = _state.value.copy(minWindows = v) }
         }
     }
 
@@ -170,6 +175,7 @@ class SettingsViewModel(
 
     fun setRegionalFilterEnabled(v: Boolean) { scope.launch { writeRegionalFilterEnabled(v) } }
     fun setRegionRadiusKm(v: Int) { scope.launch { writeRegionRadiusKm(v) } }
+    fun setMinWindows(v: Int) { scope.launch { writeMinWindows(v) } }
 
     private fun updateSection(modelId: String, transform: (ModelSection) -> ModelSection) {
         _state.value = _state.value.copy(
@@ -204,5 +210,7 @@ class SettingsViewModelHilt @Inject constructor(
         writeRegionalFilterEnabled = { settings.setRegionalFilterEnabled(it) },
         regionRadiusKmFlow = settings.regionRadiusKm,
         writeRegionRadiusKm = { settings.setRegionRadiusKm(it) },
+        minWindowsFlow = settings.minWindows,
+        writeMinWindows = { settings.setMinWindows(it) },
     )
 }
