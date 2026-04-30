@@ -165,6 +165,14 @@ class ReviewViewModel(
     private val _waveformPeaks = MutableStateFlow<FloatArray?>(null)
     val waveformPeaks: StateFlow<FloatArray?> = _waveformPeaks
 
+    /** Cached denoise-preview WAV; null until the user enables the toggle and the build finishes. */
+    private val _denoisedAudioFile = MutableStateFlow<File?>(null)
+    val denoisedAudioFile: StateFlow<File?> = _denoisedAudioFile
+
+    /** Cached denoise-preview spectrogram PNG; null until built. */
+    private val _denoisedSpectrogramFile = MutableStateFlow<File?>(null)
+    val denoisedSpectrogramFile: StateFlow<File?> = _denoisedSpectrogramFile
+
     /**
      * Raw per-window predictions surfaced from the latest inference run, kept in
      * memory only for the lifetime of the screen — see [InferenceOutcome.Success.windows].
@@ -465,9 +473,60 @@ class ReviewViewModel(
         }
     }
 
-    fun play() { _state.value.audioPath?.let { player.start(it) } }
+    fun play() {
+        val path = effectivePlaybackPath() ?: return
+        player.start(path)
+    }
     fun pause() { player.pause() }
     fun seekTo(ms: Long) { player.seekTo(ms) }
+
+    /**
+     * Selects the audio source that the player should use right now: the
+     * denoise-preview WAV when the toggle is on AND the artifact has been
+     * built, otherwise the original recording.
+     */
+    private fun effectivePlaybackPath(): String? = if (
+        _state.value.denoisePreviewEnabled && _denoisedAudioFile.value != null
+    ) {
+        _denoisedAudioFile.value?.absolutePath
+    } else {
+        _state.value.audioPath
+    }
+
+    /**
+     * Toggles the Review screen's noise-reduction preview. Pauses any current
+     * playback so the next Play uses the new source. On first activation, the
+     * denoise pipeline runs in the background and writes a WAV + PNG under
+     * [filesDir]; subsequent toggles reuse the cached files.
+     */
+    fun setDenoisePreviewEnabled(enabled: Boolean, filesDir: File) {
+        if (_state.value.denoisePreviewEnabled == enabled) return
+        player.pause()
+        _state.value = _state.value.copy(denoisePreviewEnabled = enabled)
+        if (enabled && _denoisedAudioFile.value == null && !_state.value.denoisingInProgress) {
+            buildDenoiseArtifacts(filesDir)
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private fun buildDenoiseArtifacts(filesDir: File) {
+        val src = _state.value.audioPath ?: return
+        _state.value = _state.value.copy(denoisingInProgress = true)
+        scope.launch {
+            try {
+                val artifacts = withContext(ioDispatcher) {
+                    DenoisedArtifactsBuilder.build(File(src), draftId, filesDir)
+                }
+                _denoisedAudioFile.value = artifacts.audioFile
+                _denoisedSpectrogramFile.value = artifacts.spectrogramFile
+            } catch (t: Throwable) {
+                android.util.Log.w("ReviewViewModel", "Denoise preview build failed", t)
+                _state.value = _state.value.copy(denoisePreviewEnabled = false)
+            } finally {
+                _state.value = _state.value.copy(denoisingInProgress = false)
+            }
+        }
+    }
 
     /**
      * Sets [_highlight] to [id] and auto-clears it after [HighlightDurationMs] ms.

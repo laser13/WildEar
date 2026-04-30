@@ -38,6 +38,10 @@ data class ReviewUiState(
     /** Species that passed the absolute floor (≥1 window, confidence ≥ 1%) but were
      *  filtered out by the user's minConfidence/minWindows/region settings. Not persisted. */
     val candidates: List<SpeciesRow> = emptyList(),
+    /** When true, the Review screen plays/displays the denoised version of the audio. */
+    val denoisePreviewEnabled: Boolean = false,
+    /** True while the denoise preview WAV/PNG are being computed in the background. */
+    val denoisingInProgress: Boolean = false,
 )
 
 sealed interface PlaybackState {

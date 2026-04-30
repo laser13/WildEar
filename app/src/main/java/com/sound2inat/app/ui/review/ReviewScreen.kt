@@ -36,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -66,9 +67,15 @@ fun ReviewScreen(
     val vm = hilt.delegate
     val state by vm.state.collectAsState()
     val spectrogramFile by vm.spectrogramFile.collectAsState()
+    val denoisedSpectrogramFile by vm.denoisedSpectrogramFile.collectAsState()
     val waveformPeaks by vm.waveformPeaks.collectAsState()
     val windowPreds by vm.windowPreds.collectAsState()
     val highlight by vm.highlight.collectAsState()
+    val effectiveSpectrogram = if (state.denoisePreviewEnabled && denoisedSpectrogramFile != null) {
+        denoisedSpectrogramFile
+    } else {
+        spectrogramFile
+    }
 
     LaunchedEffect(state.audioPath) {
         if (state.audioPath != null) vm.ensureVisuals(hilt.filesDir)
@@ -104,7 +111,7 @@ fun ReviewScreen(
             item {
                 WaveformAndSpectrogram(
                     peaks = waveformPeaks,
-                    spectrogramPath = spectrogramFile?.takeIf { it.exists() }?.absolutePath,
+                    spectrogramPath = effectiveSpectrogram?.takeIf { it.exists() }?.absolutePath,
                     durationMs = state.durationMs,
                     positionFlow = vm.playerPosition,
                     windowPreds = windowPreds,
@@ -113,6 +120,7 @@ fun ReviewScreen(
                     onWindowTap = vm::onWindowTapped,
                 )
             }
+            item { DenoisePreviewToggle(state, vm, hilt.filesDir) }
             if (state.inferenceProgress != null) {
                 item { InferenceProgressBlock(state.inferenceProgress!!) }
             } else if (state.audioPath != null && state.status != DraftStatus.UPLOADED) {
@@ -201,6 +209,41 @@ private fun HeaderBlock(state: ReviewUiState) {
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun DenoisePreviewToggle(
+    state: ReviewUiState,
+    vm: ReviewViewModel,
+    filesDir: java.io.File,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column {
+            Text("Show denoised", style = MaterialTheme.typography.bodyMedium)
+            val sub = when {
+                state.denoisingInProgress -> "Building preview…"
+                state.denoisePreviewEnabled -> "Spectrogram and audio reflect the noise-reduction pipeline"
+                else -> "Toggle to compare the cleaned-up audio against the original"
+            }
+            Text(
+                sub,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(
+            checked = state.denoisePreviewEnabled,
+            onCheckedChange = { vm.setDenoisePreviewEnabled(it, filesDir) },
+            enabled = !state.denoisingInProgress,
         )
     }
 }
