@@ -14,6 +14,7 @@ open class ModelManager(
     private val filesDir: File,
     private val http: OkHttpClient,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val hiddenDescriptors: List<ModelDescriptor> = emptyList(),
 ) {
     private val dir: File = File(filesDir, "models").apply { mkdirs() }
 
@@ -37,7 +38,7 @@ open class ModelManager(
     open suspend fun install(
         descriptor: ModelDescriptor,
         emit: (ModelInstallState) -> Unit,
-    ) = withContext(Dispatchers.IO) {
+    ): Unit = withContext(Dispatchers.IO) {
         try {
             emit(ModelInstallState.Downloading(0f))
             val modelTmp = downloadTo(
@@ -60,6 +61,14 @@ open class ModelManager(
             modelTmp.renameTo(mFinal)
             labelsTmp.renameTo(lFinal)
             emit(ModelInstallState.Ready(mFinal, lFinal))
+            // Auto-install hidden companion models (e.g. YAMNet) once a visible model lands.
+            if (!descriptor.hidden) {
+                for (hidden in hiddenDescriptors) {
+                    if (stateFor(hidden) !is ModelInstallState.Ready) {
+                        install(hidden) { /* progress silently ignored */ }
+                    }
+                }
+            }
         } catch (t: Throwable) {
             partialFor(descriptor.id, "tflite").delete()
             partialFor(descriptor.id, "labels.txt").delete()

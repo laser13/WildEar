@@ -21,6 +21,13 @@ data class ModelDescriptor(
      * branching at every call site.
      */
     val labelsFormat: LabelsFormat,
+    /**
+     * Hidden models do not appear in the Settings UI. They are downloaded
+     * automatically by [com.sound2inat.modelmanager.ModelManager] after any
+     * visible model is installed. Used for support models (e.g. YAMNet) that
+     * the user never picks directly.
+     */
+    val hidden: Boolean = false,
 )
 
 enum class LabelsFormat {
@@ -81,5 +88,36 @@ object PerchV2 {
         sampleRateHz = 32_000,
         windowMs = 5_000L,
         labelsFormat = LabelsFormat.PerchScientificName,
+    )
+}
+
+/**
+ * Google YAMNet — Apache 2.0, 521 AudioSet classes. Used as a biological gate
+ * (see [com.sound2inat.inference.YamNetTfliteGate]); not a detection model.
+ * Hidden so it doesn't appear in Settings — auto-installed alongside the
+ * first visible model.
+ *
+ * SHA-256 placeholders below must be replaced before release. Compute via:
+ *
+ *   curl -L "<modelUrl>" -o /tmp/yamnet.tflite && sha256sum /tmp/yamnet.tflite
+ *   curl -L "<labelsUrl>" -o /tmp/yamnet_labels.csv && sha256sum /tmp/yamnet_labels.csv
+ */
+object YamNetV1 {
+    val descriptor = ModelDescriptor(
+        id = "yamnet_v1",
+        displayName = "YAMNet v1",
+        version = "1",
+        modelUrl = "https://storage.googleapis.com/tfhub-lite-models/google/lite-model/" +
+            "yamnet/classification/tflite/v1.tflite",
+        labelsUrl = "https://raw.githubusercontent.com/tensorflow/models/master/" +
+            "research/audioset/yamnet/yamnet_class_map.csv",
+        modelSha256 = "PLACEHOLDER_COMPUTE_SHA256",
+        labelsSha256 = "PLACEHOLDER_COMPUTE_SHA256",
+        license = "Apache 2.0",
+        sizeBytes = 3_887_000L,
+        sampleRateHz = 16_000,
+        windowMs = 975L,
+        labelsFormat = LabelsFormat.BirdNetUnderscore,  // unused — gate parses CSV directly
+        hidden = true,
     )
 }
