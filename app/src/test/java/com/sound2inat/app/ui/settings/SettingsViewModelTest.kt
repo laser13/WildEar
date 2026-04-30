@@ -16,12 +16,15 @@ import java.io.File
 class SettingsViewModelTest {
     private val descriptor = BirdNetV24.descriptor
 
+    private fun firstSection(vm: SettingsViewModel): ModelSection =
+        vm.state.value.sections.first { it.modelId == descriptor.id }
+
     @Test
     fun `initial state reflects descriptor and current install state`() = runTest(UnconfinedTestDispatcher()) {
         val vm = build(initial = ModelInstallState.NotInstalled, scope = backgroundScope)
-        val s = vm.state.value
-        assertThat(s.modelLicense).isEqualTo(descriptor.license)
-        assertThat(s.modelInstall).isInstanceOf(ModelInstallState.NotInstalled::class.java)
+        val sec = firstSection(vm)
+        assertThat(sec.license).isEqualTo(descriptor.license)
+        assertThat(sec.install).isInstanceOf(ModelInstallState.NotInstalled::class.java)
     }
 
     @Test
@@ -38,9 +41,10 @@ class SettingsViewModelTest {
             install = { _, emit -> emissions.forEach(emit) },
             scope = backgroundScope,
         )
-        vm.confirmInstall()
-        assertThat(vm.state.value.modelInstall).isEqualTo(ready)
-        assertThat(vm.state.value.installProgress).isNull()
+        vm.confirmInstall(descriptor.id)
+        val sec = firstSection(vm)
+        assertThat(sec.install).isEqualTo(ready)
+        assertThat(sec.installProgress).isNull()
     }
 
     @Test
@@ -61,12 +65,79 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `remove transitions state to NotInstalled`() = runTest(UnconfinedTestDispatcher()) {
+    fun `remove transitions section state to NotInstalled`() = runTest(UnconfinedTestDispatcher()) {
         val ready = ModelInstallState.Ready(File("/m"), File("/l"))
         val vm = build(initial = ready, scope = backgroundScope)
-        assertThat(vm.state.value.modelInstall).isEqualTo(ready)
-        vm.remove()
-        assertThat(vm.state.value.modelInstall).isEqualTo(ModelInstallState.NotInstalled)
+        assertThat(firstSection(vm).install).isEqualTo(ready)
+        vm.remove(descriptor.id)
+        assertThat(firstSection(vm).install).isEqualTo(ModelInstallState.NotInstalled)
+    }
+
+    @Test
+    fun `multiple descriptors produce independent sections`() = runTest(UnconfinedTestDispatcher()) {
+        val second = descriptor.copy(id = "fake-2", displayName = "Fake 2")
+        val vm = SettingsViewModel(
+            descriptors = listOf(descriptor, second),
+            installModel = { _, _ -> },
+            removeModel = {},
+            // Different initial states for each id — proves the VM resolves
+            // each descriptor independently rather than sharing state.
+            resolveState = { d ->
+                if (d.id == descriptor.id) {
+                    ModelInstallState.NotInstalled
+                } else {
+                    ModelInstallState.Ready(File("/m"), File("/l"))
+                }
+            },
+            minConfFlow = MutableStateFlow(0.25f),
+            topKFlow = MutableStateFlow(5),
+            writeMinConf = {},
+            writeTopK = {},
+            inatTokenFlow = MutableStateFlow<String?>(null),
+            inatLoginFlow = MutableStateFlow<String?>(null),
+            writeInatToken = {},
+            writeInatLogin = {},
+            verifyInatToken = { _ -> "test" },
+            regionalFilterEnabledFlow = MutableStateFlow(true),
+            writeRegionalFilterEnabled = {},
+            regionRadiusKmFlow = MutableStateFlow(200),
+            writeRegionRadiusKm = {},
+            externalScope = backgroundScope,
+        )
+        val sections = vm.state.value.sections.associateBy { it.modelId }
+        assertThat(sections.keys).containsExactly(descriptor.id, "fake-2")
+        assertThat(sections[descriptor.id]!!.install).isInstanceOf(ModelInstallState.NotInstalled::class.java)
+        assertThat(sections["fake-2"]!!.install).isInstanceOf(ModelInstallState.Ready::class.java)
+    }
+
+    @Test
+    fun `setRegionalFilterEnabled propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
+        val captured = mutableListOf<Boolean>()
+        val flow = MutableStateFlow(true)
+        val vm = build(
+            initial = ModelInstallState.NotInstalled,
+            regionalFilterEnabledFlow = flow,
+            writeRegionalFilterEnabled = { captured += it; flow.value = it },
+            scope = backgroundScope,
+        )
+        vm.setRegionalFilterEnabled(false)
+        assertThat(captured).containsExactly(false)
+        assertThat(vm.state.value.regionalFilterEnabled).isFalse()
+    }
+
+    @Test
+    fun `setRegionRadiusKm propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
+        val captured = mutableListOf<Int>()
+        val flow = MutableStateFlow(200)
+        val vm = build(
+            initial = ModelInstallState.NotInstalled,
+            regionRadiusKmFlow = flow,
+            writeRegionRadiusKm = { captured += it; flow.value = it },
+            scope = backgroundScope,
+        )
+        vm.setRegionRadiusKm(350)
+        assertThat(captured).containsExactly(350)
+        assertThat(vm.state.value.regionRadiusKm).isEqualTo(350)
     }
 
     private fun build(
@@ -74,16 +145,29 @@ class SettingsViewModelTest {
         install: suspend (ModelDescriptor, (ModelInstallState) -> Unit) -> Unit = { _, _ -> },
         topKFlow: MutableStateFlow<Int> = MutableStateFlow(5),
         writeTopK: suspend (Int) -> Unit = {},
+        regionalFilterEnabledFlow: kotlinx.coroutines.flow.MutableStateFlow<Boolean> = MutableStateFlow(true),
+        writeRegionalFilterEnabled: suspend (Boolean) -> Unit = {},
+        regionRadiusKmFlow: kotlinx.coroutines.flow.MutableStateFlow<Int> = MutableStateFlow(200),
+        writeRegionRadiusKm: suspend (Int) -> Unit = {},
         scope: CoroutineScope,
     ): SettingsViewModel = SettingsViewModel(
-        descriptor = descriptor,
+        descriptors = listOf(descriptor),
         installModel = install,
         removeModel = {},
-        initialState = { initial },
+        resolveState = { initial },
         minConfFlow = MutableStateFlow(0.25f),
         topKFlow = topKFlow,
         writeMinConf = {},
         writeTopK = writeTopK,
+        inatTokenFlow = MutableStateFlow<String?>(null),
+        inatLoginFlow = MutableStateFlow<String?>(null),
+        writeInatToken = {},
+        writeInatLogin = {},
+        verifyInatToken = { _ -> "test-user" },
+        regionalFilterEnabledFlow = regionalFilterEnabledFlow,
+        writeRegionalFilterEnabled = writeRegionalFilterEnabled,
+        regionRadiusKmFlow = regionRadiusKmFlow,
+        writeRegionRadiusKm = writeRegionRadiusKm,
         externalScope = scope,
     )
 }
