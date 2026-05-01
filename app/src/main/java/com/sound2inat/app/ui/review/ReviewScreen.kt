@@ -118,6 +118,7 @@ fun ReviewScreen(
                     species = state.species,
                     highlight = highlight,
                     onWindowTap = vm::onWindowTapped,
+                    onSeek = vm::seekTo,
                 )
             }
             item { DenoisePreviewToggle(state, vm, hilt.filesDir) }
@@ -333,17 +334,13 @@ private fun PlayerControls(state: ReviewUiState, vm: ReviewViewModel) {
             }
             Text("${formatMs(positionMs)} / ${formatMs(state.durationMs)}")
         }
-        Slider(
-            value = positionMs.toFloat() / durationMs.toFloat(),
-            onValueChange = { fraction ->
-                vm.seekTo((fraction * state.durationMs).toLong())
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
         if (state.playback is PlaybackState.Error) {
             Text(state.playback.message, color = MaterialTheme.colorScheme.error)
         }
     }
+    // Slider removed — the spectrogram already shows position via the red
+    // cursor line, and tap-to-seek on the spectrogram itself replaces the
+    // drag-to-seek functionality. See WaveformAndSpectrogram.
 }
 
 @Suppress("FunctionNaming", "LongMethod")

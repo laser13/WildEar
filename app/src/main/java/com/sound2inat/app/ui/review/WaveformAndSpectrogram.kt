@@ -3,6 +3,7 @@ package com.sound2inat.app.ui.review
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.sound2inat.inference.WindowPrediction
@@ -40,6 +42,7 @@ internal fun WaveformAndSpectrogram(
     species: List<SpeciesRow>,
     highlight: Long?,
     onWindowTap: (WindowPrediction) -> Unit,
+    onSeek: (Long) -> Unit,
 ) {
     // Position read is local to this subtree so the 50 ms tick from
     // MediaPlayer does not trigger recomposition of the entire Review screen.
@@ -57,7 +60,18 @@ internal fun WaveformAndSpectrogram(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(SPECTROGRAM_HEIGHT.dp),
+                .height(SPECTROGRAM_HEIGHT.dp)
+                // Tap-to-seek anywhere on the spectrogram. Detection-overlay
+                // taps are handled inside DetectionOverlays and don't reach
+                // here, so this fires for the bare-spectrogram regions only.
+                .pointerInput(durationMs) {
+                    detectTapGestures { offset ->
+                        if (durationMs > 0L && size.width > 0) {
+                            val frac = (offset.x / size.width).coerceIn(0f, 1f)
+                            onSeek((frac * durationMs).toLong())
+                        }
+                    }
+                },
         ) {
             val bitmap: ImageBitmap? = remember(spectrogramPath) {
                 spectrogramPath?.let { BitmapFactory.decodeFile(it)?.asImageBitmap() }
