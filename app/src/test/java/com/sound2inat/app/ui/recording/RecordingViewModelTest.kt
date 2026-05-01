@@ -17,7 +17,9 @@ import com.sound2inat.storage.WavFileStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -46,6 +48,8 @@ private class FakeRecorder : Recorder {
     override val rmsLevel: StateFlow<Float> = _rms
     private val _rmsHistory = MutableStateFlow(FloatArray(0))
     override val rmsHistory: StateFlow<FloatArray> = _rmsHistory
+    override val audioBlocks: SharedFlow<FloatArray> = MutableSharedFlow()
+    override val sampleRate: Int = 48_000
     var startCalled = false
     var stopCalled = false
     var cancelled = false

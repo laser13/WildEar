@@ -5,8 +5,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -21,6 +25,18 @@ interface Recorder {
      * Reset to an empty array on each [start].
      */
     val rmsHistory: StateFlow<FloatArray>
+
+    /**
+     * Hot stream of raw PCM blocks scaled to [-1, 1], emitted as the recorder
+     * reads from the audio source. Live consumers (spectrogram, BirdNET) collect
+     * this in parallel with the WAV writer. Backed by a SharedFlow with
+     * extraBufferCapacity = 8 and DROP_OLDEST overflow — slow consumers cannot
+     * stall the recording. Empty after [start] until the first block arrives.
+     */
+    val audioBlocks: SharedFlow<FloatArray>
+
+    /** Sample rate of [audioBlocks] (Hz). Same as the WAV file's sample rate. */
+    val sampleRate: Int
 
     suspend fun start(target: File)
     suspend fun stop(): RecordingResult
@@ -60,6 +76,14 @@ class DefaultRecorder(
     private val _rmsHistory = MutableStateFlow(FloatArray(0))
     override val rmsHistory: StateFlow<FloatArray> = _rmsHistory
 
+    private val _audioBlocks = MutableSharedFlow<FloatArray>(
+        extraBufferCapacity = 8,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    override val audioBlocks: SharedFlow<FloatArray> = _audioBlocks.asSharedFlow()
+
+    override val sampleRate: Int get() = source.sampleRate
+
     private var writer: WavWriter? = null
     private var target: File? = null
     private var startMs = 0L
@@ -81,6 +105,10 @@ class DefaultRecorder(
             val n = source.read(buf, 0, buf.size)
             if (n <= 0) break
             writer?.writeShorts(buf, 0, n)
+            // Emit float copy in parallel — separate array because the short
+            // buffer is reused across iterations.
+            val floatBlock = FloatArray(n) { i -> buf[i] / Short.MAX_VALUE.toFloat() }
+            _audioBlocks.tryEmit(floatBlock)
             val rms = computeRms(buf, n)
             _rms.value = rms
             pushRms(rms)

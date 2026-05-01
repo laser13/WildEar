@@ -40,6 +40,37 @@ class FakeAudioSource(
     }
 }
 
+/**
+ * Emits a fixed list of pre-built short blocks, one per `read()` call,
+ * then returns 0 (EOF). Useful for asserting exact sample → float conversion.
+ */
+class ScriptedAudioSource(
+    private val blocks: List<ShortArray>,
+) : AudioRecordSource {
+    override val sampleRate = 48_000
+    override val channels = 1
+    override val bitsPerSample = 16
+    private var idx = 0
+    private var ended = false
+
+    override suspend fun start() {
+        idx = 0
+        ended = false
+    }
+
+    override suspend fun read(buf: ShortArray, off: Int, len: Int): Int {
+        if (ended || idx >= blocks.size) return 0
+        val b = blocks[idx++]
+        val n = minOf(len, b.size)
+        System.arraycopy(b, 0, buf, off, n)
+        return n
+    }
+
+    override suspend fun stop() {
+        ended = true
+    }
+}
+
 class TestClock(start: Long = 0L) : Clock {
     private var t = start
     override fun nowMs(): Long {
