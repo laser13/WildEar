@@ -92,6 +92,43 @@ object PerchV2 {
 }
 
 /**
+ * BirdNET v2.4 location/time meta-model — Apache 2.0. A small TFLite that
+ * takes `[lat, lon, weekMeta]` and emits one presence-prior per BirdNET
+ * species (same class order as the audio model's labels). Used by
+ * [com.sound2inat.inference.BirdNetMetaModel] to scale per-species confidence
+ * down for species unlikely to be present at the recording location, which
+ * is the official BirdNET way of doing "regional" filtering.
+ *
+ * Hidden so it doesn't appear in Settings — auto-installed alongside any
+ * visible model (it pairs specifically with [BirdNetV24], but downloading
+ * eagerly is cheap at ~6.7 MB and we don't yet have per-pair install gating).
+ *
+ * URL pinned to a commit hash in the same `woheller69/whoBIRD-TFlite` mirror
+ * that hosts our main BirdNET weights, so the file can't shift under us.
+ */
+object BirdNetMetaV24 {
+    val descriptor = ModelDescriptor(
+        id = "birdnet_v2_4_meta",
+        displayName = "BirdNET v2.4 location/time meta",
+        version = "2.4",
+        modelUrl = "https://raw.githubusercontent.com/woheller69/whoBIRD-TFlite/" +
+            "5f7852062000f165e7079467e2f616df9c799215/" +
+            "BirdNET_GLOBAL_6K_V2.4_MData_Model_FP16.tflite",
+        // Reuse the audio-model's labels — meta-model output is index-aligned
+        // with them, so we point at the same file rather than shipping a copy.
+        labelsUrl = BirdNetV24.descriptor.labelsUrl,
+        modelSha256 = "4813567791d2fe2f38fb9e195e61a6261141a6f3b134b3056b6b062d22ac88f5",
+        labelsSha256 = BirdNetV24.descriptor.labelsSha256,
+        license = "CC BY-NC-SA 4.0 (weights); MIT (BirdNET-Analyzer code)",
+        sizeBytes = 7_071_440L,
+        sampleRateHz = 0,        // unused — meta input is [lat, lon, weekMeta]
+        windowMs = 0L,           // unused — single inference per recording
+        labelsFormat = LabelsFormat.BirdNetUnderscore,
+        hidden = true,
+    )
+}
+
+/**
  * Google YAMNet — Apache 2.0, 521 AudioSet classes. Used as a biological gate
  * (see [com.sound2inat.inference.YamNetTfliteGate]); not a detection model.
  * Hidden so it doesn't appear in Settings — auto-installed alongside the
