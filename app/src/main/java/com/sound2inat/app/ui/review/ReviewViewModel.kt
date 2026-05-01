@@ -56,9 +56,6 @@ sealed interface InferenceOutcome {
          * and reopens the screen until inference reruns. (See Task 15.)
          */
         val windows: List<WindowPrediction> = emptyList(),
-        /** Species that passed the absolute floor but were filtered by current settings.
-         *  Shown grayed-out in the UI; not saved to DB. */
-        val candidateDetections: List<AggregatedDetection> = emptyList(),
     ) : InferenceOutcome
 
     data class Failure(val message: String) : InferenceOutcome
@@ -322,23 +319,7 @@ class ReviewViewModel(
                         }
                     }
                     _windowPreds.value = outcome.windows
-                    val candidateRows = outcome.candidateDetections.mapIndexed { i, det ->
-                        SpeciesRow(
-                            detectionId = -(i + 1L),
-                            taxonScientificName = det.taxonScientificName,
-                            taxonCommonName = det.taxonCommonName,
-                            maxConfidence = det.maxConfidence,
-                            detectedWindows = det.detectedWindows,
-                            firstSeenMs = det.firstSeenMs,
-                            lastSeenMs = det.lastSeenMs,
-                            isSelected = false,
-                            confidenceBySource = det.confidenceBySource,
-                        )
-                    }
-                    _state.value = _state.value.copy(
-                        inferenceProgress = null,
-                        candidates = candidateRows,
-                    )
+                    _state.value = _state.value.copy(inferenceProgress = null)
                 }
                 is InferenceOutcome.Failure -> {
                     _state.value = _state.value.copy(
@@ -355,13 +336,13 @@ class ReviewViewModel(
     }
 
     /**
-     * Re-runs inference on the current draft. Clears existing detections and
-     * candidate rows, rolls draft status back to PENDING_INFERENCE in Room,
-     * then dispatches a fresh [startInference] directly so we don't depend
-     * on the [DraftRepository.observeWithDetections] flow re-emitting (an
-     * empty-detections delete may not always invalidate the upstream Room
-     * tracker, leaving status changes invisible to the collector). No-op
-     * while an inference job is already running.
+     * Re-runs inference on the current draft. Clears existing detections,
+     * rolls draft status back to PENDING_INFERENCE in Room, then dispatches
+     * a fresh [startInference] directly so we don't depend on the
+     * [DraftRepository.observeWithDetections] flow re-emitting (an empty
+     * detections delete may not always invalidate the upstream Room tracker,
+     * leaving status changes invisible to the collector). No-op while an
+     * inference job is already running.
      */
     fun reanalyze() {
         if (_state.value.inferenceProgress != null) return
@@ -376,7 +357,6 @@ class ReviewViewModel(
         inferenceStarted = true
         _windowPreds.value = emptyList()
         _state.value = _state.value.copy(
-            candidates = emptyList(),
             inferenceError = null,
             inferenceProgress = 0f,
         )
@@ -784,6 +764,10 @@ private class ProductionInferenceJob(
         val ids = succeeded.joinToString(separator = "+") { it.modelId }
         val versions = succeeded.joinToString(separator = "+") { it.modelVersion }
         val rawDetections = aggregator.aggregate(allPreds)
+        // Below-threshold "candidates" used to be surfaced separately as a
+        // grayed-out list, but the 1% absolute floor produced too much noise
+        // (BirdNET v2.4 GLOBAL spreads tiny scores across hundreds of similar
+        // species). Honoring the user-set threshold strictly is cleaner.
 
         if (latitude != null && longitude != null) {
             settings.setLastKnownCoords(latitude, longitude)
@@ -807,22 +791,15 @@ private class ProductionInferenceJob(
             }
         }
 
-        val acceptedNames = filteredDetections.map { it.taxonScientificName }.toSet()
-        val floorAggregator = DetectionAggregator(minConfidence = CANDIDATE_MIN_CONFIDENCE, minWindows = 1)
-        val candidateDetections = floorAggregator.aggregate(allPreds)
-            .filter { it.taxonScientificName !in acceptedNames }
-
         InferenceOutcome.Success(
             modelId = ids,
             modelVersion = versions,
             detections = filteredDetections,
             windows = allPreds,
-            candidateDetections = candidateDetections,
         )
     }
 
     private companion object {
         const val TAG = "ProductionInferenceJob"
-        const val CANDIDATE_MIN_CONFIDENCE = 0.01f
     }
 }

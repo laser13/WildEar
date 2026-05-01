@@ -173,21 +173,6 @@ fun ReviewScreen(
                 }
             }
 
-            if (state.candidates.isNotEmpty()) {
-                item {
-                    Text(
-                        "Below threshold",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                }
-                item { HorizontalDivider() }
-                items(state.candidates, key = { it.detectionId }) { row ->
-                    CandidateListItem(row)
-                    HorizontalDivider()
-                }
-            }
         }
     }
 }
@@ -425,38 +410,6 @@ private fun SpeciesListItem(
         },
         trailingContent = {
             Checkbox(checked = row.isSelected, onCheckedChange = onCheckedChange)
-        },
-    )
-}
-
-@Suppress("FunctionNaming")
-@Composable
-private fun CandidateListItem(row: SpeciesRow) {
-    val dimColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-    ListItem(
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        leadingContent = {
-            Box(
-                modifier = Modifier
-                    .size(PHOTO_SIZE_DP.dp)
-                    .clip(RoundedCornerShape(PHOTO_CORNER_DP.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Outlined.MicNone,
-                    contentDescription = null,
-                    tint = dimColor,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
-        },
-        headlineContent = {
-            Text(row.taxonCommonName ?: row.taxonScientificName, color = dimColor)
-        },
-        supportingContent = {
-            val pct = (row.maxConfidence * PERCENT).toInt()
-            Text("$pct%  ·  ${row.detectedWindows} windows  ·  ${row.taxonScientificName}", color = dimColor)
         },
     )
 }
