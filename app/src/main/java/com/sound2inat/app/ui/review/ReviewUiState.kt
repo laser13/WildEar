@@ -39,6 +39,21 @@ data class ReviewUiState(
     val denoisePreviewEnabled: Boolean = false,
     /** True while the denoise preview WAV/PNG are being computed in the background. */
     val denoisingInProgress: Boolean = false,
+    /**
+     * True when the Perch model is installed AND the draft has no Perch-source
+     * detections yet. Drives visibility of the on-demand "Analyze with Perch"
+     * button on the Review screen — Perch is too heavy for live inference,
+     * so the user opts into it manually after recording.
+     */
+    val canAnalyzeWithPerch: Boolean = false,
+    /**
+     * Progress fraction of the on-demand Perch run, or null when not running.
+     * Mutually exclusive with [inferenceProgress] in practice — UI only shows
+     * one progress block at a time.
+     */
+    val perchProgress: Float? = null,
+    /** Last failure message from an [analyzeWithPerch] run, cleared on next start. */
+    val perchError: String? = null,
 )
 
 sealed interface PlaybackState {

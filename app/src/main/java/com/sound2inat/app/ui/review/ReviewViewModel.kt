@@ -129,6 +129,37 @@ fun interface InatSubmissionJob {
     suspend fun submit(token: String, draftId: String): InatSubmissionOutcome
 }
 
+/**
+ * Outcome of an on-demand Perch analysis pass over a saved WAV. The VM merges
+ * [Success.detections] with the existing per-draft detections and persists the
+ * union — Perch never *replaces* prior BirdNET output.
+ */
+sealed interface PerchAnalysisOutcome {
+    /** Aggregated Perch detections, ready to be merged. */
+    data class Success(val detections: List<AggregatedDetection>) : PerchAnalysisOutcome
+
+    /** Perch model artifact is not installed (state != Ready) — UI shouldn't have offered the button. */
+    data object NotInstalled : PerchAnalysisOutcome
+
+    data class Failure(val message: String) : PerchAnalysisOutcome
+}
+
+/**
+ * Seam abstracting the on-demand Perch pipeline from the VM so unit tests can
+ * inject canned outcomes without loading a 407 MB TFLite. Production wiring
+ * loads [com.sound2inat.inference.PerchTfliteModel] and runs
+ * [com.sound2inat.inference.InferenceRunner] against the WAV at [audioPath].
+ */
+fun interface PerchAnalysisJob {
+    suspend fun run(
+        audioPath: String,
+        latitude: Double?,
+        longitude: Double?,
+        observedAtMillis: Long,
+        onProgress: (Float) -> Unit,
+    ): PerchAnalysisOutcome
+}
+
 sealed interface InatSubmissionOutcome {
     data class Success(val urls: List<String>) : InatSubmissionOutcome
     data class Failure(val message: String) : InatSubmissionOutcome
@@ -150,6 +181,16 @@ class ReviewViewModel(
         kotlinx.coroutines.flow.flowOf(emptyList()),
     /** Returns the iNaturalist default photo medium_url for a scientific name, or null. */
     private val photoFetcher: suspend (String) -> String? = { null },
+    private val perchAnalysis: PerchAnalysisJob = PerchAnalysisJob { _, _, _, _, _ ->
+        PerchAnalysisOutcome.NotInstalled
+    },
+    /**
+     * Returns true if the Perch model is installed (Ready) right now. Queried
+     * once on init and after every successful Perch run; the UI gates the
+     * "Analyze with Perch" button on this AND the absence of any
+     * `perch_v2`-sourced detection on the draft.
+     */
+    private val perchInstalledProbe: suspend () -> Boolean = { false },
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -196,7 +237,19 @@ class ReviewViewModel(
     private var visualsStarted = false
     private var visualsJob: Job? = null
 
+    /** Last result of [perchInstalledProbe]; folded into [ReviewUiState.canAnalyzeWithPerch]. */
+    private var perchInstalled: Boolean = false
+    private var perchJob: Job? = null
+
     init {
+        scope.launch {
+            // Probe once on init — the user can install Perch later, but the
+            // typical flow is: install in Settings -> open a draft. Probing
+            // again after each successful analyzeWithPerch run lets us flip the
+            // button off (we just produced perch detections).
+            perchInstalled = runCatching { perchInstalledProbe() }.getOrDefault(false)
+            recomputePerchEligibility()
+        }
         scope.launch {
             inatObservationsFlow.collect { rows ->
                 _state.value = _state.value.copy(inatObservations = rows)
@@ -255,6 +308,7 @@ class ReviewViewModel(
                         )
                     },
                 )
+                recomputePerchEligibility()
                 if (draft.status == DraftStatus.PENDING_INFERENCE && !inferenceStarted) {
                     inferenceStarted = true
                     startInference(
@@ -365,6 +419,118 @@ class ReviewViewModel(
         scope.launch {
             withContext(ioDispatcher) { repo.resetForReanalysis(draftId) }
             startInference(path = path, lat = lat, lon = lon, recordedAt = recordedAt)
+        }
+    }
+
+    /**
+     * Runs Perch v2 on the current saved WAV and merges the resulting
+     * detections with the draft's existing per-species rows. No-op when:
+     *  - Perch isn't installed (button shouldn't be visible),
+     *  - Another Perch run is already in flight,
+     *  - The draft has no audio path or live inference is currently running.
+     *
+     * Merge policy: union by `taxonScientificName`, taking max(maxConfidence),
+     * sum(detectedWindows), min(firstSeenMs), max(lastSeenMs), and per-source
+     * max for [AggregatedDetection.confidenceBySource]. Result is sorted by
+     * maxConfidence desc, then persisted via [DraftRepository.attachDetections]
+     * which replaces the row set atomically — no historical detections are
+     * lost because we pass the merged union.
+     */
+    @Suppress("TooGenericExceptionCaught", "LongMethod")
+    fun analyzeWithPerch() {
+        if (!_state.value.canAnalyzeWithPerch) return
+        if (_state.value.perchProgress != null) return
+        if (_state.value.inferenceProgress != null) return
+        val path = _state.value.audioPath ?: return
+        val lat = _state.value.latitude
+        val lon = _state.value.longitude
+        val recordedAt = _state.value.recordedAtUtcMs
+        _state.value = _state.value.copy(perchProgress = 0f, perchError = null)
+        perchJob = scope.launch {
+            try {
+                val outcome = perchAnalysis.run(path, lat, lon, recordedAt) { p ->
+                    _state.value = _state.value.copy(perchProgress = p.coerceIn(0f, 1f))
+                }
+                when (outcome) {
+                    is PerchAnalysisOutcome.Success -> mergeAndPersistPerch(outcome.detections)
+                    is PerchAnalysisOutcome.Failure -> {
+                        _state.value = _state.value.copy(perchError = outcome.message)
+                    }
+                    PerchAnalysisOutcome.NotInstalled -> {
+                        _state.value = _state.value.copy(
+                            perchError = "Perch model is not installed",
+                        )
+                    }
+                }
+            } catch (t: Throwable) {
+                android.util.Log.e("ReviewViewModel", "analyzeWithPerch failed", t)
+                _state.value = _state.value.copy(
+                    perchError = t.message ?: t::class.simpleName.orEmpty(),
+                )
+            } finally {
+                _state.value = _state.value.copy(perchProgress = null)
+                // Re-probe Perch state in case the run produced perch_v2 rows;
+                // observeWithDetections will also re-fire and recompute, but
+                // the explicit call keeps the state correct even if the repo
+                // flow is slow to emit on this dispatcher.
+                perchInstalled = runCatching { perchInstalledProbe() }.getOrDefault(perchInstalled)
+                recomputePerchEligibility()
+            }
+        }
+    }
+
+    /**
+     * Folds [perchAggregated] into the draft's current detections (read fresh
+     * from [DraftRepository.observeWithDetections]) and writes the union back
+     * via [DraftRepository.attachDetections]. The merge runs on the IO
+     * dispatcher because the DB write does.
+     */
+    private suspend fun mergeAndPersistPerch(perchAggregated: List<AggregatedDetection>) {
+        val dwd = repo.observeWithDetections(draftId).first()
+        val existing = dwd.detections.map { e ->
+            AggregatedDetection(
+                taxonScientificName = e.taxonScientificName,
+                taxonCommonName = e.taxonCommonName,
+                maxConfidence = e.maxConfidence,
+                detectedWindows = e.detectedWindows,
+                firstSeenMs = e.firstSeenMs,
+                lastSeenMs = e.lastSeenMs,
+                confidenceBySource = SourceConfidences.decode(e.sources),
+            )
+        }
+        val merged = mergeBySpecies(existing, perchAggregated)
+        val priorModelId = dwd.draft.modelId
+        val combinedModelId = if (priorModelId.isNullOrBlank()) {
+            "perch_v2"
+        } else if (priorModelId.split(',', '+').contains("perch_v2")) {
+            priorModelId
+        } else {
+            "$priorModelId,perch_v2"
+        }
+        val priorVersion = dwd.draft.modelVersion ?: ""
+        val combinedVersion = if (priorVersion.contains("perch")) priorVersion else "$priorVersion+perch"
+        withContext(ioDispatcher) {
+            repo.attachDetections(
+                draftId = draftId,
+                modelId = combinedModelId,
+                modelVersion = combinedVersion.trim('+'),
+                items = merged,
+            )
+        }
+    }
+
+    /**
+     * Recomputes [ReviewUiState.canAnalyzeWithPerch]: true iff the model is
+     * Ready AND no current detection row is sourced from `perch_v2`. Pure
+     * function over [perchInstalled] + the latest species snapshot in state.
+     */
+    private fun recomputePerchEligibility() {
+        val hasPerchAlready = _state.value.species.any { row ->
+            row.confidenceBySource.containsKey("perch_v2")
+        }
+        val eligible = perchInstalled && !hasPerchAlready
+        if (_state.value.canAnalyzeWithPerch != eligible) {
+            _state.value = _state.value.copy(canAnalyzeWithPerch = eligible)
         }
     }
 
@@ -618,12 +784,56 @@ class ReviewViewModelHilt @Inject constructor(
         inatObservationsFlow = inatObservationsDao.observeForDraft(draftId)
             .map { rows -> rows.map { it.taxonScientificName to it.observationUrl } },
         photoFetcher = { name -> inatClient.fetchTaxonPhotoUrl(name) },
+        perchAnalysis = ProductionPerchAnalysisJob(models, modelManager, settings, yamNetGate),
+        perchInstalledProbe = {
+            modelManager.stateFor(com.sound2inat.modelmanager.PerchV2.descriptor) is
+                ModelInstallState.Ready
+        },
     )
 
     override fun onCleared() {
         super.onCleared()
         delegate.release()
     }
+}
+
+/**
+ * Unions two aggregated-detection lists by `taxonScientificName`. For species
+ * present in both: max(maxConfidence), sum(detectedWindows), min(firstSeenMs),
+ * max(lastSeenMs), per-source max for [AggregatedDetection.confidenceBySource];
+ * common name preferred from the side that has one. Result is sorted by
+ * maxConfidence descending so the UI ordering matches a fresh aggregator pass.
+ */
+internal fun mergeBySpecies(
+    existing: List<AggregatedDetection>,
+    incoming: List<AggregatedDetection>,
+): List<AggregatedDetection> {
+    val byName = LinkedHashMap<String, AggregatedDetection>()
+    for (d in existing) byName[d.taxonScientificName] = d
+    for (d in incoming) {
+        val prior = byName[d.taxonScientificName]
+        if (prior == null) {
+            byName[d.taxonScientificName] = d
+            continue
+        }
+        val mergedSources = (prior.confidenceBySource.keys + d.confidenceBySource.keys)
+            .associateWith { key ->
+                maxOf(
+                    prior.confidenceBySource[key] ?: 0f,
+                    d.confidenceBySource[key] ?: 0f,
+                )
+            }
+        byName[d.taxonScientificName] = AggregatedDetection(
+            taxonScientificName = d.taxonScientificName,
+            taxonCommonName = prior.taxonCommonName ?: d.taxonCommonName,
+            maxConfidence = maxOf(prior.maxConfidence, d.maxConfidence),
+            detectedWindows = prior.detectedWindows + d.detectedWindows,
+            firstSeenMs = minOf(prior.firstSeenMs, d.firstSeenMs),
+            lastSeenMs = maxOf(prior.lastSeenMs, d.lastSeenMs),
+            confidenceBySource = mergedSources,
+        )
+    }
+    return byName.values.sortedByDescending { it.maxConfidence }
 }
 
 /** Default sink used in tests; never builds anything. */
@@ -869,5 +1079,68 @@ private class ProductionInferenceJob(
     private companion object {
         const val TAG = "ProductionInferenceJob"
         const val BIRDNET_MODEL_ID = "birdnet_v2_4"
+    }
+}
+
+/**
+ * Production [PerchAnalysisJob]. Resolves the Perch [BioacousticModel] from the
+ * injected list, ensures the artifact is installed, and runs
+ * [InferenceRunner] over the WAV. The resulting per-window predictions are
+ * aggregated with the user's `minConfidenceDisplay` threshold but NOT subjected
+ * to the regional filter — Perch covers taxa (frogs, insects, mammals) for
+ * which the regional service has no priors yet.
+ */
+private class ProductionPerchAnalysisJob(
+    private val models: List<BioacousticModel>,
+    private val modelManager: ModelManager,
+    private val settings: Settings,
+    private val yamNetGate: YamNetGate?,
+) : PerchAnalysisJob {
+
+    @Suppress("TooGenericExceptionCaught")
+    override suspend fun run(
+        audioPath: String,
+        latitude: Double?,
+        longitude: Double?,
+        observedAtMillis: Long,
+        onProgress: (Float) -> Unit,
+    ): PerchAnalysisOutcome = withContext(Dispatchers.IO) {
+        val perch = models.firstOrNull { it.modelId == "perch_v2" }
+            ?: return@withContext PerchAnalysisOutcome.NotInstalled
+        val state = modelManager.stateFor(com.sound2inat.modelmanager.PerchV2.descriptor)
+            as? ModelInstallState.Ready
+            ?: return@withContext PerchAnalysisOutcome.NotInstalled
+        try {
+            perch.load(state.modelFile, state.labelsFile)
+            val subtractor = if (settings.spectralSubtractionEnabled.first()) {
+                SpectralSubtractor()
+            } else {
+                null
+            }
+            val gate = if (settings.yamNetGateEnabled.first()) yamNetGate else null
+            val runner = InferenceRunner(
+                model = perch,
+                spectralSubtractor = subtractor,
+                yamNetGate = gate,
+            )
+            val preds = coroutineScope {
+                val collector = launch {
+                    runner.progress.collect { p -> onProgress(p) }
+                }
+                val result = runner.run(File(audioPath), latitude, longitude, observedAtMillis)
+                collector.cancel()
+                result
+            }
+            onProgress(1f)
+            val minConf = settings.minConfidenceDisplay.first()
+            val minWin = settings.minWindows.first()
+            val aggregator = DetectionAggregator(minConfidence = minConf, minWindows = minWin)
+            PerchAnalysisOutcome.Success(aggregator.aggregate(preds))
+        } catch (t: Throwable) {
+            android.util.Log.e("ProductionPerchAnalysisJob", "Perch run failed", t)
+            PerchAnalysisOutcome.Failure(t.message ?: t::class.simpleName.orEmpty())
+        } finally {
+            runCatching { perch.close() }
+        }
     }
 }

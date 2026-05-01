@@ -136,6 +136,46 @@ fun ReviewScreen(
                     }
                 }
             }
+            state.perchProgress?.let { p ->
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            "Analysing with Perch… ${(p * PERCENT).toInt()}%",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        LinearProgressIndicator(
+                            progress = { p.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+            if (state.canAnalyzeWithPerch && state.perchProgress == null) {
+                item {
+                    OutlinedButton(
+                        onClick = { vm.analyzeWithPerch() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text("Analyze with Perch (frogs, insects, mammals)")
+                    }
+                }
+            }
+            state.perchError?.let { err ->
+                item {
+                    Text(
+                        "Perch: $err",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
             state.inferenceError?.let { err ->
                 item {
                     Text(

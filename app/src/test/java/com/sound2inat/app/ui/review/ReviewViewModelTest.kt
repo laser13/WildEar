@@ -2,6 +2,7 @@ package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.inference.AggregatedDetection
+import com.sound2inat.inference.SourceConfidences
 import com.sound2inat.inference.WindowPrediction
 import com.sound2inat.storage.DetectionDao
 import com.sound2inat.storage.DetectionEntity
@@ -366,6 +367,144 @@ class ReviewViewModelTest {
             advanceTimeBy(301L)
             runCurrent()
             assertThat(vm.highlight.value).isNull()
+        }
+
+    @Test
+    fun `canAnalyzeWithPerch true when Perch installed and no Perch detections yet`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "p1"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 1L,
+                            draftId = draftId,
+                            taxonScientificName = "Turdus merula",
+                            taxonCommonName = "Common Blackbird",
+                            maxConfidence = 0.81f,
+                            detectedWindows = 3,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 3_000L,
+                            isSelectedByUser = false,
+                            sources = SourceConfidences.encode(mapOf("birdnet_v2_4" to 0.81f)),
+                        ),
+                    ),
+                )
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo(draftDao, detectionDao),
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                perchInstalledProbe = { true },
+                externalScope = backgroundScope,
+            )
+            assertThat(vm.state.value.canAnalyzeWithPerch).isTrue()
+        }
+
+    @Test
+    fun `canAnalyzeWithPerch false when draft already has Perch detections`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "p2"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 1L,
+                            draftId = draftId,
+                            taxonScientificName = "Rana temporaria",
+                            taxonCommonName = "Common Frog",
+                            maxConfidence = 0.7f,
+                            detectedWindows = 2,
+                            firstSeenMs = 1_000L,
+                            lastSeenMs = 4_000L,
+                            isSelectedByUser = false,
+                            sources = SourceConfidences.encode(mapOf("perch_v2" to 0.7f)),
+                        ),
+                    ),
+                )
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo(draftDao, detectionDao),
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                perchInstalledProbe = { true },
+                externalScope = backgroundScope,
+            )
+            assertThat(vm.state.value.canAnalyzeWithPerch).isFalse()
+        }
+
+    @Test
+    fun `analyzeWithPerch merges new species with existing detections`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "p3"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 1L,
+                            draftId = draftId,
+                            taxonScientificName = "Turdus merula",
+                            taxonCommonName = "Common Blackbird",
+                            maxConfidence = 0.81f,
+                            detectedWindows = 3,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 3_000L,
+                            isSelectedByUser = false,
+                            sources = SourceConfidences.encode(mapOf("birdnet_v2_4" to 0.81f)),
+                        ),
+                    ),
+                )
+            }
+            val perchAgg = AggregatedDetection(
+                taxonScientificName = "Rana temporaria",
+                taxonCommonName = "Common Frog",
+                maxConfidence = 0.65f,
+                detectedWindows = 2,
+                firstSeenMs = 1_000L,
+                lastSeenMs = 4_000L,
+                confidenceBySource = mapOf("perch_v2" to 0.65f),
+            )
+            val perchJob = PerchAnalysisJob { _, _, _, _, onProgress ->
+                onProgress(0.5f)
+                onProgress(1f)
+                PerchAnalysisOutcome.Success(listOf(perchAgg))
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo(draftDao, detectionDao),
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                perchAnalysis = perchJob,
+                perchInstalledProbe = { true },
+                externalScope = backgroundScope,
+            )
+            assertThat(vm.state.value.canAnalyzeWithPerch).isTrue()
+
+            vm.analyzeWithPerch()
+
+            // Perch run finished → progress cleared, both species persisted.
+            assertThat(vm.state.value.perchProgress).isNull()
+            val names = vm.state.value.species.map { it.taxonScientificName }
+            assertThat(names).containsExactly("Turdus merula", "Rana temporaria")
+            // Eligibility flips off because the merged set now has a perch_v2 row.
+            assertThat(vm.state.value.canAnalyzeWithPerch).isFalse()
+            // The newly-attached row carries the perch source key.
+            val frog = vm.state.value.species.first { it.taxonScientificName == "Rana temporaria" }
+            assertThat(frog.confidenceBySource.keys).contains("perch_v2")
         }
 
     private fun draftFor(id: String, status: DraftStatus): DraftEntity = DraftEntity(
