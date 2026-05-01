@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -47,6 +49,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -69,14 +72,70 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@Suppress("FunctionNaming", "LongMethod")
+/**
+ * Outer Review screen — owns the [HorizontalPager] over every saved draft
+ * (Home order, newest first) so the user can swipe between recordings
+ * without going back to Home. Each page builds its own [ReviewViewModel]
+ * via [ReviewViewModelFactory] and releases it when the page leaves
+ * composition (HorizontalPager keeps a small offscreen window cached).
+ *
+ * Swipe-right → newer recording (up the Home list);
+ * swipe-left → older recording (down).
+ */
+@Suppress("FunctionNaming")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReviewScreen(
     onBack: () -> Unit,
 ) {
-    val hilt: ReviewViewModelHilt = hiltViewModel()
-    val vm = hilt.delegate
+    val pagerVm: ReviewPagerViewModel = hiltViewModel()
+    val draftIds by pagerVm.orderedDraftIds.collectAsState()
+
+    if (draftIds.isEmpty()) {
+        // Either the list flow has not emitted yet or every draft has been
+        // deleted out from under us. Render nothing — the outer nav graph
+        // is responsible for popping back if the user truly has no drafts.
+        return
+    }
+
+    val initialIndex = remember(draftIds, pagerVm.initialDraftId) {
+        draftIds.indexOf(pagerVm.initialDraftId).coerceAtLeast(0)
+    }
+    val pagerState = rememberPagerState(initialPage = initialIndex) { draftIds.size }
+
+    HorizontalPager(
+        state = pagerState,
+        key = { idx -> draftIds.getOrElse(idx) { idx.toString() } },
+        modifier = Modifier.fillMaxSize(),
+    ) { pageIndex ->
+        val draftId = draftIds.getOrNull(pageIndex) ?: return@HorizontalPager
+        val vm = remember(draftId) { pagerVm.factory.create(draftId) }
+        DisposableEffect(draftId) {
+            onDispose { vm.release() }
+        }
+        // Pause whichever offscreen page was playing as soon as the user
+        // starts swiping; resume requires an explicit Play tap on the new
+        // page anyway, so this never fights the user's intent.
+        val isActive = pagerState.currentPage == pageIndex
+        LaunchedEffect(isActive) {
+            if (!isActive) vm.pause()
+        }
+        ReviewPage(
+            vm = vm,
+            filesDir = pagerVm.factory.filesDir,
+            onBack = onBack,
+        )
+    }
+}
+
+@Suppress("FunctionNaming", "LongMethod")
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReviewPage(
+    vm: ReviewViewModel,
+    filesDir: java.io.File,
+    onBack: () -> Unit,
+) {
     val state by vm.state.collectAsState()
     val spectrogramFile by vm.spectrogramFile.collectAsState()
     val denoisedSpectrogramFile by vm.denoisedSpectrogramFile.collectAsState()
@@ -90,7 +149,7 @@ fun ReviewScreen(
     }
 
     LaunchedEffect(state.audioPath) {
-        if (state.audioPath != null) vm.ensureVisuals(hilt.filesDir)
+        if (state.audioPath != null) vm.ensureVisuals(filesDir)
     }
 
     var pickerVisible by remember { mutableStateOf(false) }
@@ -147,7 +206,7 @@ fun ReviewScreen(
                     onSeek = vm::seekTo,
                 )
             }
-            item { DenoisePreviewToggle(state, vm, hilt.filesDir) }
+            item { DenoisePreviewToggle(state, vm, filesDir) }
             if (state.inferenceProgress != null) {
                 item { InferenceProgressBlock(state.inferenceProgress!!) }
             }

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.outlined.MicNone
 import androidx.compose.material.icons.outlined.Settings
@@ -188,7 +189,13 @@ private fun RecordingCard(
         vm.observeInatObservationCount(summary.id)
     }.collectAsState(initial = 0)
 
-    val (icon, iconBg) = statusVisuals(summary.status)
+    // hasSpecies is folded into status visuals so an analysed-but-empty
+    // recording (status=PENDING_REVIEW + zero detections) reads as
+    // "Nothing detected" instead of the misleading "Ready to review".
+    val analysedButEmpty = topSpecies.isEmpty() &&
+        (summary.status == DraftStatus.PENDING_REVIEW ||
+            summary.status == DraftStatus.REVIEWED)
+    val (icon, iconBg) = statusVisuals(summary.status, analysedButEmpty)
 
     Card(
         onClick = onClick,
@@ -216,7 +223,7 @@ private fun RecordingCard(
                 }
             },
             headlineContent = {
-                Text(topLabel ?: statusHeadline(summary.status))
+                Text(topLabel ?: statusHeadline(summary.status, analysedButEmpty))
             },
             supportingContent = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -302,8 +309,12 @@ private fun uploadBadge(summary: DraftSummary, inatCount: Int): (@Composable () 
 }
 
 @Composable
-private fun statusVisuals(status: DraftStatus): Pair<ImageVector, Color> {
+private fun statusVisuals(
+    status: DraftStatus,
+    analysedButEmpty: Boolean,
+): Pair<ImageVector, Color> {
     val colors = MaterialTheme.colorScheme
+    if (analysedButEmpty) return Icons.Filled.SearchOff to colors.outline
     return when (status) {
         DraftStatus.PENDING_INFERENCE -> Icons.Filled.Autorenew to colors.secondary
         DraftStatus.PENDING_REVIEW -> Icons.Filled.Visibility to colors.tertiary
@@ -312,11 +323,14 @@ private fun statusVisuals(status: DraftStatus): Pair<ImageVector, Color> {
     }
 }
 
-private fun statusHeadline(status: DraftStatus): String = when (status) {
-    DraftStatus.PENDING_INFERENCE -> "Analyzing…"
-    DraftStatus.PENDING_REVIEW -> "Ready to review"
-    DraftStatus.REVIEWED -> "Ready to submit"
-    DraftStatus.UPLOADED -> "Submitted to iNaturalist"
+private fun statusHeadline(status: DraftStatus, analysedButEmpty: Boolean): String {
+    if (analysedButEmpty) return "Nothing detected"
+    return when (status) {
+        DraftStatus.PENDING_INFERENCE -> "Analyzing…"
+        DraftStatus.PENDING_REVIEW -> "Ready to review"
+        DraftStatus.REVIEWED -> "Ready to submit"
+        DraftStatus.UPLOADED -> "Submitted to iNaturalist"
+    }
 }
 
 private fun formatTimestamp(ms: Long): String =

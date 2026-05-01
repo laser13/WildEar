@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import javax.inject.Singleton
 import com.sound2inat.app.data.Settings
 import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INaturalistClient
@@ -32,10 +33,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -607,7 +610,9 @@ class ReviewViewModel(
             val token = tokenProvider()
             if (token.isNullOrBlank()) {
                 _state.value = _state.value.copy(
-                    inatSubmission = InatSubmissionState.Failed("Set iNaturalist token in Settings first"),
+                    inatSubmission = InatSubmissionState.Failed(
+                        "iNaturalist session expired — open Settings and tap Log in again",
+                    ),
                 )
                 return@launch
             }
@@ -755,11 +760,17 @@ class ReviewViewModel(
     }
 }
 
-@HiltViewModel
+/**
+ * Hilt-injectable factory that builds [ReviewViewModel] instances on demand.
+ * Lets us instantiate one VM per [HorizontalPager] page without fighting
+ * Hilt's "one [ViewModel] per [ViewModelStore] key" constraint —
+ * [ReviewPagerViewModel] is the single Hilt VM, and it asks this factory
+ * for a fresh delegate per draft id as the user swipes.
+ */
+@Singleton
 @Suppress("LongParameterList")
-class ReviewViewModelHilt @Inject constructor(
-    savedStateHandle: SavedStateHandle,
-    @ApplicationContext context: Context,
+class ReviewViewModelFactory @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val repo: DraftRepository,
     private val models: List<@JvmSuppressWildcards BioacousticModel>,
     private val descriptors: List<@JvmSuppressWildcards ModelDescriptor>,
@@ -771,21 +782,15 @@ class ReviewViewModelHilt @Inject constructor(
     private val regionFilter: RegionFilter,
     private val yamNetGate: YamNetGate?,
     private val birdNetMeta: BirdNetMetaModel?,
-) : ViewModel() {
-
-    private val draftId: String = checkNotNull(savedStateHandle.get<String>("draftId")) {
-        "Review screen requires draftId nav arg"
-    }
-
+    private val inatAuth: com.sound2inat.inat.INatAuthRepository,
+) {
     /** Cache root used by the screen's `ensureVisuals` call. */
-    val filesDir: File = context.filesDir
+    val filesDir: File get() = context.filesDir
 
-    private val player: AudioPlayer = MediaPlayerAudioPlayer()
-
-    val delegate = ReviewViewModel(
+    fun create(draftId: String): ReviewViewModel = ReviewViewModel(
         draftId = draftId,
         repo = repo,
-        player = player,
+        player = MediaPlayerAudioPlayer(),
         inference = ProductionInferenceJob(
             models,
             descriptors,
@@ -805,7 +810,7 @@ class ReviewViewModelHilt @Inject constructor(
                 is INatSubmitter.Result.Failure -> InatSubmissionOutcome.Failure(r.message)
             }
         },
-        tokenProvider = { settings.inatToken.first() },
+        tokenProvider = { inatAuth.getValidToken() },
         inatObservationsFlow = inatObservationsDao.observeForDraft(draftId)
             .map { rows -> rows.map { it.taxonScientificName to it.observationUrl } },
         photoFetcher = { name -> inatClient.fetchTaxonPhotoUrl(name) },
@@ -815,11 +820,33 @@ class ReviewViewModelHilt @Inject constructor(
                 ModelInstallState.Ready
         },
     )
+}
 
-    override fun onCleared() {
-        super.onCleared()
-        delegate.release()
+/**
+ * Hilt VM owning the ordered list of draft ids and the navigation entry
+ * point's initial draft id. The [HorizontalPager] in [ReviewScreen] reads
+ * [orderedDraftIds] to know how many pages to render and uses [factory]
+ * to build a fresh [ReviewViewModel] per page.
+ */
+@HiltViewModel
+class ReviewPagerViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
+    val factory: ReviewViewModelFactory,
+    repo: DraftRepository,
+) : ViewModel() {
+    val initialDraftId: String = checkNotNull(savedStateHandle.get<String>("draftId")) {
+        "Review screen requires draftId nav arg"
     }
+
+    /**
+     * All drafts in the same order as the Home list (newest first). Swipe
+     * left on page N moves to N+1 (older recording); swipe right moves to
+     * N-1 (newer). Empty list means "Home is empty" — the screen should
+     * pop back rather than render an empty Pager.
+     */
+    val orderedDraftIds: StateFlow<List<String>> = repo.observeAll()
+        .map { drafts -> drafts.map { it.id } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 }
 
 /**
