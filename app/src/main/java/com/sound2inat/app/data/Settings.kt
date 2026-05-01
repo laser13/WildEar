@@ -26,6 +26,9 @@ class Settings(private val ctx: Context) {
         val SPECTRAL_SUBTRACTION_ENABLED = booleanPreferencesKey("spectral_subtraction_enabled")
         val YAMNET_GATE_ENABLED = booleanPreferencesKey("yamnet_gate_enabled")
         val BIRDNET_META_ENABLED = booleanPreferencesKey("birdnet_meta_enabled")
+        val RADAR_RADIUS_KM = intPreferencesKey("radar_radius_km")
+        val RADAR_PERIOD_DAYS = intPreferencesKey("radar_period_days")
+        val RADAR_TAXA = stringPreferencesKey("radar_taxa")
     }
 
     val minConfidenceDisplay: Flow<Float> = ctx.dataStore.data.map { it[K.MIN_CONF] ?: DEFAULT_MIN_CONF }
@@ -42,6 +45,13 @@ class Settings(private val ctx: Context) {
         ctx.dataStore.data.map { it[K.YAMNET_GATE_ENABLED] ?: true }
     val birdNetMetaEnabled: Flow<Boolean> =
         ctx.dataStore.data.map { it[K.BIRDNET_META_ENABLED] ?: true }
+    val radarRadiusKm: Flow<Int> =
+        ctx.dataStore.data.map { it[K.RADAR_RADIUS_KM] ?: DEFAULT_RADAR_RADIUS_KM }
+    val radarPeriodDays: Flow<Int> =
+        ctx.dataStore.data.map { it[K.RADAR_PERIOD_DAYS] ?: DEFAULT_RADAR_PERIOD_DAYS }
+    val radarTaxa: Flow<Set<String>> = ctx.dataStore.data.map {
+        it[K.RADAR_TAXA]?.takeIf(String::isNotEmpty)?.split(',')?.toSet() ?: emptySet()
+    }
 
     suspend fun setMinConfidenceDisplay(v: Float) { ctx.dataStore.edit { it[K.MIN_CONF] = v } }
     suspend fun setInatToken(v: String?) {
@@ -66,6 +76,23 @@ class Settings(private val ctx: Context) {
     suspend fun setBirdNetMetaEnabled(v: Boolean) {
         ctx.dataStore.edit { it[K.BIRDNET_META_ENABLED] = v }
     }
+    suspend fun setRadarRadiusKm(v: Int) {
+        ctx.dataStore.edit { it[K.RADAR_RADIUS_KM] = v }
+    }
+    suspend fun setRadarPeriodDays(v: Int) {
+        ctx.dataStore.edit { it[K.RADAR_PERIOD_DAYS] = v }
+    }
+    suspend fun setRadarTaxa(v: Set<String>) {
+        // Comma is the on-disk delimiter; reject any taxon id that contains
+        // one so a future caller can't accidentally split a single value
+        // across two entries on roundtrip. iNat's iconic_taxa values are
+        // single-word slugs ("Aves", "Mammalia", …) so this is purely
+        // defensive against a misuse downstream.
+        require(v.none { ',' in it }) { "Taxon ids must not contain commas: $v" }
+        ctx.dataStore.edit {
+            if (v.isEmpty()) it.remove(K.RADAR_TAXA) else it[K.RADAR_TAXA] = v.joinToString(",")
+        }
+    }
     suspend fun setLastKnownCoords(lat: Double, lon: Double) {
         ctx.dataStore.edit {
             it[K.LAST_KNOWN_LAT] = lat
@@ -77,5 +104,7 @@ class Settings(private val ctx: Context) {
         const val DEFAULT_MIN_CONF = 0.25f
         const val DEFAULT_REGION_RADIUS_KM = 200
         const val DEFAULT_MIN_WINDOWS = 2
+        const val DEFAULT_RADAR_RADIUS_KM = 5
+        const val DEFAULT_RADAR_PERIOD_DAYS = 7
     }
 }

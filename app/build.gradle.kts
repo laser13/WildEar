@@ -92,6 +92,8 @@ dependencies {
     implementation(libs.play.services.location)
     implementation(libs.coil.compose)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.osmdroid.android)
+    implementation(libs.androidx.browser)
 
     debugImplementation(libs.compose.ui.tooling)
 
