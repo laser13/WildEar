@@ -2,6 +2,7 @@ package com.sound2inat.app
 
 import com.sound2inat.app.di.SwappableModule
 import com.sound2inat.inference.BioacousticModel
+import com.sound2inat.inference.BirdNetMetaModel
 import com.sound2inat.inference.WindowPrediction
 import com.sound2inat.inference.YamNetGate
 import com.sound2inat.location.Fix
@@ -61,6 +62,10 @@ object TestSwappableModule {
     /** Bypass YAMNet in e2e tests — InferenceRunner sees null and never calls the gate. */
     @Provides @Singleton
     fun provideYamNetGate(): YamNetGate? = null
+
+    /** Bypass BirdNET regional priors in e2e tests — ProductionInferenceJob skips rescaling. */
+    @Provides @Singleton
+    fun provideBirdNetMeta(): BirdNetMetaModel? = null
 }
 
 /**

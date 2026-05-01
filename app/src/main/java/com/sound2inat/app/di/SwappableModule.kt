@@ -2,6 +2,7 @@ package com.sound2inat.app.di
 
 import android.content.Context
 import com.sound2inat.inference.BioacousticModel
+import com.sound2inat.inference.BirdNetMetaModel
 import com.sound2inat.inference.BirdNetTfliteModel
 import com.sound2inat.inference.InterpreterFactory
 import com.sound2inat.inference.PerchTfliteModel
@@ -9,6 +10,7 @@ import com.sound2inat.inference.YamNetGate
 import com.sound2inat.inference.YamNetTfliteGate
 import com.sound2inat.location.FusedLocationProvider
 import com.sound2inat.location.LocationProvider
+import com.sound2inat.modelmanager.BirdNetMetaV24
 import com.sound2inat.modelmanager.KnownModels
 import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelManager
@@ -40,7 +42,7 @@ object SwappableModule {
     ): ModelManager = ModelManager(
         ctx.filesDir,
         http,
-        hiddenDescriptors = listOf(YamNetV1.descriptor),
+        hiddenDescriptors = listOf(YamNetV1.descriptor, BirdNetMetaV24.descriptor),
     )
 
     /**
@@ -52,6 +54,16 @@ object SwappableModule {
         factory: InterpreterFactory,
         manager: ModelManager,
     ): YamNetGate? = YamNetTfliteGate(factory, manager)
+
+    /**
+     * BirdNET location/time meta-model. Returned as nullable so test modules
+     * can replace with null to bypass regional rescaling in instrumented tests.
+     */
+    @Provides @Singleton
+    fun provideBirdNetMeta(
+        factory: InterpreterFactory,
+        manager: ModelManager,
+    ): BirdNetMetaModel? = BirdNetMetaModel(factory, manager)
 
     @Provides @Singleton
     fun provideAudioSource(): AudioRecordSource = AndroidAudioRecordSource()

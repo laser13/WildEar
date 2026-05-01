@@ -10,6 +10,7 @@ import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.BioacousticModel
+import com.sound2inat.inference.BirdNetMetaModel
 import com.sound2inat.inference.DetectionAggregator
 import com.sound2inat.inference.InferenceRunner
 import com.sound2inat.inference.SourceConfidences
@@ -39,6 +40,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Calendar
 import javax.inject.Inject
 
 /**
@@ -577,6 +579,7 @@ class ReviewViewModelHilt @Inject constructor(
     private val inatClient: INaturalistClient,
     private val regionFilter: RegionFilter,
     private val yamNetGate: YamNetGate?,
+    private val birdNetMeta: BirdNetMetaModel?,
 ) : ViewModel() {
 
     private val draftId: String = checkNotNull(savedStateHandle.get<String>("draftId")) {
@@ -599,6 +602,7 @@ class ReviewViewModelHilt @Inject constructor(
             settings,
             regionFilter,
             yamNetGate,
+            birdNetMeta,
         ),
         visuals = ProductionVisualsProvider(),
         submission = InatSubmissionJob { token, id ->
@@ -681,6 +685,7 @@ private class ProductionInferenceJob(
     private val settings: Settings,
     private val regionFilter: RegionFilter,
     private val yamNetGate: YamNetGate?,
+    private val birdNetMeta: BirdNetMetaModel?,
 ) : InferenceJob {
 
     @Suppress("TooGenericExceptionCaught", "LongMethod", "NestedBlockDepth")
@@ -708,6 +713,10 @@ private class ProductionInferenceJob(
         val yamNetEnabled = settings.yamNetGateEnabled.first()
         val activeGate = if (yamNetEnabled) yamNetGate else null
         val aggregator = DetectionAggregator(minConfidence = minConf, minWindows = minWin)
+        // Compute BirdNET location/time priors once per run; null when the meta
+        // model isn't installed or coords aren't known. Applied later only to
+        // BirdNET window predictions — Perch has its own label space.
+        val birdNetPriors = computeBirdNetPriors(latitude, longitude, observedAtMillis)
         val allPreds = ArrayList<WindowPrediction>()
         val succeeded = ArrayList<BioacousticModel>()
         val perModelErrors = ArrayList<String>()
@@ -743,9 +752,22 @@ private class ProductionInferenceJob(
                     collector.cancel()
                     result
                 }
-                allPreds += perModel
+                val rescaled = if (model.modelId == BIRDNET_MODEL_ID && birdNetPriors != null) {
+                    applyBirdNetPriors(perModel, birdNetPriors)
+                } else {
+                    perModel
+                }
+                allPreds += rescaled
                 succeeded += model
-                android.util.Log.i(TAG, "${model.modelId} produced ${perModel.size} window predictions")
+                android.util.Log.i(
+                    TAG,
+                    "${model.modelId} produced ${perModel.size} window predictions" +
+                        if (rescaled.size != perModel.size) {
+                            " (${perModel.size - rescaled.size} suppressed by regional priors)"
+                        } else {
+                            ""
+                        },
+                )
             } catch (t: Throwable) {
                 android.util.Log.e(TAG, "Inference failed for ${model.modelId}", t)
                 perModelErrors += "${model.modelId}: ${t.message ?: t::class.simpleName.orEmpty()}"
@@ -799,7 +821,47 @@ private class ProductionInferenceJob(
         )
     }
 
+    /**
+     * Runs the BirdNET location/time meta-model once for this recording and
+     * returns the per-species multiplier map, or null when we have no priors
+     * to apply (model not installed, coords unknown, or any internal failure).
+     * Coords fall back to [Settings.lastKnownLat]/[lastKnownLon] when the
+     * recording itself has no GPS fix attached.
+     */
+    private suspend fun computeBirdNetPriors(
+        latitude: Double?,
+        longitude: Double?,
+        recordedAtMillis: Long,
+    ): Map<String, Float>? {
+        val meta = birdNetMeta ?: return null
+        val effectiveLat = latitude ?: settings.lastKnownLat.first() ?: return null
+        val effectiveLon = longitude ?: settings.lastKnownLon.first() ?: return null
+        val cal = Calendar.getInstance()
+        cal.timeInMillis = if (recordedAtMillis > 0L) recordedAtMillis else System.currentTimeMillis()
+        val week = BirdNetMetaModel.weekOfYearFromDayOfYear(cal.get(Calendar.DAY_OF_YEAR))
+        return meta.priorsByScientificName(effectiveLat, effectiveLon, week)
+    }
+
+    /**
+     * Folds [priors] into [preds]: species absent from the map (multiplier 0)
+     * are dropped entirely so they never reach the aggregator; species with a
+     * non-unit multiplier have their confidence scaled accordingly. Pass-through
+     * for species with multiplier 1.0 to avoid allocating new objects.
+     */
+    private fun applyBirdNetPriors(
+        preds: List<WindowPrediction>,
+        priors: Map<String, Float>,
+    ): List<WindowPrediction> = preds.mapNotNull { wp ->
+        val mult = priors[wp.taxonScientificName] ?: 0f
+        when {
+            mult <= 0f -> null
+            mult >= 1f -> wp
+            else -> wp.copy(confidence = wp.confidence * mult)
+        }
+    }
+
     private companion object {
         const val TAG = "ProductionInferenceJob"
+        const val BIRDNET_MODEL_ID = "birdnet_v2_4"
     }
 }
