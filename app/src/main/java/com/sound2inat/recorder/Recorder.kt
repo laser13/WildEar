@@ -27,11 +27,13 @@ interface Recorder {
     val rmsHistory: StateFlow<FloatArray>
 
     /**
-     * Hot stream of raw PCM blocks scaled to [-1, 1], emitted as the recorder
-     * reads from the audio source. Live consumers (spectrogram, BirdNET) collect
-     * this in parallel with the WAV writer. Backed by a SharedFlow with
-     * extraBufferCapacity = 8 and DROP_OLDEST overflow — slow consumers cannot
-     * stall the recording. Empty after [start] until the first block arrives.
+     * Hot stream of raw PCM blocks scaled by `Short.MAX_VALUE` to floats in
+     * approximately `[-1, 1]` (the most-negative sample maps to ≈ -1.00003 — one LSB
+     * past the unit interval). Live consumers (spectrogram, BirdNET) collect this
+     * in parallel with the WAV writer. Backed by a SharedFlow with replay = 1
+     * (so a late subscriber gets the most recent block) and DROP_OLDEST overflow,
+     * so a slow consumer cannot stall recording. Empty before the first block
+     * arrives after [start].
      */
     val audioBlocks: SharedFlow<FloatArray>
 
@@ -77,6 +79,7 @@ class DefaultRecorder(
     override val rmsHistory: StateFlow<FloatArray> = _rmsHistory
 
     private val _audioBlocks = MutableSharedFlow<FloatArray>(
+        replay = 1,
         extraBufferCapacity = 8,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
