@@ -287,6 +287,13 @@ class ReviewViewModel(
         scope.launch {
             repo.observeWithDetections(draftId).collect { dwd ->
                 val draft = dwd.draft
+                // Preserve already-fetched taxonPhotoUrl across DB re-emissions —
+                // any DB write (e.g. checkbox toggle) re-emits the detections,
+                // and rebuilding rows from scratch would otherwise drop the URL
+                // since the photo fetcher only re-runs when species *names*
+                // change.
+                val prevPhotos: Map<String, String?> = _state.value.species
+                    .associate { it.taxonScientificName to it.taxonPhotoUrl }
                 _state.value = _state.value.copy(
                     status = draft.status,
                     recordedAtUtcMs = draft.recordedAtUtcMs,
@@ -305,6 +312,7 @@ class ReviewViewModel(
                             lastSeenMs = e.lastSeenMs,
                             isSelected = e.isSelectedByUser,
                             confidenceBySource = SourceConfidences.decode(e.sources),
+                            taxonPhotoUrl = prevPhotos[e.taxonScientificName],
                         )
                     },
                 )
