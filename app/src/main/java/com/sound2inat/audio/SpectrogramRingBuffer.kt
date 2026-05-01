@@ -22,7 +22,14 @@ class SpectrogramRingBuffer(
         if (size < capacity) size++
     }
 
-    /** Read column by logical index 0..size-1, oldest first. */
+    /**
+     * Read column by logical index 0..size-1, oldest first.
+     *
+     * **DO NOT MUTATE the returned array.** It is the buffer's internal storage —
+     * mutating it corrupts state silently. Treat as read-only. (No defensive copy
+     * here because callers iterate this in a tight render loop and the allocation
+     * cost is unjustified.)
+     */
     fun column(index: Int): FloatArray {
         require(index in 0 until size)
         val pos = (head - size + index + capacity) % capacity

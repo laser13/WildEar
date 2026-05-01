@@ -5,7 +5,6 @@ import android.graphics.Color
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,10 +60,6 @@ fun LiveSpectrogramView(
                 revision++
             }
         }
-    }
-
-    DisposableEffect(bitmap) {
-        onDispose { bitmap.recycle() }
     }
 
     @Suppress("UNUSED_EXPRESSION") revision  // force recomposition on bitmap mutation
