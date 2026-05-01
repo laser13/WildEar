@@ -167,7 +167,12 @@ open class LiveInferenceEngine(
  * sample rate. Hilt provides this so the VM doesn't need direct access to all
  * dependencies (BioacousticModels, YamNetGate). Test bindings can return null
  * to fall back to the offline inference pipeline.
+ *
+ * `create` is suspend and may return null when the BirdNET model is not
+ * installed (or fails to load). Callers must fall back to the offline path
+ * in that case rather than treating null as a hard error — the user simply
+ * hasn't installed the model yet.
  */
 fun interface LiveInferenceEngineFactory {
-    fun create(sampleRateHz: Int): LiveInferenceEngine
+    suspend fun create(sampleRateHz: Int): LiveInferenceEngine?
 }

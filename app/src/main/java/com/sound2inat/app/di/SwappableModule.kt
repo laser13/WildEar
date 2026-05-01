@@ -96,17 +96,25 @@ object SwappableModule {
     /**
      * Factory that builds a [LiveInferenceEngine] bound to the recorder's sample
      * rate. Returned as nullable so test modules can override with `null` and
-     * fall back to the offline [com.sound2inat.inference.ProductionInferenceJob]
-     * pipeline. Production binding requires BirdNET v2.4 to be installed; it
-     * errors at construction time when callers ask for the engine without it.
+     * fall back to the offline pipeline. The factory's `create` is suspend
+     * because it loads the BirdNET TFLite weights synchronously before the
+     * engine starts emitting predictions — without this load, predict() throws
+     * "Model not loaded". Returns null when the model is not installed; the
+     * recorder VM treats that as a signal to use the offline path.
      */
     @Provides
     fun provideLiveInferenceEngineFactory(
         bioModels: List<@JvmSuppressWildcards BioacousticModel>,
         yamGate: YamNetGate?,
+        modelManager: ModelManager,
     ): LiveInferenceEngineFactory? = LiveInferenceEngineFactory { sampleRateHz ->
         val birdnet = bioModels.firstOrNull { it.modelId == "birdnet_v2_4" }
-            ?: error("BirdNET model not bound — install before recording")
+            ?: return@LiveInferenceEngineFactory null
+        val state = modelManager.stateFor(com.sound2inat.modelmanager.BirdNetV24.descriptor)
+        val ready = state as? com.sound2inat.modelmanager.ModelInstallState.Ready
+            ?: return@LiveInferenceEngineFactory null
+        runCatching { birdnet.load(ready.modelFile, ready.labelsFile) }
+            .getOrElse { return@LiveInferenceEngineFactory null }
         LiveInferenceEngine(
             model = birdnet,
             yamNetGate = yamGate,

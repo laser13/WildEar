@@ -102,7 +102,9 @@ class RecordingViewModel(
         val factory = engineFactory ?: return
         val threshold = runCatching { minConfidence.first() }.getOrDefault(DEFAULT_MIN_CONFIDENCE)
         val aggregator = DetectionAggregator(minConfidence = threshold)
-        val engine = factory.create(recorder.sampleRate)
+        // Factory returns null when BirdNET isn't installed or failed to load —
+        // VM stays without a live engine and Stop will fall back to PENDING_INFERENCE.
+        val engine = factory.create(recorder.sampleRate) ?: return
         activeEngine = engine
         activeAggregator = aggregator
         engine.start(viewModelScope)
