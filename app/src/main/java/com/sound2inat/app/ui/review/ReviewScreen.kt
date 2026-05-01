@@ -36,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -124,30 +125,19 @@ fun ReviewScreen(
             item { DenoisePreviewToggle(state, vm, hilt.filesDir) }
             if (state.inferenceProgress != null) {
                 item { InferenceProgressBlock(state.inferenceProgress!!) }
-            } else if (state.audioPath != null && state.status != DraftStatus.UPLOADED) {
-                item {
-                    OutlinedButton(
-                        onClick = { vm.reanalyze() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                    ) {
-                        Text("Re-analyze")
-                    }
-                }
             }
             state.perchProgress?.let { p ->
                 item {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
                     ) {
                         Text(
                             "Analysing with Perch… ${(p * PERCENT).toInt()}%",
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
                         )
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(2.dp))
                         LinearProgressIndicator(
                             progress = { p.coerceIn(0f, 1f) },
                             modifier = Modifier.fillMaxWidth(),
@@ -155,15 +145,27 @@ fun ReviewScreen(
                     }
                 }
             }
-            if (state.canAnalyzeWithPerch && state.perchProgress == null) {
+            // Compact action row — keeps the species list close to the spectrogram.
+            val showReanalyze = state.inferenceProgress == null &&
+                state.audioPath != null &&
+                state.status != DraftStatus.UPLOADED
+            val showPerch = state.canAnalyzeWithPerch && state.perchProgress == null
+            if (showReanalyze || showPerch) {
                 item {
-                    OutlinedButton(
-                        onClick = { vm.analyzeWithPerch() },
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Text("Analyze with Perch (frogs, insects, mammals)")
+                        if (showReanalyze) {
+                            TextButton(onClick = { vm.reanalyze() }) { Text("Re-analyze") }
+                        }
+                        if (showPerch) {
+                            TextButton(onClick = { vm.analyzeWithPerch() }) {
+                                Text("+ Perch (frogs, insects)")
+                            }
+                        }
                     }
                 }
             }
@@ -199,7 +201,10 @@ fun ReviewScreen(
                 SpeciesListItem(
                     row = row,
                     isHighlighted = highlight == row.detectionId,
-                    onClick = { vm.highlight(row.detectionId) },
+                    onClick = {
+                        vm.seekTo(row.firstSeenMs)
+                        vm.highlight(row.detectionId)
+                    },
                     onCheckedChange = { checked -> vm.toggle(row.detectionId, checked) },
                 )
                 HorizontalDivider()
@@ -250,10 +255,10 @@ private fun DenoisePreviewToggle(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text("Show denoised", style = MaterialTheme.typography.bodyMedium)
             val sub = when {
                 state.denoisingInProgress -> "Building preview…"
