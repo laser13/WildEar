@@ -25,14 +25,20 @@ private const val FFT_SIZE = 2048
 private const val HOP_SIZE = 512
 
 /**
- * Fixed dB window for the viridis lookup. Chosen to cover typical phone-mic
- * content: noise floor lands around -65 dB → dark purple background; bird
- * calls around -40 dB → blue-teal; loud peaks at -10 dB → green-yellow.
- * Adaptive (EMA-tracked) top would flicker the whole image whenever loud
- * content arrived — fixed window keeps colours stable per dB level.
+ * Fixed dB window for the viridis lookup. The offline Review renderer uses
+ * dynamic per-clip min/max which gives bright teal/yellow contrast — but for
+ * live we can't normalise across an unknown future, and an EMA-tracked top
+ * makes the whole image flicker whenever a loud sound arrives.
+ *
+ * Instead we keep a fixed dB window and apply a gamma < 1 to the normalised
+ * value before the viridis lookup. Gamma lifts quiet content (typical mic
+ * background ~ -65 dB) out of the dark-purple end into the blue-teal mid
+ * range, while loud peaks still saturate the bright yellow end. Per-pixel
+ * mapping never depends on neighbours, so no flicker.
  */
 private const val DB_DISPLAY_MIN = -75f
 private const val DB_DISPLAY_MAX = -5f
+private const val GAMMA = 0.5f                // sqrt — pushes low values up
 
 /**
  * Renders a [SharedFlow] of float audio blocks as a scrolling dB heatmap.
@@ -110,7 +116,8 @@ private fun drawRingIntoBitmap(bm: Bitmap, ring: SpectrogramRingBuffer) {
         val col = ring.column(x)
         for (y in 0 until h) {
             val db = col[h - 1 - y]   // flip so high freqs on top
-            val t = ((db - DB_DISPLAY_MIN) / span).coerceIn(0f, 1f)
+            val linear = ((db - DB_DISPLAY_MIN) / span).coerceIn(0f, 1f)
+            val t = kotlin.math.sqrt(linear)   // gamma 0.5 — see GAMMA constant
             pixels[y * w + (xOffset + x)] = Colormap.viridis(t)
         }
     }
