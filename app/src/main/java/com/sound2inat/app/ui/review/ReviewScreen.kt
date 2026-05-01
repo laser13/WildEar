@@ -22,7 +22,9 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.MicNone
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,16 +36,25 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -82,6 +93,9 @@ fun ReviewScreen(
         if (state.audioPath != null) vm.ensureVisuals(hilt.filesDir)
     }
 
+    var pickerVisible by remember { mutableStateOf(false) }
+    val isAnalysisRunning = state.inferenceProgress != null || state.perchProgress != null
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -99,14 +113,25 @@ fun ReviewScreen(
             )
         },
     ) { padding ->
-        // Single LazyColumn covers the whole screen body — header, player,
-        // visuals, banner, Submit and species list all scroll together so the
-        // species list is no longer pinned in a tiny inner viewport.
-        LazyColumn(
+        // PullToRefreshBox handles the gesture animation; we never set
+        // isRefreshing=true (no async work to await) — instead we treat
+        // onRefresh as "user requested re-analysis" and pop the model picker.
+        // While another run is in flight, swallow the gesture entirely.
+        PullToRefreshBox(
+            isRefreshing = false,
+            onRefresh = {
+                if (!isAnalysisRunning && state.audioPath != null) {
+                    pickerVisible = true
+                }
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
+        // Single LazyColumn covers the whole screen body — header, player,
+        // visuals, banner, Submit and species list all scroll together so the
+        // species list is no longer pinned in a tiny inner viewport.
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
             item { HeaderBlock(state) }
             item { PlayerControls(state = state, vm = vm) }
             item {
@@ -142,30 +167,6 @@ fun ReviewScreen(
                             progress = { p.coerceIn(0f, 1f) },
                             modifier = Modifier.fillMaxWidth(),
                         )
-                    }
-                }
-            }
-            // Compact action row — keeps the species list close to the spectrogram.
-            val showReanalyze = state.inferenceProgress == null &&
-                state.audioPath != null &&
-                state.status != DraftStatus.UPLOADED
-            val showPerch = state.canAnalyzeWithPerch && state.perchProgress == null
-            if (showReanalyze || showPerch) {
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        if (showReanalyze) {
-                            TextButton(onClick = { vm.reanalyze() }) { Text("Re-analyze") }
-                        }
-                        if (showPerch) {
-                            TextButton(onClick = { vm.analyzeWithPerch() }) {
-                                Text("+ Perch (frogs, insects)")
-                            }
-                        }
                     }
                 }
             }
@@ -220,7 +221,65 @@ fun ReviewScreen(
             }
 
         }
+        }
     }
+
+    if (pickerVisible) {
+        ModelPickerDialog(
+            isPerchInstalled = state.isPerchInstalled,
+            onPickBirdnet = {
+                pickerVisible = false
+                vm.reanalyzeBirdnet()
+            },
+            onPickPerch = {
+                pickerVisible = false
+                vm.analyzeWithPerch()
+            },
+            onDismiss = { pickerVisible = false },
+        )
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun ModelPickerDialog(
+    isPerchInstalled: Boolean,
+    onPickBirdnet: () -> Unit,
+    onPickPerch: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Re-analyze recording") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Pick a model to run again. New detections are merged with " +
+                        "existing ones — matching species pick up an extra source badge.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (!isPerchInstalled) {
+                    Text(
+                        "Perch is not installed — install it from Settings to enable.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onPickBirdnet) { Text("BirdNET") }
+                TextButton(
+                    onClick = onPickPerch,
+                    enabled = isPerchInstalled,
+                ) { Text("Perch") }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 @Suppress("FunctionNaming")
@@ -244,6 +303,7 @@ private fun HeaderBlock(state: ReviewUiState) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Suppress("FunctionNaming")
 @Composable
 private fun DenoisePreviewToggle(
@@ -251,26 +311,46 @@ private fun DenoisePreviewToggle(
     vm: ReviewViewModel,
     filesDir: java.io.File,
 ) {
+    val tooltipState = rememberTooltipState(isPersistent = true)
+    val coScope = rememberCoroutineScope()
+    val tooltipText = when {
+        state.denoisingInProgress -> "Building denoised preview…"
+        state.denoisePreviewEnabled ->
+            "Spectrogram and playback reflect the noise-reduction pipeline. " +
+                "Disable to compare against the original recording."
+        else ->
+            "Toggle to preview the cleaned-up audio. The original recording " +
+                "is always preserved."
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text("Show denoised", style = MaterialTheme.typography.bodyMedium)
-            val sub = when {
-                state.denoisingInProgress -> "Building preview…"
-                state.denoisePreviewEnabled -> "Spectrogram and audio reflect the noise-reduction pipeline"
-                else -> "Toggle to compare the cleaned-up audio against the original"
+        Text(
+            "Denoise",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        TooltipBox(
+            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+            tooltip = { PlainTooltip { Text(tooltipText) } },
+            state = tooltipState,
+        ) {
+            IconButton(
+                onClick = { coScope.launch { tooltipState.show() } },
+                modifier = Modifier.size(DENOISE_HELP_SIZE_DP.dp),
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Outlined.HelpOutline,
+                    contentDescription = "About denoise",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(DENOISE_HELP_ICON_SIZE_DP.dp),
+                )
             }
-            Text(
-                sub,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
+        Spacer(Modifier.weight(1f))
         Switch(
             checked = state.denoisePreviewEnabled,
             onCheckedChange = { vm.setDenoisePreviewEnabled(it, filesDir) },
@@ -502,3 +582,5 @@ private const val PERCENT = 100f
 private const val BADGE_CORNER_DP = 8
 private const val PHOTO_SIZE_DP = 56
 private const val PHOTO_CORNER_DP = 4
+private const val DENOISE_HELP_SIZE_DP = 24
+private const val DENOISE_HELP_ICON_SIZE_DP = 18

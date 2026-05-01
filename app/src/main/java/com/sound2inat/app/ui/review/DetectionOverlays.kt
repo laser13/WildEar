@@ -36,7 +36,7 @@ fun DetectionOverlays(
     onTap: (WindowPrediction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (durationMs <= 0L || windowPreds.isEmpty() || species.isEmpty()) return
+    if (durationMs <= 0L || species.isEmpty()) return
     // Sorted-by-confidence index drives the palette mapping; taxon name is a
     // tiebreaker so equal-confidence species don't shuffle colours between
     // recompositions.
@@ -49,9 +49,26 @@ fun DetectionOverlays(
         .toMap()
     // Predictions whose species is in the list, sorted by descending confidence
     // so a tap on overlapping rectangles picks the strongest detection first.
-    val matched = windowPreds
-        .mapNotNull { p -> rowByTaxon[p.taxonScientificName]?.let { Match(p, it) } }
-        .sortedByDescending { it.prediction.confidence }
+    // Falls back to one synthetic rectangle per species row using
+    // [SpeciesRow.firstSeenMs]/[SpeciesRow.lastSeenMs] when no per-window data
+    // is available — that's the case for drafts opened after their inference
+    // run finished (windows are not persisted in the DB).
+    val matched: List<Match> = if (windowPreds.isNotEmpty()) {
+        windowPreds
+            .mapNotNull { p -> rowByTaxon[p.taxonScientificName]?.let { Match(p, it) } }
+            .sortedByDescending { it.prediction.confidence }
+    } else {
+        sortedRows.map { row ->
+            val synthetic = WindowPrediction(
+                startMs = row.firstSeenMs,
+                endMs = row.lastSeenMs,
+                taxonScientificName = row.taxonScientificName,
+                taxonCommonName = row.taxonCommonName,
+                confidence = row.maxConfidence,
+            )
+            Match(synthetic, rowByTaxon.getValue(row.taxonScientificName))
+        }
+    }
     if (matched.isEmpty()) return
 
     Canvas(

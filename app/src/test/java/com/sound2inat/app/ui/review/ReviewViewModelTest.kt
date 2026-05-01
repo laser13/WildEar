@@ -370,7 +370,7 @@ class ReviewViewModelTest {
         }
 
     @Test
-    fun `canAnalyzeWithPerch true when Perch installed and no Perch detections yet`() =
+    fun `isPerchInstalled true when probe returns true`() =
         runTest(UnconfinedTestDispatcher()) {
             val draftId = "p1"
             val draftDao = FakeDraftDao().apply {
@@ -403,12 +403,16 @@ class ReviewViewModelTest {
                 perchInstalledProbe = { true },
                 externalScope = backgroundScope,
             )
-            assertThat(vm.state.value.canAnalyzeWithPerch).isTrue()
+            assertThat(vm.state.value.isPerchInstalled).isTrue()
         }
 
     @Test
-    fun `canAnalyzeWithPerch false when draft already has Perch detections`() =
+    fun `isPerchInstalled stays true after a Perch run produced rows`() =
         runTest(UnconfinedTestDispatcher()) {
+            // Regression for the old "canAnalyzeWithPerch" gate that flipped
+            // off once the draft had any perch_v2 row. The model picker now
+            // gates on installation only — re-running Perch is allowed and
+            // merges into existing detections.
             val draftId = "p2"
             val draftDao = FakeDraftDao().apply {
                 insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
@@ -440,7 +444,7 @@ class ReviewViewModelTest {
                 perchInstalledProbe = { true },
                 externalScope = backgroundScope,
             )
-            assertThat(vm.state.value.canAnalyzeWithPerch).isFalse()
+            assertThat(vm.state.value.isPerchInstalled).isTrue()
         }
 
     @Test
@@ -492,7 +496,7 @@ class ReviewViewModelTest {
                 perchInstalledProbe = { true },
                 externalScope = backgroundScope,
             )
-            assertThat(vm.state.value.canAnalyzeWithPerch).isTrue()
+            assertThat(vm.state.value.isPerchInstalled).isTrue()
 
             vm.analyzeWithPerch()
 
@@ -500,8 +504,8 @@ class ReviewViewModelTest {
             assertThat(vm.state.value.perchProgress).isNull()
             val names = vm.state.value.species.map { it.taxonScientificName }
             assertThat(names).containsExactly("Turdus merula", "Rana temporaria")
-            // Eligibility flips off because the merged set now has a perch_v2 row.
-            assertThat(vm.state.value.canAnalyzeWithPerch).isFalse()
+            // Installation flag stays true — re-running Perch is allowed.
+            assertThat(vm.state.value.isPerchInstalled).isTrue()
             // The newly-attached row carries the perch source key.
             val frog = vm.state.value.species.first { it.taxonScientificName == "Rana temporaria" }
             assertThat(frog.confidenceBySource.keys).contains("perch_v2")

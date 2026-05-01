@@ -40,12 +40,12 @@ data class ReviewUiState(
     /** True while the denoise preview WAV/PNG are being computed in the background. */
     val denoisingInProgress: Boolean = false,
     /**
-     * True when the Perch model is installed AND the draft has no Perch-source
-     * detections yet. Drives visibility of the on-demand "Analyze with Perch"
-     * button on the Review screen — Perch is too heavy for live inference,
-     * so the user opts into it manually after recording.
+     * True when the Perch model artifact is installed (Ready). Drives whether
+     * the "Perch" option in the pull-to-refresh model picker is enabled —
+     * results always merge into existing detections, so we no longer block
+     * a second Perch run.
      */
-    val canAnalyzeWithPerch: Boolean = false,
+    val isPerchInstalled: Boolean = false,
     /**
      * Progress fraction of the on-demand Perch run, or null when not running.
      * Mutually exclusive with [inferenceProgress] in practice — UI only shows

@@ -229,6 +229,15 @@ class ReviewViewModel(
 
     private var highlightJob: Job? = null
 
+    /**
+     * Long-lived cache `taxonScientificName → photoUrl`. Survives Room
+     * re-emissions (including the brief empty list emitted between
+     * `deleteForDraft` and `insertAll` inside [DraftRepository.attachDetections],
+     * which used to wipe the URLs because `prevPhotos` was rebuilt from
+     * `_state.value.species` — a snapshot that could already be empty).
+     */
+    private val photoUrlCache: MutableMap<String, String?> = mutableMapOf()
+
     /** Latest playback position from the player; ticks every 50 ms during playback. */
     val playerPosition: StateFlow<Long> = player.position
 
@@ -269,6 +278,7 @@ class ReviewViewModel(
                     for (name in newNames) {
                         scope.launch {
                             val url = runCatching { photoFetcher(name) }.getOrNull()
+                            photoUrlCache[name] = url
                             _state.update { cur ->
                                 cur.copy(
                                     species = cur.species.map { row ->
@@ -287,13 +297,11 @@ class ReviewViewModel(
         scope.launch {
             repo.observeWithDetections(draftId).collect { dwd ->
                 val draft = dwd.draft
-                // Preserve already-fetched taxonPhotoUrl across DB re-emissions —
-                // any DB write (e.g. checkbox toggle) re-emits the detections,
-                // and rebuilding rows from scratch would otherwise drop the URL
-                // since the photo fetcher only re-runs when species *names*
-                // change.
-                val prevPhotos: Map<String, String?> = _state.value.species
-                    .associate { it.taxonScientificName to it.taxonPhotoUrl }
+                // Preserve already-fetched taxonPhotoUrl across DB re-emissions.
+                // Reads from the long-lived [photoUrlCache] rather than
+                // _state.value.species — DraftRepository.attachDetections
+                // (delete + insert without @Transaction) emits an empty list
+                // between the two writes, which would wipe a snapshot map.
                 _state.value = _state.value.copy(
                     status = draft.status,
                     recordedAtUtcMs = draft.recordedAtUtcMs,
@@ -312,7 +320,7 @@ class ReviewViewModel(
                             lastSeenMs = e.lastSeenMs,
                             isSelected = e.isSelectedByUser,
                             confidenceBySource = SourceConfidences.decode(e.sources),
-                            taxonPhotoUrl = prevPhotos[e.taxonScientificName],
+                            taxonPhotoUrl = photoUrlCache[e.taxonScientificName],
                         )
                     },
                 )
@@ -367,21 +375,21 @@ class ReviewViewModel(
             }
             when (outcome) {
                 is InferenceOutcome.Success -> {
-                    withContext(ioDispatcher) {
-                        repo.attachDetections(
-                            draftId = draftId,
-                            modelId = outcome.modelId,
-                            modelVersion = outcome.modelVersion,
-                            items = outcome.detections,
-                        )
-                        // Auto-promote PENDING_REVIEW → REVIEWED so the Submit
-                        // button is enabled by the user's checkbox selection
-                        // alone — no separate Save tap. Skipped when nothing
-                        // was detected (REVIEWED on empty draft is misleading).
-                        if (outcome.detections.isNotEmpty()) {
-                            repo.markReviewed(draftId)
-                        }
-                    }
+                    // Merge instead of replace so user-triggered re-runs add to
+                    // existing detections (e.g. BirdNET on a draft that already
+                    // has Perch rows produces a single union with both source
+                    // badges). For the initial PENDING_INFERENCE path the
+                    // existing list is empty, so merge == replace there.
+                    // promoteToReviewed=true so Submit becomes enabled by the
+                    // user's checkbox selection alone — auto-promotion runs
+                    // in the same IO block as attachDetections so collectors
+                    // never see an intermediate PENDING_REVIEW snapshot.
+                    mergeAndPersist(
+                        newModelId = outcome.modelId,
+                        newModelVersion = outcome.modelVersion,
+                        freshDetections = outcome.detections,
+                        promoteToReviewed = true,
+                    )
                     _windowPreds.value = outcome.windows
                     _state.value = _state.value.copy(inferenceProgress = null)
                 }
@@ -400,34 +408,28 @@ class ReviewViewModel(
     }
 
     /**
-     * Re-runs inference on the current draft. Clears existing detections,
-     * rolls draft status back to PENDING_INFERENCE in Room, then dispatches
-     * a fresh [startInference] directly so we don't depend on the
-     * [DraftRepository.observeWithDetections] flow re-emitting (an empty
-     * detections delete may not always invalidate the upstream Room tracker,
-     * leaving status changes invisible to the collector). No-op while an
-     * inference job is already running.
+     * Re-runs the BirdNET inference path and merges the resulting detections
+     * with what is already on the draft (Perch rows survive; matching taxa
+     * pick up an extra `birdnet_v2_4` source badge with its own confidence).
+     * No-op while another inference job is in flight.
      */
-    fun reanalyze() {
+    fun reanalyzeBirdnet() {
         if (_state.value.inferenceProgress != null) return
+        if (_state.value.perchProgress != null) return
         val path = _state.value.audioPath ?: return
         val lat = _state.value.latitude
         val lon = _state.value.longitude
         val recordedAt = _state.value.recordedAtUtcMs
         inferenceJob?.cancel()
-        // Block init's flow collector from also kicking off inference once the
-        // repo emits PENDING_INFERENCE — startInference below is the single
-        // entry point this run.
+        // Block init's flow collector from kicking off inference if Room
+        // re-emits during the run — this is the single entry point.
         inferenceStarted = true
         _windowPreds.value = emptyList()
         _state.value = _state.value.copy(
             inferenceError = null,
             inferenceProgress = 0f,
         )
-        scope.launch {
-            withContext(ioDispatcher) { repo.resetForReanalysis(draftId) }
-            startInference(path = path, lat = lat, lon = lon, recordedAt = recordedAt)
-        }
+        startInference(path = path, lat = lat, lon = lon, recordedAt = recordedAt)
     }
 
     /**
@@ -446,7 +448,7 @@ class ReviewViewModel(
      */
     @Suppress("TooGenericExceptionCaught", "LongMethod")
     fun analyzeWithPerch() {
-        if (!_state.value.canAnalyzeWithPerch) return
+        if (!_state.value.isPerchInstalled) return
         if (_state.value.perchProgress != null) return
         if (_state.value.inferenceProgress != null) return
         val path = _state.value.audioPath ?: return
@@ -460,7 +462,11 @@ class ReviewViewModel(
                     _state.value = _state.value.copy(perchProgress = p.coerceIn(0f, 1f))
                 }
                 when (outcome) {
-                    is PerchAnalysisOutcome.Success -> mergeAndPersistPerch(outcome.detections)
+                    is PerchAnalysisOutcome.Success -> mergeAndPersist(
+                        newModelId = "perch_v2",
+                        newModelVersion = "perch",
+                        freshDetections = outcome.detections,
+                    )
                     is PerchAnalysisOutcome.Failure -> {
                         _state.value = _state.value.copy(perchError = outcome.message)
                     }
@@ -477,10 +483,6 @@ class ReviewViewModel(
                 )
             } finally {
                 _state.value = _state.value.copy(perchProgress = null)
-                // Re-probe Perch state in case the run produced perch_v2 rows;
-                // observeWithDetections will also re-fire and recompute, but
-                // the explicit call keeps the state correct even if the repo
-                // flow is slow to emit on this dispatcher.
                 perchInstalled = runCatching { perchInstalledProbe() }.getOrDefault(perchInstalled)
                 recomputePerchEligibility()
             }
@@ -488,12 +490,23 @@ class ReviewViewModel(
     }
 
     /**
-     * Folds [perchAggregated] into the draft's current detections (read fresh
+     * Folds [freshDetections] into the draft's current detections (read fresh
      * from [DraftRepository.observeWithDetections]) and writes the union back
-     * via [DraftRepository.attachDetections]. The merge runs on the IO
-     * dispatcher because the DB write does.
+     * via [DraftRepository.attachDetections]. [newModelId]/[newModelVersion]
+     * are appended to the draft's stored model lineage so the persisted
+     * `modelId` reads as `birdnet_v2_4,perch_v2` after both have run.
+     *
+     * When [promoteToReviewed] is true and the merged set is non-empty the
+     * draft is also marked REVIEWED inside the same IO-dispatched block so
+     * the [DraftRepository.observeWithDetections] flow does not emit an
+     * intermediate `PENDING_REVIEW` snapshot between the two writes.
      */
-    private suspend fun mergeAndPersistPerch(perchAggregated: List<AggregatedDetection>) {
+    private suspend fun mergeAndPersist(
+        newModelId: String,
+        newModelVersion: String,
+        freshDetections: List<AggregatedDetection>,
+        promoteToReviewed: Boolean = false,
+    ) {
         val dwd = repo.observeWithDetections(draftId).first()
         val existing = dwd.detections.map { e ->
             AggregatedDetection(
@@ -506,17 +519,20 @@ class ReviewViewModel(
                 confidenceBySource = SourceConfidences.decode(e.sources),
             )
         }
-        val merged = mergeBySpecies(existing, perchAggregated)
+        val merged = mergeBySpecies(existing, freshDetections)
         val priorModelId = dwd.draft.modelId
-        val combinedModelId = if (priorModelId.isNullOrBlank()) {
-            "perch_v2"
-        } else if (priorModelId.split(',', '+').contains("perch_v2")) {
-            priorModelId
-        } else {
-            "$priorModelId,perch_v2"
+        val combinedModelId = when {
+            priorModelId.isNullOrBlank() -> newModelId
+            priorModelId.split(',', '+').contains(newModelId) -> priorModelId
+            else -> "$priorModelId,$newModelId"
         }
         val priorVersion = dwd.draft.modelVersion ?: ""
-        val combinedVersion = if (priorVersion.contains("perch")) priorVersion else "$priorVersion+perch"
+        val combinedVersion = when {
+            priorVersion.isBlank() -> newModelVersion
+            newModelVersion.isBlank() -> priorVersion
+            priorVersion.contains(newModelVersion) -> priorVersion
+            else -> "$priorVersion+$newModelVersion"
+        }
         withContext(ioDispatcher) {
             repo.attachDetections(
                 draftId = draftId,
@@ -524,21 +540,22 @@ class ReviewViewModel(
                 modelVersion = combinedVersion.trim('+'),
                 items = merged,
             )
+            if (promoteToReviewed && merged.isNotEmpty()) {
+                repo.markReviewed(draftId)
+            }
         }
     }
 
     /**
-     * Recomputes [ReviewUiState.canAnalyzeWithPerch]: true iff the model is
-     * Ready AND no current detection row is sourced from `perch_v2`. Pure
-     * function over [perchInstalled] + the latest species snapshot in state.
+     * Recomputes [ReviewUiState.isPerchInstalled] purely from the cached
+     * [perchInstalled] flag. The "already analyzed with Perch" gate was
+     * dropped — both Re-analyze paths merge into existing detections, so a
+     * repeat Perch run is harmless and may produce additional detections
+     * with newer thresholds.
      */
     private fun recomputePerchEligibility() {
-        val hasPerchAlready = _state.value.species.any { row ->
-            row.confidenceBySource.containsKey("perch_v2")
-        }
-        val eligible = perchInstalled && !hasPerchAlready
-        if (_state.value.canAnalyzeWithPerch != eligible) {
-            _state.value = _state.value.copy(canAnalyzeWithPerch = eligible)
+        if (_state.value.isPerchInstalled != perchInstalled) {
+            _state.value = _state.value.copy(isPerchInstalled = perchInstalled)
         }
     }
 
