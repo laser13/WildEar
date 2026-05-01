@@ -25,6 +25,7 @@ class Settings(private val ctx: Context) {
         val MIN_WINDOWS = intPreferencesKey("min_windows")
         val SPECTRAL_SUBTRACTION_ENABLED = booleanPreferencesKey("spectral_subtraction_enabled")
         val YAMNET_GATE_ENABLED = booleanPreferencesKey("yamnet_gate_enabled")
+        val BIRDNET_META_ENABLED = booleanPreferencesKey("birdnet_meta_enabled")
     }
 
     val minConfidenceDisplay: Flow<Float> = ctx.dataStore.data.map { it[K.MIN_CONF] ?: DEFAULT_MIN_CONF }
@@ -39,6 +40,8 @@ class Settings(private val ctx: Context) {
         ctx.dataStore.data.map { it[K.SPECTRAL_SUBTRACTION_ENABLED] ?: true }
     val yamNetGateEnabled: Flow<Boolean> =
         ctx.dataStore.data.map { it[K.YAMNET_GATE_ENABLED] ?: true }
+    val birdNetMetaEnabled: Flow<Boolean> =
+        ctx.dataStore.data.map { it[K.BIRDNET_META_ENABLED] ?: true }
 
     suspend fun setMinConfidenceDisplay(v: Float) { ctx.dataStore.edit { it[K.MIN_CONF] = v } }
     suspend fun setInatToken(v: String?) {
@@ -59,6 +62,9 @@ class Settings(private val ctx: Context) {
     }
     suspend fun setYamNetGateEnabled(v: Boolean) {
         ctx.dataStore.edit { it[K.YAMNET_GATE_ENABLED] = v }
+    }
+    suspend fun setBirdNetMetaEnabled(v: Boolean) {
+        ctx.dataStore.edit { it[K.BIRDNET_META_ENABLED] = v }
     }
     suspend fun setLastKnownCoords(lat: Double, lon: Double) {
         ctx.dataStore.edit {

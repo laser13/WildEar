@@ -29,6 +29,7 @@ data class SettingsUiState(
     val minWindows: Int = 2,
     val spectralSubtractionEnabled: Boolean = true,
     val yamNetGateEnabled: Boolean = true,
+    val birdNetMetaEnabled: Boolean = true,
 )
 
 sealed interface InatTestStatus {

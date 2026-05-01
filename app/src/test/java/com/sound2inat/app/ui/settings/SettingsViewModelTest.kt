@@ -87,6 +87,8 @@ class SettingsViewModelTest {
             writeSpectralSubtractionEnabled = {},
             yamNetGateEnabledFlow = MutableStateFlow(true),
             writeYamNetGateEnabled = {},
+            birdNetMetaEnabledFlow = MutableStateFlow(true),
+            writeBirdNetMetaEnabled = {},
             externalScope = backgroundScope,
         )
         val sections = vm.state.value.sections.associateBy { it.modelId }
@@ -170,6 +172,21 @@ class SettingsViewModelTest {
         assertThat(vm.state.value.yamNetGateEnabled).isFalse()
     }
 
+    @Test
+    fun `setBirdNetMetaEnabled propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
+        val captured = mutableListOf<Boolean>()
+        val flow = MutableStateFlow(true)
+        val vm = build(
+            initial = ModelInstallState.NotInstalled,
+            birdNetMetaEnabledFlow = flow,
+            writeBirdNetMetaEnabled = { captured += it; flow.value = it },
+            scope = backgroundScope,
+        )
+        vm.setBirdNetMetaEnabled(false)
+        assertThat(captured).containsExactly(false)
+        assertThat(vm.state.value.birdNetMetaEnabled).isFalse()
+    }
+
     private fun build(
         initial: ModelInstallState,
         install: suspend (ModelDescriptor, (ModelInstallState) -> Unit) -> Unit = { _, _ -> },
@@ -183,6 +200,8 @@ class SettingsViewModelTest {
         writeSpectralSubtractionEnabled: suspend (Boolean) -> Unit = {},
         yamNetGateEnabledFlow: MutableStateFlow<Boolean> = MutableStateFlow(true),
         writeYamNetGateEnabled: suspend (Boolean) -> Unit = {},
+        birdNetMetaEnabledFlow: MutableStateFlow<Boolean> = MutableStateFlow(true),
+        writeBirdNetMetaEnabled: suspend (Boolean) -> Unit = {},
         scope: CoroutineScope,
     ): SettingsViewModel = SettingsViewModel(
         descriptors = listOf(descriptor),
@@ -206,6 +225,8 @@ class SettingsViewModelTest {
         writeSpectralSubtractionEnabled = writeSpectralSubtractionEnabled,
         yamNetGateEnabledFlow = yamNetGateEnabledFlow,
         writeYamNetGateEnabled = writeYamNetGateEnabled,
+        birdNetMetaEnabledFlow = birdNetMetaEnabledFlow,
+        writeBirdNetMetaEnabled = writeBirdNetMetaEnabled,
         externalScope = scope,
     )
 }

@@ -39,6 +39,8 @@ class SettingsViewModel(
     private val writeSpectralSubtractionEnabled: suspend (Boolean) -> Unit,
     private val yamNetGateEnabledFlow: Flow<Boolean>,
     private val writeYamNetGateEnabled: suspend (Boolean) -> Unit,
+    private val birdNetMetaEnabledFlow: Flow<Boolean>,
+    private val writeBirdNetMetaEnabled: suspend (Boolean) -> Unit,
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -97,6 +99,11 @@ class SettingsViewModel(
         scope.launch {
             yamNetGateEnabledFlow.collect { v ->
                 _state.value = _state.value.copy(yamNetGateEnabled = v)
+            }
+        }
+        scope.launch {
+            birdNetMetaEnabledFlow.collect { v ->
+                _state.value = _state.value.copy(birdNetMetaEnabled = v)
             }
         }
     }
@@ -188,6 +195,7 @@ class SettingsViewModel(
         scope.launch { writeSpectralSubtractionEnabled(v) }
     }
     fun setYamNetGateEnabled(v: Boolean) { scope.launch { writeYamNetGateEnabled(v) } }
+    fun setBirdNetMetaEnabled(v: Boolean) { scope.launch { writeBirdNetMetaEnabled(v) } }
 
     private fun updateSection(modelId: String, transform: (ModelSection) -> ModelSection) {
         _state.value = _state.value.copy(
@@ -226,5 +234,7 @@ class SettingsViewModelHilt @Inject constructor(
         writeSpectralSubtractionEnabled = { settings.setSpectralSubtractionEnabled(it) },
         yamNetGateEnabledFlow = settings.yamNetGateEnabled,
         writeYamNetGateEnabled = { settings.setYamNetGateEnabled(it) },
+        birdNetMetaEnabledFlow = settings.birdNetMetaEnabled,
+        writeBirdNetMetaEnabled = { settings.setBirdNetMetaEnabled(it) },
     )
 }

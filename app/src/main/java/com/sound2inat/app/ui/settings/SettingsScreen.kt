@@ -283,7 +283,7 @@ private fun RegionalFilterSection(state: SettingsUiState, vm: SettingsViewModel)
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Regional filter")
+        Text("iNaturalist observations filter")
         Switch(
             checked = state.regionalFilterEnabled,
             onCheckedChange = { vm.setRegionalFilterEnabled(it) },
@@ -296,6 +296,17 @@ private fun RegionalFilterSection(state: SettingsUiState, vm: SettingsViewModel)
             onValueChange = { vm.setRegionRadiusKm(it.toInt()) },
             valueRange = MIN_REGION_RADIUS.toFloat()..MAX_REGION_RADIUS.toFloat(),
             steps = (MAX_REGION_RADIUS - MIN_REGION_RADIUS) / REGION_RADIUS_STEP - 1,
+        )
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("BirdNET regional model")
+        Switch(
+            checked = state.birdNetMetaEnabled,
+            onCheckedChange = { vm.setBirdNetMetaEnabled(it) },
         )
     }
 }

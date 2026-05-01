@@ -714,9 +714,15 @@ private class ProductionInferenceJob(
         val activeGate = if (yamNetEnabled) yamNetGate else null
         val aggregator = DetectionAggregator(minConfidence = minConf, minWindows = minWin)
         // Compute BirdNET location/time priors once per run; null when the meta
-        // model isn't installed or coords aren't known. Applied later only to
-        // BirdNET window predictions — Perch has its own label space.
-        val birdNetPriors = computeBirdNetPriors(latitude, longitude, observedAtMillis)
+        // model isn't installed, the user disabled it in Settings, or coords
+        // aren't known. Applied later only to BirdNET window predictions —
+        // Perch has its own label space.
+        val birdNetMetaEnabled = settings.birdNetMetaEnabled.first()
+        val birdNetPriors = if (birdNetMetaEnabled) {
+            computeBirdNetPriors(latitude, longitude, observedAtMillis)
+        } else {
+            null
+        }
         val allPreds = ArrayList<WindowPrediction>()
         val succeeded = ArrayList<BioacousticModel>()
         val perModelErrors = ArrayList<String>()
