@@ -25,6 +25,15 @@ private const val FFT_SIZE = 2048
 private const val HOP_SIZE = 512
 
 /**
+ * Display window: dB values are remapped to this range before viridis lookup.
+ * The offline renderer in Review uses dynamic per-clip min/max — we use an
+ * EMA-adapted top + fixed dynamic range so colours stay stable across frames.
+ */
+private const val DB_DYNAMIC_RANGE = 60f      // floor = top - 60 dB
+private const val DB_INITIAL_TOP = -10f       // starting top until EMA settles
+private const val DB_TOP_EMA_ALPHA = 0.05f    // smoothing for adaptive top
+
+/**
  * Renders a [SharedFlow] of float audio blocks as a scrolling dB heatmap.
  * STFT (FFT 2048, hop 512) → log-binned to 256 frequency rows → ARGB heatmap.
  * The bitmap has BITMAP_WIDTH_COLS columns, sized to display ~10 seconds of
@@ -48,15 +57,20 @@ fun LiveSpectrogramView(
         Spectrogram(fftSize = FFT_SIZE, hopSize = HOP_SIZE, sampleRateHz = sampleRateHz)
     }
     var revision by remember { mutableStateOf(0) }
+    val dbTop = remember { floatArrayOf(DB_INITIAL_TOP) }   // single-elem holder, EMA-updated
 
     LaunchedEffect(audioBlocks) {
         audioBlocks.collect { block ->
             val columns = spectrogram.process(block)
             for (col in columns) {
                 ring.append(logBinDown(col, BITMAP_HEIGHT_BINS))
+                // Track the running peak to adapt the top of the colour window —
+                // brings out content even when the recording is quiet.
+                val peak = col.max()
+                dbTop[0] = (1f - DB_TOP_EMA_ALPHA) * dbTop[0] + DB_TOP_EMA_ALPHA * peak
             }
             if (columns.isNotEmpty()) {
-                drawRingIntoBitmap(bitmap, ring)
+                drawRingIntoBitmap(bitmap, ring, dbTop[0])
                 revision++
             }
         }
@@ -90,32 +104,20 @@ private fun logBinDown(src: FloatArray, outBins: Int): FloatArray {
     return out
 }
 
-private fun drawRingIntoBitmap(bm: Bitmap, ring: SpectrogramRingBuffer) {
+private fun drawRingIntoBitmap(bm: Bitmap, ring: SpectrogramRingBuffer, dbTop: Float) {
     val w = bm.width; val h = bm.height
     val pixels = IntArray(w * h)
     val drawCols = ring.size.coerceAtMost(w)
     val xOffset = w - drawCols
+    val dbBottom = dbTop - DB_DYNAMIC_RANGE
+    val span = DB_DYNAMIC_RANGE
     for (x in 0 until drawCols) {
         val col = ring.column(x)
         for (y in 0 until h) {
             val db = col[h - 1 - y]   // flip so high freqs on top
-            pixels[y * w + (xOffset + x)] = dbToColor(db)
+            val t = ((db - dbBottom) / span).coerceIn(0f, 1f)
+            pixels[y * w + (xOffset + x)] = Colormap.viridis(t)
         }
     }
     bm.setPixels(pixels, 0, w, 0, 0, w, h)
-}
-
-/**
- * Match the Review-screen palette: dB clamped to a window narrower than the
- * full [DB_FLOOR, 0] range so quiet content lifts off the floor and the bright
- * yellow end is reserved for actual peaks. Empirically -60 dB to -10 dB gives
- * the same look as offline `SpectrogramRenderer` (which dynamically rescales
- * per recording — we use a fixed window so colours don't pump frame-to-frame).
- */
-private const val DB_DISPLAY_MIN = -60f
-private const val DB_DISPLAY_MAX = -10f
-
-private fun dbToColor(db: Float): Int {
-    val t = ((db - DB_DISPLAY_MIN) / (DB_DISPLAY_MAX - DB_DISPLAY_MIN)).coerceIn(0f, 1f)
-    return Colormap.viridis(t)
 }
