@@ -97,24 +97,27 @@ object PerchV2 {
  * Hidden so it doesn't appear in Settings — auto-installed alongside the
  * first visible model.
  *
- * SHA-256 placeholders below must be replaced before release. Compute via:
- *
- *   curl -L "<modelUrl>" -o /tmp/yamnet.tflite && sha256sum /tmp/yamnet.tflite
- *   curl -L "<labelsUrl>" -o /tmp/yamnet_labels.csv && sha256sum /tmp/yamnet_labels.csv
+ * Both URLs pinned to commit hashes for reproducibility. The model artifact
+ * is the metadata-bundled YAMNet shipped with `tflite-support` test data;
+ * the labels CSV is the canonical class map from the `tensorflow/models`
+ * AudioSet folder. The original `tfhub-lite-models` GCS bucket lost its
+ * public read permissions in 2026, so we use these GitHub mirrors.
  */
 object YamNetV1 {
     val descriptor = ModelDescriptor(
         id = "yamnet_v1",
         displayName = "YAMNet v1",
         version = "1",
-        modelUrl = "https://storage.googleapis.com/tfhub-lite-models/google/lite-model/" +
-            "yamnet/classification/tflite/v1.tflite",
-        labelsUrl = "https://raw.githubusercontent.com/tensorflow/models/master/" +
-            "research/audioset/yamnet/yamnet_class_map.csv",
-        modelSha256 = "PLACEHOLDER_COMPUTE_SHA256",
-        labelsSha256 = "PLACEHOLDER_COMPUTE_SHA256",
+        modelUrl = "https://raw.githubusercontent.com/tensorflow/tflite-support/" +
+            "f606e3f59240d71fd37d23316822ff0bd1d531ef/tensorflow_lite_support/cc/test/" +
+            "testdata/task/audio/yamnet_audio_classifier_with_metadata.tflite",
+        labelsUrl = "https://raw.githubusercontent.com/tensorflow/models/" +
+            "dfffd623b6be8d1d9744b8e261fbac370d17c46d/research/audioset/yamnet/" +
+            "yamnet_class_map.csv",
+        modelSha256 = "10c95ea3eb9a7bb4cb8bddf6feb023250381008177ac162ce169694d05c317de",
+        labelsSha256 = "cdf24d193e196d9e95912a2667051ae203e92a2ba09449218ccb40ef787c6df2",
         license = "Apache 2.0",
-        sizeBytes = 3_887_000L,
+        sizeBytes = 4_126_810L,
         sampleRateHz = 16_000,
         windowMs = 975L,
         labelsFormat = LabelsFormat.BirdNetUnderscore,  // unused — gate parses CSV directly
