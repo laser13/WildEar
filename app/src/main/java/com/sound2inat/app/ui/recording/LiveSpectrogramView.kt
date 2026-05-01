@@ -1,7 +1,6 @@
 package com.sound2inat.app.ui.recording
 
 import android.graphics.Bitmap
-import android.graphics.Color
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -13,6 +12,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import com.sound2inat.app.ui.review.Colormap
 import com.sound2inat.audio.Spectrogram
 import com.sound2inat.audio.SpectrogramRingBuffer
 import kotlinx.coroutines.flow.SharedFlow
@@ -105,11 +105,17 @@ private fun drawRingIntoBitmap(bm: Bitmap, ring: SpectrogramRingBuffer) {
     bm.setPixels(pixels, 0, w, 0, 0, w, h)
 }
 
+/**
+ * Match the Review-screen palette: dB clamped to a window narrower than the
+ * full [DB_FLOOR, 0] range so quiet content lifts off the floor and the bright
+ * yellow end is reserved for actual peaks. Empirically -60 dB to -10 dB gives
+ * the same look as offline `SpectrogramRenderer` (which dynamically rescales
+ * per recording — we use a fixed window so colours don't pump frame-to-frame).
+ */
+private const val DB_DISPLAY_MIN = -60f
+private const val DB_DISPLAY_MAX = -10f
+
 private fun dbToColor(db: Float): Int {
-    val t = ((db - Spectrogram.DB_FLOOR) / -Spectrogram.DB_FLOOR).coerceIn(0f, 1f)
-    val r = (255 * t).toInt().coerceIn(0, 255)
-    val g = (255 * (t * t)).toInt().coerceIn(0, 255)
-    val b = (255 * (1 - (1 - t) * (1 - t))).toInt().coerceIn(0, 255)
-    val a = if (db <= Spectrogram.DB_FLOOR + 1f) 0x60 else 0xFF
-    return Color.argb(a, r, g, b)
+    val t = ((db - DB_DISPLAY_MIN) / (DB_DISPLAY_MAX - DB_DISPLAY_MIN)).coerceIn(0f, 1f)
+    return Colormap.viridis(t)
 }
