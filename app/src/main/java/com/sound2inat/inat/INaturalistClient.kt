@@ -16,7 +16,7 @@ import java.io.IOException
 
 /**
  * Thin wrapper around the iNaturalist v1 REST API for the operations the
- * sound2iNat MVP needs: authenticate (verify token), resolve scientific
+ * WildEar MVP needs: authenticate (verify token), resolve scientific
  * names to taxon ids, create observations, upload sound files, and add
  * extra identifications.
  *

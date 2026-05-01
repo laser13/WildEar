@@ -21,7 +21,8 @@ data class ModelSection(
 data class SettingsUiState(
     val sections: List<ModelSection> = emptyList(),
     val minConfidenceDisplay: Float = 0.25f,
-    val inatTokenField: String = "",
+    /** True when an api_token is stored — drives the Login/Logout split. */
+    val inatTokenPresent: Boolean = false,
     val inatLogin: String? = null,
     val inatTestStatus: InatTestStatus = InatTestStatus.Idle,
     val regionalFilterEnabled: Boolean = true,

@@ -1,5 +1,6 @@
 package com.sound2inat.app.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,7 +26,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -34,9 +34,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sound2inat.inat.INatWebLoginActivity
 import com.sound2inat.modelmanager.ModelInstallState
 
 @Suppress("FunctionNaming", "LongMethod")
@@ -227,50 +227,56 @@ private fun NoiseReductionSection(state: SettingsUiState, vm: SettingsViewModel)
 @Suppress("FunctionNaming", "LongMethod")
 @Composable
 private fun INaturalistSection(state: SettingsUiState, vm: SettingsViewModel) {
-    Text(
-        "Paste the personal API token from inaturalist.org/users/api_token. " +
-            "It's a JWT and expires every 24 h — re-paste when needed.",
-        style = MaterialTheme.typography.bodySmall,
+    val launcher = rememberLauncherForActivityResult(
+        contract = INatWebLoginActivity.Contract(),
+        onResult = { token -> vm.onLoginCaptured(token) },
     )
-    OutlinedTextField(
-        value = state.inatTokenField,
-        onValueChange = vm::setInatTokenField,
-        label = { Text("API token") },
-        singleLine = true,
-        visualTransformation = PasswordVisualTransformation(),
-        modifier = Modifier.fillMaxWidth(),
-    )
-    Spacer(Modifier.height(4.dp))
-    Button(
-        onClick = { vm.testInatConnection() },
-        enabled = state.inatTokenField.isNotBlank() && state.inatTestStatus !is InatTestStatus.Loading,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    if (state.inatTokenPresent) {
         Text(
-            when (state.inatTestStatus) {
-                is InatTestStatus.Loading -> "Testing…"
-                else -> "Test connection & save"
-            },
-        )
-    }
-    when (val st = state.inatTestStatus) {
-        is InatTestStatus.Ok -> Text(
-            "Signed in as ${st.login}",
+            "Logged in as ${state.inatLogin ?: "@iNaturalist"}",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.primary,
         )
-        is InatTestStatus.Failure -> Text(
-            "Failed: ${st.message}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.error,
+        Text(
+            "The app refreshes its API token automatically while your iNat " +
+                "session stays valid. Sign out to clear stored credentials.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        else -> state.inatLogin?.let {
-            Text("Signed in as $it", style = MaterialTheme.typography.bodyMedium)
+        if (state.inatTestStatus is InatTestStatus.Failure) {
+            Text(
+                "Last login attempt failed: ${state.inatTestStatus.message}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
-    }
-    if (state.inatLogin != null || state.inatTokenField.isNotBlank()) {
-        OutlinedButton(onClick = { vm.signOutInat() }, modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { vm.signOut() }, modifier = Modifier.fillMaxWidth()) {
             Text("Sign out")
+        }
+    } else {
+        Text(
+            "Sign in to iNaturalist so the app can submit your observations. " +
+                "A web login screen opens once; the token refreshes itself afterwards.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        if (state.inatTestStatus is InatTestStatus.Failure) {
+            Text(
+                state.inatTestStatus.message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        Button(
+            onClick = { launcher.launch(Unit) },
+            enabled = state.inatTestStatus !is InatTestStatus.Loading,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                when (state.inatTestStatus) {
+                    is InatTestStatus.Loading -> "Verifying…"
+                    else -> "Log in to iNaturalist"
+                },
+            )
         }
     }
 }
@@ -314,7 +320,7 @@ private fun RegionalFilterSection(state: SettingsUiState, vm: SettingsViewModel)
 @Suppress("FunctionNaming")
 @Composable
 private fun AboutSection() {
-    Text("Sound2iNat 0.1.0", style = MaterialTheme.typography.bodyMedium)
+    Text("WildEar 0.1.0", style = MaterialTheme.typography.bodyMedium)
 }
 
 private const val MIN_CONF = 0.05f

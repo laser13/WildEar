@@ -211,7 +211,7 @@ class INatSubmitter(
     }
 
     private fun baseDescription(det: DetectionEntity): String =
-        "Recorded with sound2iNat (BirdNET v2.4). Detected ${det.detectedWindows} window(s)" +
+        "Recorded with WildEar (BirdNET v2.4). Detected ${det.detectedWindows} window(s)" +
             " between ${det.firstSeenMs / MS}–${det.lastSeenMs / MS} s," +
             " max confidence ${"%.0f".format(det.maxConfidence * PCT)}%."
 
@@ -219,7 +219,7 @@ class INatSubmitter(
         for (row in rows) {
             val others = rows.filter { it.id != row.id }
             val description = buildString {
-                append("Recorded with sound2iNat (BirdNET v2.4) as part of a multi-species clip. ")
+                append("Recorded with WildEar (BirdNET v2.4) as part of a multi-species clip. ")
                 append("Sibling observations from the same recording: ")
                 append(others.joinToString(", ") { "${it.taxonScientificName} → ${it.observationUrl}" })
             }
@@ -241,7 +241,7 @@ class INatSubmitter(
 
         // iNaturalist controlled-vocabulary IDs. Source: iNaturalist Helper
         // Chrome extension (`scripts/vision.js`). The pairs we apply to every
-        // sound2iNat observation:
+        // WildEar observation:
         //   17 → 18 = "Alive or Dead" → "Alive"
         //   22 → 24 = "Evidence of Presence" → "Organism"
         private const val ATTR_ALIVE_OR_DEAD = 17

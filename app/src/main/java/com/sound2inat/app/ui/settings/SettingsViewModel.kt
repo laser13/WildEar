@@ -26,9 +26,8 @@ class SettingsViewModel(
     private val writeMinConf: suspend (Float) -> Unit,
     private val inatTokenFlow: Flow<String?>,
     private val inatLoginFlow: Flow<String?>,
-    private val writeInatToken: suspend (String?) -> Unit,
-    private val writeInatLogin: suspend (String?) -> Unit,
-    private val verifyInatToken: suspend (String) -> String,
+    private val acceptInatToken: suspend (String) -> Unit,
+    private val signOutInat: suspend () -> Unit,
     private val regionalFilterEnabledFlow: Flow<Boolean>,
     private val regionRadiusKmFlow: Flow<Int>,
     private val writeRegionalFilterEnabled: suspend (Boolean) -> Unit,
@@ -71,9 +70,7 @@ class SettingsViewModel(
             minConfFlow.collect { v -> _state.value = _state.value.copy(minConfidenceDisplay = v) }
         }
         scope.launch {
-            inatTokenFlow.collect { v ->
-                _state.value = _state.value.copy(inatTokenField = v.orEmpty())
-            }
+            inatTokenFlow.collect { v -> _state.value = _state.value.copy(inatTokenPresent = v != null) }
         }
         scope.launch {
             inatLoginFlow.collect { v -> _state.value = _state.value.copy(inatLogin = v) }
@@ -139,51 +136,39 @@ class SettingsViewModel(
 
     fun setMinConfidence(v: Float) { scope.launch { writeMinConf(v) } }
 
-    fun setInatTokenField(v: String) {
-        _state.value = _state.value.copy(
-            inatTokenField = v,
-            inatTestStatus = InatTestStatus.Idle,
-        )
-    }
-
-    fun saveInatToken() {
-        val token = _state.value.inatTokenField.trim()
-        scope.launch { writeInatToken(token.ifBlank { null }) }
-        if (token.isBlank()) {
-            scope.launch { writeInatLogin(null) }
+    /**
+     * Called from the Settings screen with the api_token captured by
+     * [com.sound2inat.inat.INatWebLoginActivity]. Persists it via the
+     * auth repository (which also runs `verifyToken` to populate login).
+     * Null = the user cancelled or the WebView closed without a token —
+     * leave existing state alone.
+     */
+    fun onLoginCaptured(token: String?) {
+        if (token.isNullOrBlank()) {
             _state.value = _state.value.copy(inatTestStatus = InatTestStatus.Idle)
-        }
-    }
-
-    @Suppress("TooGenericExceptionCaught")
-    fun testInatConnection() {
-        val token = _state.value.inatTokenField.trim()
-        if (token.isEmpty()) {
-            _state.value = _state.value.copy(inatTestStatus = InatTestStatus.Failure("Paste the token first"))
             return
         }
         _state.value = _state.value.copy(inatTestStatus = InatTestStatus.Loading)
         scope.launch {
-            try {
-                val login = verifyInatToken(token)
-                writeInatToken(token)
-                writeInatLogin(login)
-                _state.value = _state.value.copy(inatTestStatus = InatTestStatus.Ok(login))
-            } catch (e: Throwable) {
-                _state.value = _state.value.copy(
-                    inatTestStatus = InatTestStatus.Failure(e.message ?: "Failed"),
-                )
-            }
+            runCatching { acceptInatToken(token) }
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        inatTestStatus = InatTestStatus.Ok(_state.value.inatLogin ?: ""),
+                    )
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        inatTestStatus = InatTestStatus.Failure(e.message ?: "Login failed"),
+                    )
+                }
         }
     }
 
-    fun signOutInat() {
-        scope.launch {
-            writeInatToken(null)
-            writeInatLogin(null)
-        }
+    fun signOut() {
+        scope.launch { signOutInat() }
         _state.value = _state.value.copy(
-            inatTokenField = "",
+            inatTokenPresent = false,
+            inatLogin = null,
             inatTestStatus = InatTestStatus.Idle,
         )
     }
@@ -210,7 +195,7 @@ class SettingsViewModel(
 class SettingsViewModelHilt @Inject constructor(
     private val modelManager: ModelManager,
     private val settings: Settings,
-    private val inatClient: com.sound2inat.inat.INaturalistClient,
+    private val inatAuth: com.sound2inat.inat.INatAuthRepository,
 ) : ViewModel() {
     val delegate = SettingsViewModel(
         descriptors = KnownModels,
@@ -219,11 +204,10 @@ class SettingsViewModelHilt @Inject constructor(
         resolveState = { d -> modelManager.stateFor(d) },
         minConfFlow = settings.minConfidenceDisplay,
         writeMinConf = { settings.setMinConfidenceDisplay(it) },
-        inatTokenFlow = settings.inatToken,
-        inatLoginFlow = settings.inatLogin,
-        writeInatToken = { settings.setInatToken(it) },
-        writeInatLogin = { settings.setInatLogin(it) },
-        verifyInatToken = { inatClient.verifyToken(it) },
+        inatTokenFlow = inatAuth.tokenState,
+        inatLoginFlow = inatAuth.loginState,
+        acceptInatToken = { inatAuth.acceptCapturedToken(it) },
+        signOutInat = { inatAuth.logout() },
         regionalFilterEnabledFlow = settings.regionalFilterEnabled,
         writeRegionalFilterEnabled = { settings.setRegionalFilterEnabled(it) },
         regionRadiusKmFlow = settings.regionRadiusKm,

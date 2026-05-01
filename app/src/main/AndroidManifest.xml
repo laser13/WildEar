@@ -22,5 +22,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name="com.sound2inat.inat.INatWebLoginActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Sound2iNat" />
     </application>
 </manifest>

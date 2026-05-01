@@ -91,6 +91,7 @@ dependencies {
     implementation(libs.tflite.support)
     implementation(libs.play.services.location)
     implementation(libs.coil.compose)
+    implementation(libs.androidx.security.crypto)
 
     debugImplementation(libs.compose.ui.tooling)
 

@@ -30,6 +30,7 @@ androidxTestEspresso = "3.6.1"
 androidxTestRules = "1.6.1"
 coil = "2.7.0"
 detekt = "1.23.7"
+securityCrypto = "1.1.0-alpha06"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version = "1.13.1" }
@@ -74,6 +75,7 @@ compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
 compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 hilt-android-testing = { module = "com.google.dagger:hilt-android-testing", version.ref = "hilt" }
 coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
+androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "securityCrypto" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
