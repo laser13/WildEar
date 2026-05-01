@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CloudDone
@@ -243,10 +244,11 @@ private fun SpeciesAvatarRow(items: List<TopSpeciesItem>, vm: HomeViewModelHilt)
     ) {
         items.forEach { item ->
             val photoUrl by vm.observeTaxonPhoto(item.scientificName).collectAsState()
+            val shape = RoundedCornerShape(SPECIES_AVATAR_CORNER_DP.dp)
             Box(
                 modifier = Modifier
                     .size(SPECIES_AVATAR_SIZE_DP.dp)
-                    .clip(CircleShape)
+                    .clip(shape)
                     .background(MaterialTheme.colorScheme.surfaceVariant),
             ) {
                 if (photoUrl != null) {
@@ -254,7 +256,7 @@ private fun SpeciesAvatarRow(items: List<TopSpeciesItem>, vm: HomeViewModelHilt)
                         model = photoUrl,
                         contentDescription = item.commonName ?: item.scientificName,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                        modifier = Modifier.fillMaxSize().clip(shape),
                     )
                 }
             }
@@ -332,7 +334,8 @@ private const val SECONDS_PER_MINUTE = 60L
 private const val STATUS_ICON_SIZE_DP = 40
 private const val STATUS_ICON_INNER_DP = 20
 private const val BADGE_ICON_SIZE_DP = 14
-private const val SPECIES_AVATAR_SIZE_DP = 22
+private const val SPECIES_AVATAR_SIZE_DP = 32
+private const val SPECIES_AVATAR_CORNER_DP = 6
 private const val DAY_MS = 24L * 60L * 60L * 1000L
 private const val WEEK_DAYS = 7
 
