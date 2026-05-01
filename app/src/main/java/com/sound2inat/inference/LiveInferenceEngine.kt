@@ -12,9 +12,9 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.yield
 
 /**
  * Streaming live inference: buffers float audio blocks, slices into
@@ -48,6 +48,14 @@ class LiveInferenceEngine(
     val predictions: SharedFlow<WindowPrediction> = _predictions.asSharedFlow()
 
     private val _backlog = MutableStateFlow(0)
+
+    /**
+     * Approximate queue depth — incremented on each accepted window, decremented
+     * when the worker pulls one. NOT a precise count: when DROP_OLDEST fires this
+     * value temporarily over-reports because the dropped element is no longer in
+     * the channel but was already counted. Treat as an upper-bound estimate
+     * suitable for "analysis catching up…" UI hints; don't use for precise math.
+     */
     val backlog: StateFlow<Int> = _backlog.asStateFlow()
 
     private val queue = Channel<Window>(capacity = queueCapacity, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -70,11 +78,12 @@ class LiveInferenceEngine(
         if (stopped) return
         var idx = 0
         while (idx < block.size) {
+            if (stopped) return
             if (ringFilled == ring.size) {
-                // Defensive: should not happen because tryEmitWindows slides ring after each emission.
-                System.arraycopy(ring, hopSamples, ring, 0, ring.size - hopSamples)
-                ringFilled -= hopSamples
-                consumed += hopSamples
+                error(
+                    "LiveInferenceEngine ring buffer overrun: ringFilled=$ringFilled " +
+                        "(invariant: tryEmitWindows must drain after each insert)",
+                )
             }
             val take = (block.size - idx).coerceAtMost(ring.size - ringFilled)
             System.arraycopy(block, idx, ring, ringFilled, take)
@@ -95,7 +104,7 @@ class LiveInferenceEngine(
             val startMs = nextEmitAt * 1_000L / sampleRateHz
             val endMs = (nextEmitAt + windowSamples) * 1_000L / sampleRateHz
             val sent = queue.trySend(Window(window, startMs, endMs)).isSuccess
-            if (sent) _backlog.value = (_backlog.value + 1).coerceAtMost(queueCapacity)
+            if (sent) _backlog.update { (it + 1).coerceAtMost(queueCapacity) }
             nextEmitAt += hopSamples
 
             // Slide the ring so future audio can fit. Keep only samples >= nextEmitAt.
@@ -112,12 +121,11 @@ class LiveInferenceEngine(
 
     private suspend fun worker() {
         for (window in queue) {
-            _backlog.value = (_backlog.value - 1).coerceAtLeast(0)
+            _backlog.update { (it - 1).coerceAtLeast(0) }
             if (_backlog.value > BACKLOG_WARN) {
                 Log.w(TAG, "Inference behind real time: backlog=${_backlog.value}")
             }
             runWindow(window)
-            yield()
         }
     }
 

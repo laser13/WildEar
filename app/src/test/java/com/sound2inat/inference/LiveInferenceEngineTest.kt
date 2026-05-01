@@ -114,4 +114,56 @@ class LiveInferenceEngineTest {
 
         assertThat(modelCalls).isEqualTo(0)
     }
+
+    @Test
+    fun `stop without feed completes cleanly`() = runTest(UnconfinedTestDispatcher()) {
+        val engine = LiveInferenceEngine(
+            model = fakeModel("x", 0f),
+            yamNetGate = null, spectralSubtractor = null, applyHighPass = false,
+            sampleRateHz = sampleRateHz, windowSamples = windowSamples, hopSamples = hopSamples,
+        )
+        engine.start(backgroundScope)
+        engine.stop()  // no exception, no hang
+    }
+
+    @Test
+    fun `stop is idempotent`() = runTest(UnconfinedTestDispatcher()) {
+        val engine = LiveInferenceEngine(
+            model = fakeModel("x", 0f),
+            yamNetGate = null, spectralSubtractor = null, applyHighPass = false,
+            sampleRateHz = sampleRateHz, windowSamples = windowSamples, hopSamples = hopSamples,
+        )
+        engine.start(backgroundScope)
+        engine.stop()
+        engine.stop()  // second call is a no-op, must not throw
+        engine.stop()
+    }
+
+    @Test
+    fun `feed in tiny blocks still emits at correct cadence`() = runTest(UnconfinedTestDispatcher()) {
+        val engine = LiveInferenceEngine(
+            model = fakeModel("Y", 0.5f),
+            yamNetGate = null, spectralSubtractor = null, applyHighPass = false,
+            sampleRateHz = sampleRateHz, windowSamples = windowSamples, hopSamples = hopSamples,
+        )
+        val collected = mutableListOf<WindowPrediction>()
+        val collector = backgroundScope.launch { engine.predictions.toList(collected) }
+        engine.start(backgroundScope)
+        val totalSamples = windowSamples + hopSamples  // expect 2 windows
+        val chunk = 1024
+        var sent = 0
+        while (sent < totalSamples) {
+            val n = (totalSamples - sent).coerceAtMost(chunk)
+            engine.feed(FloatArray(n) { 0.05f })
+            sent += n
+        }
+        runCurrent()
+        engine.stop()
+        runCurrent()
+
+        assertThat(collected).hasSize(2)
+        assertThat(collected[0].startMs).isEqualTo(0L)
+        assertThat(collected[1].startMs).isEqualTo(1_500L)
+        collector.cancel()
+    }
 }
