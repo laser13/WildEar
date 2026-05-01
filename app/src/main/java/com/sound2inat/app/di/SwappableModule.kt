@@ -5,7 +5,10 @@ import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.BirdNetMetaModel
 import com.sound2inat.inference.BirdNetTfliteModel
 import com.sound2inat.inference.InterpreterFactory
+import com.sound2inat.inference.LiveInferenceEngine
+import com.sound2inat.inference.LiveInferenceEngineFactory
 import com.sound2inat.inference.PerchTfliteModel
+import com.sound2inat.inference.SpectralSubtractor
 import com.sound2inat.inference.YamNetGate
 import com.sound2inat.inference.YamNetTfliteGate
 import com.sound2inat.location.FusedLocationProvider
@@ -89,4 +92,26 @@ object SwappableModule {
     /** Descriptors paired (by [BioacousticModel.modelId]) with installed models. */
     @Provides @Singleton
     fun provideModelDescriptors(): List<ModelDescriptor> = KnownModels
+
+    /**
+     * Factory that builds a [LiveInferenceEngine] bound to the recorder's sample
+     * rate. Returned as nullable so test modules can override with `null` and
+     * fall back to the offline [com.sound2inat.inference.ProductionInferenceJob]
+     * pipeline. Production binding requires BirdNET v2.4 to be installed; it
+     * errors at construction time when callers ask for the engine without it.
+     */
+    @Provides
+    fun provideLiveInferenceEngineFactory(
+        bioModels: List<@JvmSuppressWildcards BioacousticModel>,
+        yamGate: YamNetGate?,
+    ): LiveInferenceEngineFactory? = LiveInferenceEngineFactory { sampleRateHz ->
+        val birdnet = bioModels.firstOrNull { it.modelId == "birdnet_v2_4" }
+            ?: error("BirdNET model not bound — install before recording")
+        LiveInferenceEngine(
+            model = birdnet,
+            yamNetGate = yamGate,
+            spectralSubtractor = SpectralSubtractor(),
+            sampleRateHz = sampleRateHz,
+        )
+    }
 }

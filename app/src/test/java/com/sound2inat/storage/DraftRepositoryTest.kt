@@ -84,6 +84,38 @@ class DraftRepositoryTest {
     }
 
     @Test
+    fun `createWithDetections inserts draft and detections in PENDING_REVIEW`() = runTest {
+        val det = AggregatedDetection(
+            taxonScientificName = "Turdus merula",
+            taxonCommonName = "Blackbird",
+            maxConfidence = 0.8f,
+            detectedWindows = 2,
+            firstSeenMs = 0L,
+            lastSeenMs = 4500L,
+        )
+        repo.createWithDetections(
+            id = "d1",
+            audioPath = "/x.wav",
+            recordedAtUtcMs = 1L,
+            durationMs = 5_000L,
+            latitude = 50.0,
+            longitude = 14.0,
+            accuracyMeters = 5f,
+            modelId = "birdnet_v2_4",
+            modelVersion = "2.4",
+            detections = listOf(det),
+        )
+        val saved = db.drafts().getById("d1")!!
+        assertThat(saved.status).isEqualTo(DraftStatus.PENDING_REVIEW)
+        assertThat(saved.modelId).isEqualTo("birdnet_v2_4")
+        assertThat(saved.modelVersion).isEqualTo("2.4")
+        val detections = db.detections().listForDraft("d1")
+        assertThat(detections).hasSize(1)
+        assertThat(detections[0].taxonScientificName).isEqualTo("Turdus merula")
+        assertThat(detections[0].detectedWindows).isEqualTo(2)
+    }
+
+    @Test
     fun `markReviewed transitions status`() = runTest {
         repo.create("d1", "/tmp/a.wav", 100L, 3000L, null, null, null)
         repo.attachDetections("d1", "m", "1.0", emptyList())

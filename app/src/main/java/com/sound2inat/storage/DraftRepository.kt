@@ -62,6 +62,61 @@ class DraftRepository(
         )
     }
 
+    /**
+     * Atomic equivalent of [create] + [attachDetections] for the live recording
+     * path. Inserts a draft that is already in [DraftStatus.PENDING_REVIEW]
+     * with the given live detections, so the offline [ProductionInferenceJob]
+     * never picks it up. Use this only when detections were produced inline
+     * (RecordingViewModel + LiveInferenceEngine); offline flows still call
+     * [create] then [attachDetections].
+     */
+    @Suppress("LongParameterList")
+    fun createWithDetections(
+        id: String,
+        audioPath: String,
+        recordedAtUtcMs: Long,
+        durationMs: Long,
+        latitude: Double?,
+        longitude: Double?,
+        accuracyMeters: Float?,
+        modelId: String,
+        modelVersion: String,
+        detections: List<AggregatedDetection>,
+    ) {
+        val now = nowMs()
+        drafts.insert(
+            DraftEntity(
+                id = id,
+                audioPath = audioPath,
+                recordedAtUtcMs = recordedAtUtcMs,
+                durationMs = durationMs,
+                latitude = latitude,
+                longitude = longitude,
+                locationAccuracyMeters = accuracyMeters,
+                status = DraftStatus.PENDING_REVIEW,
+                modelId = modelId,
+                modelVersion = modelVersion,
+                createdAtUtcMs = now,
+                updatedAtUtcMs = now,
+            ),
+        )
+        this.detections.insertAll(
+            detections.map {
+                DetectionEntity(
+                    draftId = id,
+                    taxonScientificName = it.taxonScientificName,
+                    taxonCommonName = it.taxonCommonName,
+                    maxConfidence = it.maxConfidence,
+                    detectedWindows = it.detectedWindows,
+                    firstSeenMs = it.firstSeenMs,
+                    lastSeenMs = it.lastSeenMs,
+                    isSelectedByUser = false,
+                    sources = SourceConfidences.encode(it.confidenceBySource),
+                )
+            },
+        )
+    }
+
     fun attachDetections(
         draftId: String,
         modelId: String,

@@ -81,6 +81,49 @@ class DetectionAggregatorTest {
         assertThat(out).containsExactly("Parus major")
     }
 
+    @Test
+    fun `incremental addWindow yields same result as batch aggregate`() {
+        val preds = listOf(
+            WindowPrediction(0L, 3000L, "Turdus merula", "Blackbird", 0.8f, "birdnet_v2_4"),
+            WindowPrediction(1500L, 4500L, "Turdus merula", "Blackbird", 0.6f, "birdnet_v2_4"),
+            WindowPrediction(0L, 3000L, "Erithacus rubecula", "Robin", 0.7f, "birdnet_v2_4"),
+        )
+        val batch = DetectionAggregator(minConfidence = 0.5f).aggregate(preds)
+        val incremental = DetectionAggregator(minConfidence = 0.5f)
+        var snapshot: List<AggregatedDetection> = emptyList()
+        for (p in preds) snapshot = incremental.addWindow(p)
+        assertThat(snapshot).containsExactlyElementsIn(batch).inOrder()
+    }
+
+    @Test
+    fun `addWindow filters below threshold and noise labels`() {
+        val agg = DetectionAggregator(minConfidence = 0.5f)
+        agg.addWindow(WindowPrediction(0L, 3000L, "Fireworks", null, 0.9f, "birdnet_v2_4"))
+        agg.addWindow(WindowPrediction(0L, 3000L, "Turdus merula", null, 0.3f, "birdnet_v2_4"))
+        val snap = agg.addWindow(WindowPrediction(1500L, 4500L, "Turdus merula", null, 0.7f, "birdnet_v2_4"))
+        assertThat(snap).hasSize(1)
+        assertThat(snap[0].taxonScientificName).isEqualTo("Turdus merula")
+        assertThat(snap[0].detectedWindows).isEqualTo(1)
+    }
+
+    @Test
+    fun `reset clears incremental state`() {
+        val agg = DetectionAggregator(minConfidence = 0.0f)
+        agg.addWindow(WindowPrediction(0L, 3000L, "Turdus merula", null, 0.9f, "x"))
+        agg.reset()
+        val snap = agg.snapshot()
+        assertThat(snap).isEmpty()
+    }
+
+    @Test
+    fun `snapshot returns last aggregated state without adding`() {
+        val agg = DetectionAggregator(minConfidence = 0.0f)
+        agg.addWindow(WindowPrediction(0L, 3000L, "Parus major", null, 0.8f, "x"))
+        val a = agg.snapshot()
+        val b = agg.snapshot()
+        assertThat(a).isEqualTo(b)
+    }
+
     private fun wp(s: Long, e: Long, t: String, c: Float) =
         WindowPrediction(s, e, t, t, c)
 }

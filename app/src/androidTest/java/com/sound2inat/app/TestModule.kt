@@ -3,6 +3,7 @@ package com.sound2inat.app
 import com.sound2inat.app.di.SwappableModule
 import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.BirdNetMetaModel
+import com.sound2inat.inference.LiveInferenceEngineFactory
 import com.sound2inat.inference.WindowPrediction
 import com.sound2inat.inference.YamNetGate
 import com.sound2inat.location.Fix
@@ -66,6 +67,14 @@ object TestSwappableModule {
     /** Bypass BirdNET regional priors in e2e tests — ProductionInferenceJob skips rescaling. */
     @Provides @Singleton
     fun provideBirdNetMeta(): BirdNetMetaModel? = null
+
+    /**
+     * Disable live inference in instrumented tests so the recorder falls back
+     * to the offline pipeline (FakeBioacousticModel) that the e2e suite relies
+     * on for deterministic species rendering.
+     */
+    @Provides
+    fun provideLiveInferenceEngineFactory(): LiveInferenceEngineFactory? = null
 }
 
 /**

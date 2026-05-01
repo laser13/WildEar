@@ -34,7 +34,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * NOT thread-safe wrt [feed] — call from a single producer (the recorder pump).
  */
-class LiveInferenceEngine(
+open class LiveInferenceEngine(
     private val model: BioacousticModel,
     private val yamNetGate: YamNetGate?,
     private val spectralSubtractor: SpectralSubtractor?,
@@ -44,8 +44,8 @@ class LiveInferenceEngine(
     private val applyHighPass: Boolean = true,
     private val queueCapacity: Int = 8,
 ) {
-    private val _predictions = MutableSharedFlow<WindowPrediction>(extraBufferCapacity = 64)
-    val predictions: SharedFlow<WindowPrediction> = _predictions.asSharedFlow()
+    protected val _predictions = MutableSharedFlow<WindowPrediction>(extraBufferCapacity = 64)
+    open val predictions: SharedFlow<WindowPrediction> = _predictions.asSharedFlow()
 
     private val _backlog = MutableStateFlow(0)
 
@@ -56,7 +56,7 @@ class LiveInferenceEngine(
      * the channel but was already counted. Treat as an upper-bound estimate
      * suitable for "analysis catching up…" UI hints; don't use for precise math.
      */
-    val backlog: StateFlow<Int> = _backlog.asStateFlow()
+    open val backlog: StateFlow<Int> = _backlog.asStateFlow()
 
     private val queue = Channel<Window>(capacity = queueCapacity, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private var workerJob: Job? = null
@@ -68,13 +68,13 @@ class LiveInferenceEngine(
     private var nextEmitAt = 0L      // sample index of next window's start
     @Volatile private var stopped = false
 
-    fun start(scope: CoroutineScope) {
+    open fun start(scope: CoroutineScope) {
         if (workerJob != null) return
         workerJob = scope.launch(Dispatchers.Default) { worker() }
     }
 
     /** Append a chunk of audio (float, normalised). Non-blocking. */
-    fun feed(block: FloatArray) {
+    open fun feed(block: FloatArray) {
         if (stopped) return
         var idx = 0
         while (idx < block.size) {
@@ -144,7 +144,7 @@ class LiveInferenceEngine(
     }
 
     /** Stops accepting new windows, drains queue (≤ [DRAIN_TIMEOUT_MS]), cancels worker. */
-    suspend fun stop() {
+    open suspend fun stop() {
         if (stopped) return
         stopped = true
         queue.close()
@@ -160,4 +160,14 @@ class LiveInferenceEngine(
         private const val BACKLOG_WARN = 3
         private const val DRAIN_TIMEOUT_MS = 5_000L
     }
+}
+
+/**
+ * Factory for creating [LiveInferenceEngine] instances bound to a recording's
+ * sample rate. Hilt provides this so the VM doesn't need direct access to all
+ * dependencies (BioacousticModels, YamNetGate). Test bindings can return null
+ * to fall back to the offline inference pipeline.
+ */
+fun interface LiveInferenceEngineFactory {
+    fun create(sampleRateHz: Int): LiveInferenceEngine
 }
