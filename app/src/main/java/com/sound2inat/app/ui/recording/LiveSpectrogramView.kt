@@ -25,13 +25,14 @@ private const val FFT_SIZE = 2048
 private const val HOP_SIZE = 512
 
 /**
- * Display window: dB values are remapped to this range before viridis lookup.
- * The offline renderer in Review uses dynamic per-clip min/max — we use an
- * EMA-adapted top + fixed dynamic range so colours stay stable across frames.
+ * Fixed dB window for the viridis lookup. Chosen to cover typical phone-mic
+ * content: noise floor lands around -65 dB → dark purple background; bird
+ * calls around -40 dB → blue-teal; loud peaks at -10 dB → green-yellow.
+ * Adaptive (EMA-tracked) top would flicker the whole image whenever loud
+ * content arrived — fixed window keeps colours stable per dB level.
  */
-private const val DB_DYNAMIC_RANGE = 60f      // floor = top - 60 dB
-private const val DB_INITIAL_TOP = -10f       // starting top until EMA settles
-private const val DB_TOP_EMA_ALPHA = 0.05f    // smoothing for adaptive top
+private const val DB_DISPLAY_MIN = -75f
+private const val DB_DISPLAY_MAX = -5f
 
 /**
  * Renders a [SharedFlow] of float audio blocks as a scrolling dB heatmap.
@@ -57,20 +58,15 @@ fun LiveSpectrogramView(
         Spectrogram(fftSize = FFT_SIZE, hopSize = HOP_SIZE, sampleRateHz = sampleRateHz)
     }
     var revision by remember { mutableStateOf(0) }
-    val dbTop = remember { floatArrayOf(DB_INITIAL_TOP) }   // single-elem holder, EMA-updated
 
     LaunchedEffect(audioBlocks) {
         audioBlocks.collect { block ->
             val columns = spectrogram.process(block)
             for (col in columns) {
                 ring.append(logBinDown(col, BITMAP_HEIGHT_BINS))
-                // Track the running peak to adapt the top of the colour window —
-                // brings out content even when the recording is quiet.
-                val peak = col.max()
-                dbTop[0] = (1f - DB_TOP_EMA_ALPHA) * dbTop[0] + DB_TOP_EMA_ALPHA * peak
             }
             if (columns.isNotEmpty()) {
-                drawRingIntoBitmap(bitmap, ring, dbTop[0])
+                drawRingIntoBitmap(bitmap, ring)
                 revision++
             }
         }
@@ -104,18 +100,17 @@ private fun logBinDown(src: FloatArray, outBins: Int): FloatArray {
     return out
 }
 
-private fun drawRingIntoBitmap(bm: Bitmap, ring: SpectrogramRingBuffer, dbTop: Float) {
+private fun drawRingIntoBitmap(bm: Bitmap, ring: SpectrogramRingBuffer) {
     val w = bm.width; val h = bm.height
     val pixels = IntArray(w * h)
     val drawCols = ring.size.coerceAtMost(w)
     val xOffset = w - drawCols
-    val dbBottom = dbTop - DB_DYNAMIC_RANGE
-    val span = DB_DYNAMIC_RANGE
+    val span = DB_DISPLAY_MAX - DB_DISPLAY_MIN
     for (x in 0 until drawCols) {
         val col = ring.column(x)
         for (y in 0 until h) {
             val db = col[h - 1 - y]   // flip so high freqs on top
-            val t = ((db - dbBottom) / span).coerceIn(0f, 1f)
+            val t = ((db - DB_DISPLAY_MIN) / span).coerceIn(0f, 1f)
             pixels[y * w + (xOffset + x)] = Colormap.viridis(t)
         }
     }
