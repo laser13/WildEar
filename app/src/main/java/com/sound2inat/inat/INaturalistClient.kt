@@ -44,6 +44,8 @@ class INaturalistClient(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
+    private val taxonIdCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     /** Returns [Pair] of `(login, userId)` on success; throws [INatException] otherwise. */
     suspend fun verifyTokenWithUser(token: String): Pair<String, Long> = withContext(ioDispatcher) {
         val req = authedGet(token, "/users/me")
@@ -270,10 +272,9 @@ class INaturalistClient(
         lon: Double,
         radiusKm: Int,
     ): Boolean = withContext(ioDispatcher) {
-        val q = scientificName.replace(' ', '+')
-        val path = "/observations?taxon_name=$q&lat=$lat&lng=$lon&radius=$radiusKm&per_page=1"
-        val req = anonGet(path)
-        runCatching { executeJson(req) }
+        val taxonParam = taxonQueryParam(scientificName)
+        val path = "/observations?$taxonParam&lat=$lat&lng=$lon&radius=$radiusKm&per_page=1"
+        runCatching { executeJson(anonGet(path)) }
             .map { json ->
                 val total = json.optInt("total_results", 0)
                 val confirmed = total >= MIN_REGIONAL_OBSERVATIONS
@@ -285,18 +286,16 @@ class INaturalistClient(
     }
 
     /**
-     * Finds the country-level iNaturalist place (admin_level == 0) that covers ([lat], [lon]).
-     * Returns the place id or null if no country-level standard place is found.
+     * Returns all country-level (admin_level == 0) iNaturalist place IDs that cover the
+     * bounding box around ([lat], [lon]). Returns multiple IDs so that split territories
+     * (e.g. Republic of Cyprus + Northern Cyprus) are both checked.
      *
-     * Deliberately skips continents (admin_level < 0) and sub-country divisions so
-     * observation checks are scoped to the user's country, not a continent or a tiny park.
-     *
-     * Fail-silent: returns null on any network or parse error.
+     * Fail-silent: returns empty list on any network or parse error.
      */
-    suspend fun getNearbyStandardPlace(lat: Double, lon: Double): Long? =
+    suspend fun getNearbyCountryPlaces(lat: Double, lon: Double): List<Long> =
         withContext(ioDispatcher) {
-            val path = "/places/nearby" +
-                "?nelat=${lat + 1.0}&nelng=${lon + 1.0}" +
+            val path = "/places/nearby?no_geojson=true" +
+                "&nelat=${lat + 1.0}&nelng=${lon + 1.0}" +
                 "&swlat=${lat - 1.0}&swlng=${lon - 1.0}"
             runCatching {
                 val results = executeJson(anonGet(path)).getJSONObject("results")
@@ -305,36 +304,66 @@ class INaturalistClient(
                 places.forEach { p ->
                     android.util.Log.d(LOG_TAG, "  place candidate: id=${p.optLong("id")} name=${p.optString("name")} admin_level=${p.optInt("admin_level", -99)}")
                 }
-                val chosen = places.firstOrNull { it.optInt("admin_level", -99) == 0 }
-                android.util.Log.d(LOG_TAG, "getNearbyStandardPlace ($lat,$lon) → chosen=${chosen?.optLong("id")} (${chosen?.optString("name") ?: "null"})")
-                chosen?.getLong("id")
+                val countryPlaces = places
+                    .filter { it.optInt("admin_level", -99) == 0 }
+                    .map { it.getLong("id") }
+                android.util.Log.d(LOG_TAG, "getNearbyCountryPlaces ($lat,$lon) → $countryPlaces")
+                countryPlaces
             }
-                .onFailure { android.util.Log.w(LOG_TAG, "getNearbyStandardPlace ($lat,$lon) failed", it) }
-                .getOrNull()
+                .onFailure { android.util.Log.w(LOG_TAG, "getNearbyCountryPlaces ($lat,$lon) failed", it) }
+                .getOrDefault(emptyList())
         }
 
     /**
      * Returns true if [scientificName] has at least [MIN_REGIONAL_OBSERVATIONS] observations
-     * within [placeId] on iNaturalist. Anonymous — no token required.
+     * in ANY of [placeIds] on iNaturalist. Stops at the first match. Anonymous — no token required.
      *
-     * Fail-open: returns true on any network or parse error so a transient outage never
-     * silently drops a valid detection.
+     * Uses taxon_id (resolved via exact-match taxa lookup) instead of taxon_name to avoid
+     * iNat returning descendant taxa from historical subspecies relationships.
+     *
+     * Fail-open: returns true on any network or parse error.
      */
-    suspend fun hasObservationsInPlace(scientificName: String, placeId: Long): Boolean =
+    suspend fun hasObservationsInPlaces(scientificName: String, placeIds: List<Long>): Boolean =
         withContext(ioDispatcher) {
-            val q = scientificName.replace(' ', '+')
-            runCatching {
-                executeJson(anonGet("/observations?taxon_name=$q&place_id=$placeId&per_page=1"))
-            }
-                .map { json ->
-                    val total = json.optInt("total_results", 0)
-                    val confirmed = total >= MIN_REGIONAL_OBSERVATIONS
-                    android.util.Log.d(LOG_TAG, "hasObservationsInPlace $scientificName place=$placeId → total=$total confirmed=$confirmed")
-                    confirmed
+            val taxonParam = taxonQueryParam(scientificName)
+            for (placeId in placeIds) {
+                val found = runCatching {
+                    executeJson(anonGet("/observations?$taxonParam&place_id=$placeId&per_page=1"))
                 }
-                .onFailure { android.util.Log.w(LOG_TAG, "hasObservationsInPlace $scientificName place=$placeId failed → fail-open", it) }
-                .getOrDefault(true)
+                    .map { json ->
+                        val total = json.optInt("total_results", 0)
+                        val confirmed = total >= MIN_REGIONAL_OBSERVATIONS
+                        android.util.Log.d(LOG_TAG, "hasObservationsInPlaces $scientificName place=$placeId → total=$total confirmed=$confirmed")
+                        confirmed
+                    }
+                    .onFailure { android.util.Log.w(LOG_TAG, "hasObservationsInPlaces $scientificName place=$placeId failed → fail-open", it) }
+                    .getOrDefault(true)
+                if (found) return@withContext true
+            }
+            false
         }
+
+    private suspend fun taxonQueryParam(scientificName: String): String {
+        val cached = taxonIdCache[scientificName]
+        val taxonId: Long? = when {
+            cached != null -> if (cached == NO_TAXON_ID) null else cached
+            else -> {
+                val q = scientificName.replace(' ', '+')
+                val result = runCatching {
+                    val results = executeJson(anonGet("/taxa?q=$q&rank=species&is_active=true&per_page=5"))
+                        .optJSONArray("results")
+                    (0 until (results?.length() ?: 0))
+                        .map { results!!.getJSONObject(it) }
+                        .firstOrNull { it.optString("name").equals(scientificName, ignoreCase = true) }
+                        ?.getLong("id")
+                }.getOrNull()
+                taxonIdCache[scientificName] = result ?: NO_TAXON_ID
+                android.util.Log.d(LOG_TAG, "resolveTaxonId $scientificName → $result")
+                result
+            }
+        }
+        return if (taxonId != null) "taxon_id=$taxonId" else "taxon_name=${scientificName.replace(' ', '+')}"
+    }
 
     /**
      * Returns the species observed within the radar filter window, ranked
@@ -563,6 +592,7 @@ class INaturalistClient(
         private val SUCCESS_RANGE = 200..299
 
         const val MIN_REGIONAL_OBSERVATIONS = 1
+        private const val NO_TAXON_ID = -1L
 
         // iNaturalist's "iconic taxa" — the top-level groupings on a taxon's
         // record. We accept anything that's a vocalising or audibly active

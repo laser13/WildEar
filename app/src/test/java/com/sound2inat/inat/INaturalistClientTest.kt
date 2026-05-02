@@ -158,31 +158,30 @@ class INaturalistClientTest {
 
     @Test
     fun `hasObservationsNear returns true when at least one observation found`() = runTest {
-        server.enqueue(
-            MockResponse().setBody("""{"results":[{"id":1}],"total_results":1}"""),
-        )
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":5,"name":"Parus major"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":1}],"total_results":1}"""))
         val found = client.hasObservationsNear("Parus major", 55.75, 37.62, 200)
         assertThat(found).isTrue()
-        val req = server.takeRequest()
-        assertThat(req.path).contains("taxon_name=Parus+major")
-        assertThat(req.path).contains("lat=55.75")
-        assertThat(req.path).contains("lng=37.62")
-        assertThat(req.path).contains("radius=200")
-        assertThat(req.path).contains("per_page=1")
+        server.takeRequest() // taxa lookup
+        val obsReq = server.takeRequest()
+        assertThat(obsReq.path).contains("taxon_id=5")
+        assertThat(obsReq.path).contains("lat=55.75")
+        assertThat(obsReq.path).contains("lng=37.62")
+        assertThat(obsReq.path).contains("radius=200")
+        assertThat(obsReq.path).contains("per_page=1")
     }
 
     @Test
     fun `hasObservationsNear returns false when no observations found`() = runTest {
-        server.enqueue(
-            MockResponse().setBody("""{"results":[],"total_results":0}"""),
-        )
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":7,"name":"Gnorimopsar chopi"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[],"total_results":0}"""))
         val found = client.hasObservationsNear("Gnorimopsar chopi", 55.75, 37.62, 200)
         assertThat(found).isFalse()
     }
 
     @Test
     fun `hasObservationsNear returns true on network error (fail-open)`() = runTest {
-        server.enqueue(MockResponse().setResponseCode(500).setBody("error"))
+        server.enqueue(MockResponse().setResponseCode(500).setBody("error")) // taxa lookup fails
         val found = client.hasObservationsNear("Parus major", 55.75, 37.62, 200)
         assertThat(found).isTrue()
     }
@@ -365,70 +364,94 @@ class INaturalistClientTest {
         assertThat(pins[0].obsUrl).isEqualTo("https://www.inaturalist.org/observations/99")
     }
 
-    @Test fun `getNearbyStandardPlace returns country-level place id`() = runTest {
+    @Test fun `getNearbyCountryPlaces returns all country-level place ids`() = runTest {
         server.enqueue(
             MockResponse().setBody(
-                """{"results":{"standard":[{"id":7257,"name":"Cyprus","admin_level":0}],"community":[]}}""",
+                """{"results":{"standard":[{"id":96773,"name":"Northern Cyprus","admin_level":0},{"id":10289,"name":"Cyprus","admin_level":0}],"community":[]}}""",
             ),
         )
-        val placeId = client.getNearbyStandardPlace(34.9, 33.1)
-        assertThat(placeId).isEqualTo(7257L)
+        val placeIds = client.getNearbyCountryPlaces(34.9, 33.1)
+        assertThat(placeIds).containsExactly(96773L, 10289L).inOrder()
         val req = server.takeRequest()
         assertThat(req.path).contains("places/nearby")
+        assertThat(req.path).contains("no_geojson=true")
         assertThat(req.path).contains("nelat=35.9")
         assertThat(req.path).contains("swlat=33.9")
     }
 
-    @Test fun `getNearbyStandardPlace skips continent and returns country`() = runTest {
+    @Test fun `getNearbyCountryPlaces skips continents`() = runTest {
         server.enqueue(
             MockResponse().setBody(
                 """{"results":{"standard":[{"id":97395,"name":"Asia","admin_level":-10},{"id":7257,"name":"Cyprus","admin_level":0}],"community":[]}}""",
             ),
         )
-        val placeId = client.getNearbyStandardPlace(34.9, 33.1)
-        assertThat(placeId).isEqualTo(7257L)
+        val placeIds = client.getNearbyCountryPlaces(34.9, 33.1)
+        assertThat(placeIds).containsExactly(7257L)
     }
 
-    @Test fun `getNearbyStandardPlace returns null when no standard places`() = runTest {
+    @Test fun `getNearbyCountryPlaces returns empty when no standard places`() = runTest {
         server.enqueue(
             MockResponse().setBody("""{"results":{"standard":[],"community":[]}}"""),
         )
-        val placeId = client.getNearbyStandardPlace(34.9, 33.1)
-        assertThat(placeId).isNull()
-        val req = server.takeRequest()
-        assertThat(req.path).contains("places/nearby")
-        assertThat(req.path).contains("nelat=35.9")
-        assertThat(req.path).contains("swlat=33.9")
+        val placeIds = client.getNearbyCountryPlaces(34.9, 33.1)
+        assertThat(placeIds).isEmpty()
     }
 
-    @Test fun `getNearbyStandardPlace returns null when only continents available`() = runTest {
+    @Test fun `getNearbyCountryPlaces returns empty when only continents available`() = runTest {
         server.enqueue(
             MockResponse().setBody(
                 """{"results":{"standard":[{"id":97395,"name":"Asia","admin_level":-10}],"community":[]}}""",
             ),
         )
-        val placeId = client.getNearbyStandardPlace(34.9, 33.1)
-        assertThat(placeId).isNull()
+        val placeIds = client.getNearbyCountryPlaces(34.9, 33.1)
+        assertThat(placeIds).isEmpty()
     }
 
-    @Test fun `hasObservationsInPlace returns true when at least one observation found`() = runTest {
-        server.enqueue(
-            MockResponse().setBody("""{"results":[],"total_results":1}"""),
-        )
-        val found = client.hasObservationsInPlace("Parus major", placeId = 7257L)
+    @Test fun `hasObservationsInPlaces returns true when found in first place`() = runTest {
+        // taxon lookup, then observations
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":5,"name":"Parus major"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[],"total_results":1}"""))
+        val found = client.hasObservationsInPlaces("Parus major", listOf(7257L))
         assertThat(found).isTrue()
-        val req = server.takeRequest()
-        assertThat(req.path).contains("taxon_name=Parus+major")
-        assertThat(req.path).contains("place_id=7257")
-        assertThat(req.path).contains("per_page=1")
+        server.takeRequest() // taxa
+        val obsReq = server.takeRequest()
+        assertThat(obsReq.path).contains("taxon_id=5")
+        assertThat(obsReq.path).contains("place_id=7257")
+        assertThat(obsReq.path).contains("per_page=1")
     }
 
-    @Test fun `hasObservationsInPlace returns false when no observations found`() = runTest {
-        server.enqueue(
-            MockResponse().setBody("""{"results":[],"total_results":0}"""),
-        )
-        val found = client.hasObservationsInPlace("Columba palumbus", placeId = 7257L)
+    @Test fun `hasObservationsInPlaces stops at first match — does not check remaining places`() = runTest {
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":5,"name":"Parus major"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[],"total_results":1}"""))
+        val found = client.hasObservationsInPlaces("Parus major", listOf(7257L, 96773L))
+        assertThat(found).isTrue()
+        assertThat(server.requestCount).isEqualTo(2) // taxa + first place only
+    }
+
+    @Test fun `hasObservationsInPlaces checks all places and returns true if any match`() = runTest {
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":5,"name":"Parus major"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[],"total_results":0}""")) // first place: not found
+        server.enqueue(MockResponse().setBody("""{"results":[],"total_results":1}""")) // second place: found
+        val found = client.hasObservationsInPlaces("Parus major", listOf(7257L, 96773L))
+        assertThat(found).isTrue()
+    }
+
+    @Test fun `hasObservationsInPlaces returns false when no observations in any place`() = runTest {
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":5,"name":"Parus major"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[],"total_results":0}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[],"total_results":0}"""))
+        val found = client.hasObservationsInPlaces("Parus major", listOf(7257L, 96773L))
         assertThat(found).isFalse()
+    }
+
+    @Test fun `hasObservationsInPlaces uses taxon_name fallback when taxa lookup fails`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(500).setBody("error")) // taxa lookup fails
+        server.enqueue(MockResponse().setBody("""{"results":[],"total_results":1}"""))
+        val found = client.hasObservationsInPlaces("Columba palumbus", listOf(7257L))
+        assertThat(found).isTrue()
+        server.takeRequest() // taxa
+        val obsReq = server.takeRequest()
+        assertThat(obsReq.path).contains("taxon_name=Columba+palumbus")
     }
 
     @Test fun `fetchTaxonPhotoUrl picks exact name match over first result`() = runTest {

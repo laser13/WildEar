@@ -69,10 +69,10 @@ object AppModule {
     @Provides @Singleton
     fun provideRegionFilter(client: INaturalistClient): RegionFilter {
         val lookup = object : RegionLookup {
-            override suspend fun getPlaceId(lat: Double, lon: Double): Long? =
-                client.getNearbyStandardPlace(lat, lon)
-            override suspend fun checkInPlace(scientificName: String, placeId: Long): Boolean =
-                client.hasObservationsInPlace(scientificName, placeId)
+            override suspend fun getPlaceIds(lat: Double, lon: Double): List<Long> =
+                client.getNearbyCountryPlaces(lat, lon)
+            override suspend fun checkInPlaces(scientificName: String, placeIds: List<Long>): Boolean =
+                client.hasObservationsInPlaces(scientificName, placeIds)
             override suspend fun checkNear(
                 scientificName: String,
                 lat: Double,
