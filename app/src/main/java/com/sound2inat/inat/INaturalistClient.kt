@@ -1,5 +1,7 @@
 package com.sound2inat.inat
 
+import com.sound2inat.app.ui.radar.FilterKey
+import com.sound2inat.app.ui.radar.SpeciesAggregate
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -271,6 +273,64 @@ class INaturalistClient(
         runCatching { executeJson(req) }
             .map { json -> json.optInt("total_results", 0) > 0 }
             .getOrDefault(true)
+    }
+
+    /**
+     * Returns the species observed within the radar filter window, ranked
+     * by `count` descending. The `nearestObservationKm` / `nearestObservationUrl`
+     * fields come back populated with sentinel values (`-1f` and the public
+     * taxon page URL); the repository fills them in after joining with the
+     * parallel `/observations` response.
+     */
+    suspend fun nearbySpeciesCounts(
+        key: FilterKey,
+        periodEndDateUtc: String,
+    ): List<SpeciesAggregate> = withContext(ioDispatcher) {
+        val path = buildString {
+            append("/observations/species_counts?")
+            appendRadarParams(key, periodEndDateUtc)
+            append("&per_page=100&order=desc&order_by=count")
+        }
+        val req = anonGet(path)
+        val results = executeJson(req).optJSONArray("results") ?: return@withContext emptyList()
+        val out = ArrayList<SpeciesAggregate>(results.length())
+        for (i in 0 until results.length()) {
+            val entry = results.getJSONObject(i)
+            val count = entry.optInt("count", 0)
+            val taxon = entry.optJSONObject("taxon") ?: continue
+            val taxonId = taxon.optLong("id", 0L).takeIf { it > 0 } ?: continue
+            out += SpeciesAggregate(
+                taxonId = taxonId,
+                scientificName = taxon.optString("name", ""),
+                commonName = taxon.optString("preferred_common_name", "").takeIf(String::isNotBlank),
+                iconicTaxon = taxon.optString("iconic_taxon_name", "").ifBlank { "Unknown" },
+                photoUrl = taxon.optJSONObject("default_photo")
+                    ?.optString("medium_url", "")?.takeIf(String::isNotBlank),
+                observationCount = count,
+                nearestObservationKm = -1f,
+                nearestObservationUrl = "https://www.inaturalist.org/taxa/$taxonId",
+            )
+        }
+        out
+    }
+
+    /** Appends the parameters shared by both `species_counts` and `observations`. */
+    private fun StringBuilder.appendRadarParams(key: FilterKey, periodEndDateUtc: String) {
+        val lat = key.latGrid / 100.0
+        val lng = key.lonGrid / 100.0
+        append("lat=").append(lat)
+        append("&lng=").append(lng)
+        append("&radius=").append(key.radiusKm)
+        append("&d1=").append(periodEndDateUtc)
+        if (key.taxa.isNotEmpty()) {
+            append("&iconic_taxa=")
+            append(key.taxa.joinToString(",").let { java.net.URLEncoder.encode(it, "UTF-8") })
+        }
+        if (key.excludeUserId != null) {
+            append("&not_user_id=").append(key.excludeUserId)
+        }
+        append("&quality_grade=")
+        append(java.net.URLEncoder.encode("research,needs_id", "UTF-8"))
     }
 
     /** Adds a single identification (taxon vote) on [observationId]. */

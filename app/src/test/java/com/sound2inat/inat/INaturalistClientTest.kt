@@ -198,4 +198,85 @@ class INaturalistClientTest {
         assertThat(req.path).isEqualTo("/v1/users/me")
         assertThat(req.getHeader("Authorization")).isEqualTo("jwt")
     }
+
+    @Test fun `nearbySpeciesCounts URL has all params and parses response`() = runTest {
+        server.enqueue(
+            MockResponse().setBody(
+                """{
+                  "results": [
+                    {
+                      "count": 12,
+                      "taxon": {
+                        "id": 9083,
+                        "name": "Regulus regulus",
+                        "preferred_common_name": "Goldcrest",
+                        "iconic_taxon_name": "Aves",
+                        "default_photo": { "medium_url": "https://example/goldcrest.jpg" }
+                      }
+                    },
+                    {
+                      "count": 3,
+                      "taxon": {
+                        "id": 1234,
+                        "name": "Rana temporaria",
+                        "preferred_common_name": null,
+                        "iconic_taxon_name": "Amphibia",
+                        "default_photo": null
+                      }
+                    }
+                  ]
+                }""",
+            ),
+        )
+        val key = com.sound2inat.app.ui.radar.FilterKey(
+            latGrid = 5050, lonGrid = 1010,
+            radiusKm = 5, periodDays = 7,
+            taxa = setOf("Aves", "Amphibia"),
+            excludeUserId = 42L,
+        )
+        val results = client.nearbySpeciesCounts(key, periodEndDateUtc = "2026-04-25")
+
+        assertThat(results).hasSize(2)
+        val first = results[0]
+        assertThat(first.taxonId).isEqualTo(9083L)
+        assertThat(first.scientificName).isEqualTo("Regulus regulus")
+        assertThat(first.commonName).isEqualTo("Goldcrest")
+        assertThat(first.iconicTaxon).isEqualTo("Aves")
+        assertThat(first.photoUrl).isEqualTo("https://example/goldcrest.jpg")
+        assertThat(first.observationCount).isEqualTo(12)
+        // nearestObservationKm and nearestObservationUrl are populated by the
+        // repository's join step; the client itself returns sentinel values.
+        assertThat(first.nearestObservationKm).isEqualTo(-1f)
+        assertThat(first.nearestObservationUrl).isEqualTo("https://www.inaturalist.org/taxa/9083")
+
+        val req = server.takeRequest()
+        val path = req.path!!
+        assertThat(path).startsWith("/v1/observations/species_counts?")
+        assertThat(path).contains("lat=50.5")
+        assertThat(path).contains("lng=10.1")
+        assertThat(path).contains("radius=5")
+        assertThat(path).contains("d1=2026-04-25")
+        assertThat(path).contains("iconic_taxa=")
+        // The set order is non-deterministic, so the test asserts both items
+        // are present rather than a specific order.
+        assertThat(path).matches(".*iconic_taxa=(Aves%2CAmphibia|Amphibia%2CAves).*")
+        assertThat(path).contains("not_user_id=42")
+        assertThat(path).contains("quality_grade=research%2Cneeds_id")
+        assertThat(path).contains("per_page=100")
+        assertThat(path).contains("order_by=count")
+    }
+
+    @Test fun `nearbySpeciesCounts omits empty taxa and null user_id`() = runTest {
+        server.enqueue(MockResponse().setBody("""{"results":[]}"""))
+        val key = com.sound2inat.app.ui.radar.FilterKey(
+            latGrid = 5050, lonGrid = 1010,
+            radiusKm = 25, periodDays = 30,
+            taxa = emptySet(),
+            excludeUserId = null,
+        )
+        client.nearbySpeciesCounts(key, periodEndDateUtc = "2026-04-02")
+        val path = server.takeRequest().path!!
+        assertThat(path).doesNotContain("iconic_taxa=")
+        assertThat(path).doesNotContain("not_user_id=")
+    }
 }
