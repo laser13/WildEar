@@ -21,6 +21,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Delete
@@ -34,6 +35,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -49,6 +51,7 @@ import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberTooltipState
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -63,6 +66,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -156,6 +160,7 @@ private fun ReviewPage(
 
     var pickerVisible by remember { mutableStateOf(false) }
     val isAnalysisRunning = state.inferenceProgress != null || state.perchProgress != null
+    val uploadedUrls = remember(state.inatObservations) { state.inatObservations.toMap() }
 
     Scaffold(
         topBar = {
@@ -173,6 +178,7 @@ private fun ReviewPage(
                 },
             )
         },
+        bottomBar = { SubmitBottomBar(state = state, vm = vm) },
     ) { padding ->
         // PullToRefreshBox handles the gesture animation; we never set
         // isRefreshing=true (no async work to await) — instead we treat
@@ -249,7 +255,24 @@ private fun ReviewPage(
                     )
                 }
             }
-            item { SubmitSection(state = state, vm = vm) }
+            if (state.inatSubmission is InatSubmissionState.Failed) {
+                item {
+                    Text(
+                        "Upload failed: ${(state.inatSubmission as InatSubmissionState.Failed).message}",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
+            if (state.inatObservations.isNotEmpty()) {
+                item {
+                    UploadedBanner(
+                        observations = state.inatObservations,
+                        speciesRows = state.species,
+                    )
+                    HorizontalDivider()
+                }
+            }
             val (likelySpecies, unlikelySpecies) = state.species.partition {
                 it.regionalStatus != RegionalStatus.NOT_CONFIRMED
             }
@@ -267,11 +290,18 @@ private fun ReviewPage(
                 SpeciesListItem(
                     row = row,
                     isHighlighted = highlight == row.detectionId,
+                    uploadedUrl = uploadedUrls[row.taxonScientificName],
                     onClick = {
                         vm.seekTo(row.firstSeenMs)
                         vm.highlight(row.detectionId)
                     },
                     onCheckedChange = { checked -> vm.toggle(row.detectionId, checked) },
+                    onExpandDetail = {
+                        uploadedUrls[row.taxonScientificName]?.let { url ->
+                            vm.loadObservationDetail(row.detectionId, url)
+                        }
+                    },
+                    onCollapseDetail = { vm.collapseObservationDetail(row.detectionId) },
                 )
                 HorizontalDivider()
             }
@@ -299,11 +329,18 @@ private fun ReviewPage(
                     SpeciesListItem(
                         row = row,
                         isHighlighted = highlight == row.detectionId,
+                        uploadedUrl = uploadedUrls[row.taxonScientificName],
                         onClick = {
                             vm.seekTo(row.firstSeenMs)
                             vm.highlight(row.detectionId)
                         },
                         onCheckedChange = { checked -> vm.toggle(row.detectionId, checked) },
+                        onExpandDetail = {
+                            uploadedUrls[row.taxonScientificName]?.let { url ->
+                                vm.loadObservationDetail(row.detectionId, url)
+                            }
+                        },
+                        onCollapseDetail = { vm.collapseObservationDetail(row.detectionId) },
                     )
                     HorizontalDivider()
                 }
@@ -461,62 +498,86 @@ private fun InferenceProgressBlock(progress: Float) {
     }
 }
 
-@Suppress("FunctionNaming", "LongMethod", "CyclomaticComplexMethod")
+@Suppress("FunctionNaming")
 @Composable
-private fun SubmitSection(state: ReviewUiState, vm: ReviewViewModel) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        when (val sub = state.inatSubmission) {
-            is InatSubmissionState.InProgress -> Text(
-                "Uploading to iNaturalist…",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            is InatSubmissionState.Done -> {
-                Text(
-                    "Uploaded ${sub.urls.size} observation(s):",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                sub.urls.forEach { url -> Text(url, style = MaterialTheme.typography.bodySmall) }
-            }
-            is InatSubmissionState.Failed -> Text(
-                "Upload failed: ${sub.message}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-            )
-            else -> if (state.inatObservations.isNotEmpty()) {
-                Text(
-                    "Already uploaded ${state.inatObservations.size} observation(s):",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                state.inatObservations.forEach { (taxon, url) ->
-                    Text("$taxon → $url", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
-        // The Save button used to live here. It served two purposes at once
-        // — flip status to REVIEWED, and navigate back — and forced the
-        // user to round-trip through Home before Submit became enabled.
-        // The VM now auto-promotes status after inference, so Save is dead
-        // weight. Submit is gated only by the user's checkbox selection.
-        val alreadyUploaded = state.status == DraftStatus.UPLOADED ||
-            state.inatSubmission is InatSubmissionState.Done
-        val canSubmit = !alreadyUploaded &&
-            state.species.any { it.isSelected } &&
-            state.inatSubmission !is InatSubmissionState.InProgress
+private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
+    val alreadyUploaded = state.status == DraftStatus.UPLOADED ||
+        state.inatSubmission is InatSubmissionState.Done
+    val selectedCount = state.species.count { it.isSelected }
+    val inProgress = state.inatSubmission is InatSubmissionState.InProgress
+    val canSubmit = !alreadyUploaded && selectedCount > 0 && !inProgress
+
+    val label = when {
+        inProgress -> "Uploading…"
+        alreadyUploaded -> "Already uploaded"
+        selectedCount == 0 -> "Select species to submit"
+        selectedCount == 1 -> "Submit 1 species to iNaturalist"
+        else -> "Submit $selectedCount species to iNaturalist"
+    }
+
+    Surface(shadowElevation = 4.dp) {
         Button(
             onClick = { vm.submitToINaturalist() },
             enabled = canSubmit,
-            modifier = Modifier.fillMaxWidth().height(56.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
-            Text(
-                if (alreadyUploaded) "Uploaded to iNaturalist" else "Submit to iNaturalist",
+            Text(label)
+        }
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun UploadedBanner(
+    observations: List<Pair<String, String>>,
+    speciesRows: List<SpeciesRow>,
+) {
+    val uriHandler = LocalUriHandler.current
+    val commonNameByScientific = remember(speciesRows) {
+        speciesRows.associate { it.taxonScientificName to it.taxonCommonName }
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                Icons.Filled.CheckCircle,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp),
             )
+            Text(
+                if (observations.size == 1) "1 observation already uploaded"
+                else "${observations.size} observations already uploaded",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        observations.forEach { (scientificName, url) ->
+            val commonName = commonNameByScientific[scientificName]
+            val displayName = if (commonName != null) "$commonName · $scientificName" else scientificName
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    displayName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { uriHandler.openUri(url) }) {
+                    Text("View", style = MaterialTheme.typography.bodySmall)
+                }
+            }
         }
     }
 }
@@ -583,17 +644,31 @@ private fun RegionalStatusIcon(status: RegionalStatus) {
 private fun SpeciesListItem(
     row: SpeciesRow,
     isHighlighted: Boolean,
+    uploadedUrl: String?,
     onClick: () -> Unit,
     onCheckedChange: (Boolean) -> Unit,
+    onExpandDetail: () -> Unit,
+    onCollapseDetail: () -> Unit,
 ) {
     val containerColor = if (isHighlighted) {
         MaterialTheme.colorScheme.primaryContainer
     } else {
         Color.Transparent
     }
+    val uriHandler = LocalUriHandler.current
     ListItem(
         modifier = Modifier
-            .clickable(onClick = onClick)
+            .clickable {
+                if (uploadedUrl != null) {
+                    when (row.observationDetailState) {
+                        is ObservationDetailLoadState.NotLoaded -> onExpandDetail()
+                        else -> onCollapseDetail()
+                    }
+                } else {
+                    onClick()
+                    onCheckedChange(!row.isSelected)
+                }
+            }
             .background(containerColor),
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         leadingContent = {
@@ -625,27 +700,106 @@ private fun SpeciesListItem(
             Text(row.taxonCommonName ?: row.taxonScientificName)
         },
         supportingContent = {
-            Column {
-                val pct = (row.maxConfidence * PERCENT).toInt()
-                Text("$pct%  ·  ${row.detectedWindows} windows  ·  ${row.taxonScientificName}")
-                if (row.confidenceBySource.isNotEmpty() || row.regionalStatus != null) {
-                    Spacer(Modifier.height(4.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    row.taxonScientificName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (uploadedUrl != null) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        row.confidenceBySource.entries
-                            .sortedByDescending { it.value }
-                            .forEach { (src, conf) ->
-                                SourceBadge(src, conf)
+                        Icon(
+                            Icons.Filled.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            "Already uploaded · ",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            "View observation",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.clickable { uriHandler.openUri(uploadedUrl) },
+                        )
+                    }
+                    when (val detailState = row.observationDetailState) {
+                        is ObservationDetailLoadState.NotLoaded -> {}
+                        is ObservationDetailLoadState.Loading -> {
+                            Spacer(Modifier.height(4.dp))
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        }
+                        is ObservationDetailLoadState.Loaded -> {
+                            val d = detailState.detail
+                            Spacer(Modifier.height(4.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    "${qualityGradeLabel(d.qualityGrade)} · ${d.agreeingIdCount} IDs",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                d.comments.forEach { c ->
+                                    Text(
+                                        "\"${c.body}\" — ${c.username}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
-                        row.regionalStatus?.let { RegionalStatusIcon(it) }
+                        }
+                        is ObservationDetailLoadState.Error -> {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                detailState.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                } else {
+                    val pct = (row.maxConfidence * PERCENT).toInt()
+                    Text(
+                        "${confidenceLabel(row.maxConfidence)} · $pct% · ${row.detectedWindows} audio fragments",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (row.confidenceBySource.isNotEmpty() || row.regionalStatus != null) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            row.confidenceBySource.entries
+                                .sortedByDescending { it.value }
+                                .forEach { (src, conf) ->
+                                    SourceBadge(src, conf)
+                                }
+                            row.regionalStatus?.let { RegionalStatusIcon(it) }
+                        }
                     }
                 }
             }
         },
         trailingContent = {
-            Checkbox(checked = row.isSelected, onCheckedChange = onCheckedChange)
+            if (uploadedUrl != null) {
+                Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = "Uploaded",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+            } else {
+                Checkbox(checked = row.isSelected, onCheckedChange = onCheckedChange)
+            }
         },
     )
 }
@@ -678,6 +832,20 @@ private fun displayNameFor(source: String): String = when (source) {
     "birdnet_v2_4" -> "BirdNET"
     "perch_v2" -> "Perch"
     else -> source
+}
+
+private fun confidenceLabel(confidence: Float): String = when {
+    confidence >= 0.9f -> "High confidence"
+    confidence >= 0.7f -> "Likely"
+    confidence >= 0.5f -> "Uncertain"
+    else -> "Low confidence"
+}
+
+private fun qualityGradeLabel(grade: String): String = when (grade) {
+    "research" -> "Research Grade"
+    "needs_id" -> "Needs ID"
+    "casual" -> "Casual"
+    else -> grade.replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
 
 private fun formatTimestamp(ms: Long): String =
