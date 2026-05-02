@@ -279,4 +279,55 @@ class INaturalistClientTest {
         assertThat(path).doesNotContain("iconic_taxa=")
         assertThat(path).doesNotContain("not_user_id=")
     }
+
+    @Test fun `nearbyObservations URL has all params and parses response`() = runTest {
+        server.enqueue(
+            MockResponse().setBody(
+                """{
+              "results": [
+                {
+                  "id": 11122,
+                  "uuid": "00000000-0000-0000-0000-00000000aaa1",
+                  "taxon": { "id": 9083, "name": "Regulus regulus" },
+                  "geojson": { "coordinates": [10.1, 50.5] }
+                },
+                {
+                  "id": 22233,
+                  "uuid": "00000000-0000-0000-0000-00000000aaa2",
+                  "taxon": { "id": 1234, "name": "Rana temporaria" },
+                  "geojson": { "coordinates": [10.105, 50.512] }
+                },
+                {
+                  "id": 33344,
+                  "uuid": "00000000-0000-0000-0000-00000000aaa3",
+                  "taxon": null,
+                  "geojson": { "coordinates": [10.11, 50.52] }
+                }
+              ]
+            }""",
+            ),
+        )
+        val key = com.sound2inat.app.ui.radar.FilterKey(
+            latGrid = 5050, lonGrid = 1010,
+            radiusKm = 5, periodDays = 7,
+            taxa = setOf("Aves"),
+            excludeUserId = null,
+        )
+        val pins = client.nearbyObservations(key, periodEndDateUtc = "2026-04-25")
+        assertThat(pins).hasSize(2) // entry 3 has no taxon — skipped
+        assertThat(pins[0].observationId).isEqualTo(11122L)
+        assertThat(pins[0].taxonId).isEqualTo(9083L)
+        assertThat(pins[0].lat).isEqualTo(50.5)
+        assertThat(pins[0].lon).isEqualTo(10.1)
+        assertThat(pins[0].obsUrl).isEqualTo(
+            "https://www.inaturalist.org/observations/00000000-0000-0000-0000-00000000aaa1",
+        )
+
+        val path = server.takeRequest().path!!
+        assertThat(path).startsWith("/v1/observations?")
+        assertThat(path).contains("lat=50.5")
+        assertThat(path).contains("lng=10.1")
+        assertThat(path).contains("per_page=200")
+        assertThat(path).contains("order_by=observed_on")
+    }
 }

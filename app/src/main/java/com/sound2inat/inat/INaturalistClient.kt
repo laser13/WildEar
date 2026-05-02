@@ -1,6 +1,7 @@
 package com.sound2inat.inat
 
 import com.sound2inat.app.ui.radar.FilterKey
+import com.sound2inat.app.ui.radar.MapPin
 import com.sound2inat.app.ui.radar.SpeciesAggregate
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -312,6 +313,45 @@ class INaturalistClient(
             )
         }
         out
+    }
+
+    /**
+     * Per-observation pins for the radar map. iNat caps `/observations` at
+     * `per_page=200`, ordered by date descending — the radar accepts that
+     * truncation since `species_counts` (the list source) is unaffected.
+     */
+    suspend fun nearbyObservations(
+        key: FilterKey,
+        periodEndDateUtc: String,
+    ): List<MapPin> = withContext(ioDispatcher) {
+        val path = buildString {
+            append("/observations?")
+            appendRadarParams(key, periodEndDateUtc)
+            append("&per_page=200&order=desc&order_by=observed_on")
+        }
+        val req = anonGet(path)
+        val results = executeJson(req).optJSONArray("results") ?: return@withContext emptyList()
+        val out = ArrayList<MapPin>(results.length())
+        for (i in 0 until results.length()) {
+            val entry = results.getJSONObject(i)
+            val taxon = entry.optJSONObject("taxon") ?: continue
+            val taxonId = taxon.optLong("id", 0L).takeIf { it > 0 } ?: continue
+            val coords = entry.optJSONObject("geojson")?.optJSONArray("coordinates")
+                ?: continue
+            if (coords.length() < 2) continue
+            val uuid = entry.optString("uuid", "").ifBlank {
+                entry.optLong("id", 0L).toString()
+            }
+            out += MapPin(
+                observationId = entry.optLong("id", 0L),
+                taxonId = taxonId,
+                scientificName = taxon.optString("name", ""),
+                lat = coords.optDouble(1, Double.NaN),
+                lon = coords.optDouble(0, Double.NaN),
+                obsUrl = "https://www.inaturalist.org/observations/$uuid",
+            )
+        }
+        out.filter { it.lat.isFinite() && it.lon.isFinite() }
     }
 
     /** Appends the parameters shared by both `species_counts` and `observations`. */
