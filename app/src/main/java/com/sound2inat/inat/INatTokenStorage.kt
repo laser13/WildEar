@@ -36,13 +36,17 @@ class INatTokenStorage @Inject constructor(
     /** Authenticated login (e.g. "@semen") if known, null otherwise. */
     val login: String? get() = prefs.getString(KEY_LOGIN, null)?.takeIf(String::isNotBlank)
 
+    /** Numeric iNaturalist user id, or null if unknown (e.g. legacy migration). */
+    val userId: Long? get() = prefs.getLong(KEY_USER_ID, -1L).takeIf { it > 0 }
+
     /** When [token] was last refreshed (epoch ms). 0 means "never". */
     val tokenFetchedAtUtcMs: Long get() = prefs.getLong(KEY_FETCHED_AT, 0L)
 
-    fun save(token: String, login: String?, fetchedAtUtcMs: Long) {
+    fun save(token: String, login: String?, userId: Long?, fetchedAtUtcMs: Long) {
         prefs.edit().apply {
             putString(KEY_TOKEN, token)
             if (login != null) putString(KEY_LOGIN, login) else remove(KEY_LOGIN)
+            if (userId != null && userId > 0) putLong(KEY_USER_ID, userId) else remove(KEY_USER_ID)
             putLong(KEY_FETCHED_AT, fetchedAtUtcMs)
             apply()
         }
@@ -56,6 +60,7 @@ class INatTokenStorage @Inject constructor(
         const val FILE_NAME = "inat_auth"
         const val KEY_TOKEN = "api_token"
         const val KEY_LOGIN = "login"
+        const val KEY_USER_ID = "user_id"
         const val KEY_FETCHED_AT = "fetched_at_ms"
     }
 }

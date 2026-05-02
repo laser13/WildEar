@@ -32,7 +32,7 @@ class INaturalistClientTest {
     @After fun tearDown() { server.shutdown() }
 
     @Test fun `verifyToken returns login on 200`() = runTest {
-        server.enqueue(MockResponse().setBody("""{"results":[{"login":"alice"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":42,"login":"alice"}]}"""))
         val login = client.verifyToken("jwt")
         assertThat(login).isEqualTo("alice")
         val req = server.takeRequest()
@@ -185,5 +185,17 @@ class INaturalistClientTest {
         server.enqueue(MockResponse().setResponseCode(500).setBody("error"))
         val found = client.hasObservationsNear("Parus major", 55.75, 37.62, 200)
         assertThat(found).isTrue()
+    }
+
+    @Test fun `verifyTokenWithUser returns login and id`() = runTest {
+        server.enqueue(
+            MockResponse().setBody("""{"results":[{"id":42,"login":"alice"}]}"""),
+        )
+        val (login, id) = client.verifyTokenWithUser("jwt")
+        assertThat(login).isEqualTo("alice")
+        assertThat(id).isEqualTo(42L)
+        val req = server.takeRequest()
+        assertThat(req.path).isEqualTo("/v1/users/me")
+        assertThat(req.getHeader("Authorization")).isEqualTo("jwt")
     }
 }

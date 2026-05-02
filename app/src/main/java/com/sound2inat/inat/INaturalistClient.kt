@@ -41,11 +41,15 @@ class INaturalistClient(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
-    /** Returns the authenticated login on success; throws [INatException] otherwise. */
-    suspend fun verifyToken(token: String): String = withContext(ioDispatcher) {
+    /** Returns [Pair] of `(login, userId)` on success; throws [INatException] otherwise. */
+    suspend fun verifyTokenWithUser(token: String): Pair<String, Long> = withContext(ioDispatcher) {
         val req = authedGet(token, "/users/me")
-        executeJson(req).getJSONArray("results").getJSONObject(0).getString("login")
+        val first = executeJson(req).getJSONArray("results").getJSONObject(0)
+        first.getString("login") to first.getLong("id")
     }
+
+    /** Returns the authenticated login on success; throws [INatException] otherwise. */
+    suspend fun verifyToken(token: String): String = verifyTokenWithUser(token).first
 
     /**
      * Looks up the iNaturalist taxon id for [scientificName]. Returns null if

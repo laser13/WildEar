@@ -46,6 +46,12 @@ class INatAuthRepository @Inject constructor(
     private val _loginState: MutableStateFlow<String?> = MutableStateFlow(storage.login)
     val loginState: StateFlow<String?> = _loginState.asStateFlow()
 
+    private val _userIdState: MutableStateFlow<Long?> = MutableStateFlow(storage.userId)
+    val userIdState: StateFlow<Long?> = _userIdState.asStateFlow()
+
+    /** Convenience: snapshot of [userIdState]. */
+    val userId: Long? get() = _userIdState.value
+
     @Volatile private var migrationChecked = false
 
     /**
@@ -74,12 +80,15 @@ class INatAuthRepository @Inject constructor(
         token: String,
         ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     ) {
-        val login = withContext(ioDispatcher) {
-            runCatching { client.verifyToken(token) }.getOrNull()
+        val pair = withContext(ioDispatcher) {
+            runCatching { client.verifyTokenWithUser(token) }.getOrNull()
         }
-        storage.save(token, login, System.currentTimeMillis())
+        val login = pair?.first
+        val userId = pair?.second
+        storage.save(token, login, userId, System.currentTimeMillis())
         _tokenState.value = token
         _loginState.value = login
+        _userIdState.value = userId
     }
 
     /**
@@ -90,6 +99,7 @@ class INatAuthRepository @Inject constructor(
         storage.clear()
         _tokenState.value = null
         _loginState.value = null
+        _userIdState.value = null
         withContext(mainDispatcher) {
             CookieManager.getInstance().removeAllCookies(null)
             CookieManager.getInstance().flush()
@@ -154,7 +164,7 @@ class INatAuthRepository @Inject constructor(
         // Mark fetched-at = "now" so the freshness check at least gives the
         // legacy token one normal TTL window before triggering refresh —
         // we don't actually know how old it was.
-        storage.save(legacy, legacyLogin, System.currentTimeMillis())
+        storage.save(legacy, legacyLogin, null, System.currentTimeMillis())
         _tokenState.value = legacy
         _loginState.value = legacyLogin
         runCatching {
