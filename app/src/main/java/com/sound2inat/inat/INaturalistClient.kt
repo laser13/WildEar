@@ -274,7 +274,13 @@ class INaturalistClient(
         val path = "/observations?taxon_name=$q&lat=$lat&lng=$lon&radius=$radiusKm&per_page=1"
         val req = anonGet(path)
         runCatching { executeJson(req) }
-            .map { json -> json.optInt("total_results", 0) >= MIN_REGIONAL_OBSERVATIONS }
+            .map { json ->
+                val total = json.optInt("total_results", 0)
+                val confirmed = total >= MIN_REGIONAL_OBSERVATIONS
+                android.util.Log.d(LOG_TAG, "hasObservationsNear $scientificName radius=${radiusKm}km → total=$total confirmed=$confirmed")
+                confirmed
+            }
+            .onFailure { android.util.Log.w(LOG_TAG, "hasObservationsNear $scientificName failed → fail-open", it) }
             .getOrDefault(true)
     }
 
@@ -295,11 +301,16 @@ class INaturalistClient(
             runCatching {
                 val results = executeJson(anonGet(path)).getJSONObject("results")
                 val standard = results.getJSONArray("standard")
-                (0 until standard.length())
-                    .map { standard.getJSONObject(it) }
-                    .firstOrNull { it.optInt("admin_level", -99) == 0 }
-                    ?.getLong("id")
-            }.getOrNull()
+                val places = (0 until standard.length()).map { standard.getJSONObject(it) }
+                places.forEach { p ->
+                    android.util.Log.d(LOG_TAG, "  place candidate: id=${p.optLong("id")} name=${p.optString("name")} admin_level=${p.optInt("admin_level", -99)}")
+                }
+                val chosen = places.firstOrNull { it.optInt("admin_level", -99) == 0 }
+                android.util.Log.d(LOG_TAG, "getNearbyStandardPlace ($lat,$lon) → chosen=${chosen?.optLong("id")} (${chosen?.optString("name") ?: "null"})")
+                chosen?.getLong("id")
+            }
+                .onFailure { android.util.Log.w(LOG_TAG, "getNearbyStandardPlace ($lat,$lon) failed", it) }
+                .getOrNull()
         }
 
     /**
@@ -315,7 +326,13 @@ class INaturalistClient(
             runCatching {
                 executeJson(anonGet("/observations?taxon_name=$q&place_id=$placeId&per_page=1"))
             }
-                .map { json -> json.optInt("total_results", 0) >= MIN_REGIONAL_OBSERVATIONS }
+                .map { json ->
+                    val total = json.optInt("total_results", 0)
+                    val confirmed = total >= MIN_REGIONAL_OBSERVATIONS
+                    android.util.Log.d(LOG_TAG, "hasObservationsInPlace $scientificName place=$placeId → total=$total confirmed=$confirmed")
+                    confirmed
+                }
+                .onFailure { android.util.Log.w(LOG_TAG, "hasObservationsInPlace $scientificName place=$placeId failed → fail-open", it) }
                 .getOrDefault(true)
         }
 
