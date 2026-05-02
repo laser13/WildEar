@@ -6,6 +6,7 @@ import com.sound2inat.app.data.Settings
 import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.RegionFilter
+import com.sound2inat.inat.RegionLookup
 import com.sound2inat.inference.InterpreterFactory
 import com.sound2inat.inference.TfliteInterpreterFactory
 import com.sound2inat.storage.DetectionDao
@@ -66,8 +67,21 @@ object AppModule {
     fun provideINaturalistClient(http: OkHttpClient): INaturalistClient = INaturalistClient(http)
 
     @Provides @Singleton
-    fun provideRegionFilter(client: INaturalistClient): RegionFilter =
-        RegionFilter(lookup = client::hasObservationsNear)
+    fun provideRegionFilter(client: INaturalistClient): RegionFilter {
+        val lookup = object : RegionLookup {
+            override suspend fun getPlaceId(lat: Double, lon: Double): Long? =
+                client.getNearbyStandardPlace(lat, lon)
+            override suspend fun checkInPlace(scientificName: String, placeId: Long): Boolean =
+                client.hasObservationsInPlace(scientificName, placeId)
+            override suspend fun checkNear(
+                scientificName: String,
+                lat: Double,
+                lon: Double,
+                radiusKm: Int,
+            ): Boolean = client.hasObservationsNear(scientificName, lat, lon, radiusKm)
+        }
+        return RegionFilter(lookup)
+    }
 
     @Provides @Singleton
     fun provideINatSubmitter(

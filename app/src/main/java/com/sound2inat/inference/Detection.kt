@@ -1,5 +1,7 @@
 package com.sound2inat.inference
 
+enum class RegionalStatus { CONFIRMED, NOT_CONFIRMED, UNVERIFIED }
+
 data class WindowPrediction(
     val startMs: Long,
     val endMs: Long,
@@ -26,4 +28,5 @@ data class AggregatedDetection(
      * unidentified source was used (e.g. legacy code paths).
      */
     val confidenceBySource: Map<String, Float> = emptyMap(),
+    val regionalStatus: RegionalStatus? = null,
 )

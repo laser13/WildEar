@@ -1063,23 +1063,8 @@ private class ProductionInferenceJob(
             settings.setLastKnownCoords(latitude, longitude)
         }
 
-        val filteredDetections = when {
-            !settings.regionalFilterEnabled.first() -> rawDetections
-            latitude != null && longitude != null -> {
-                val radius = settings.regionRadiusKm.first()
-                regionFilter.filter(rawDetections, latitude, longitude, radius)
-            }
-            else -> {
-                val lastLat = settings.lastKnownLat.first()
-                val lastLon = settings.lastKnownLon.first()
-                if (lastLat != null && lastLon != null) {
-                    val radius = settings.regionRadiusKm.first()
-                    regionFilter.filter(rawDetections, lastLat, lastLon, radius)
-                } else {
-                    rawDetections
-                }
-            }
-        }
+        // TODO(Task 3): replace pass-through with regionFilter.annotate() call
+        val filteredDetections = rawDetections
 
         InferenceOutcome.Success(
             modelId = ids,
