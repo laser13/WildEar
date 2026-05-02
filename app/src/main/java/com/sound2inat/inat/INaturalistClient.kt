@@ -273,7 +273,7 @@ class INaturalistClient(
         radiusKm: Int,
     ): Boolean = withContext(ioDispatcher) {
         val taxonParam = taxonQueryParam(scientificName)
-        val path = "/observations?$taxonParam&lat=$lat&lng=$lon&radius=$radiusKm&per_page=1"
+        val path = "/observations?$taxonParam&lat=$lat&lng=$lon&radius=$radiusKm&quality_grade=research,needs_id&per_page=1"
         runCatching { executeJson(anonGet(path)) }
             .map { json ->
                 val total = json.optInt("total_results", 0)
@@ -328,7 +328,7 @@ class INaturalistClient(
             val taxonParam = taxonQueryParam(scientificName)
             for (placeId in placeIds) {
                 val found = runCatching {
-                    executeJson(anonGet("/observations?$taxonParam&place_id=$placeId&per_page=1"))
+                    executeJson(anonGet("/observations?$taxonParam&place_id=$placeId&quality_grade=research,needs_id&per_page=1"))
                 }
                     .map { json ->
                         val total = json.optInt("total_results", 0)

@@ -168,6 +168,7 @@ class INaturalistClientTest {
         assertThat(obsReq.path).contains("lat=55.75")
         assertThat(obsReq.path).contains("lng=37.62")
         assertThat(obsReq.path).contains("radius=200")
+        assertThat(obsReq.path).contains("quality_grade=research")
         assertThat(obsReq.path).contains("per_page=1")
     }
 
@@ -417,6 +418,7 @@ class INaturalistClientTest {
         val obsReq = server.takeRequest()
         assertThat(obsReq.path).contains("taxon_id=5")
         assertThat(obsReq.path).contains("place_id=7257")
+        assertThat(obsReq.path).contains("quality_grade=research")
         assertThat(obsReq.path).contains("per_page=1")
     }
 
