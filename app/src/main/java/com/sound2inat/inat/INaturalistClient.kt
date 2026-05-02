@@ -494,6 +494,47 @@ class INaturalistClient(
             Unit
         }
 
+    /**
+     * Fetches details for a single observation. [idOrUuid] is either the numeric
+     * id or uuid — both are accepted by the iNat v1 API.
+     * Throws [INatException] on network or HTTP errors.
+     */
+    suspend fun getObservation(idOrUuid: String): ObservationDetail = withContext(ioDispatcher) {
+        val json = executeJson(anonGet("/observations/$idOrUuid"))
+        val results = json.optJSONArray("results")
+            ?: throw INatException(-1, "Missing results array")
+        if (results.length() == 0) throw INatException(-1, "Observation not found: $idOrUuid")
+        val obs = results.getJSONObject(0)
+
+        val qualityGrade = obs.optString("quality_grade", "needs_id")
+        val commentsCount = obs.optInt("comments_count", 0)
+
+        val idsArray = obs.optJSONArray("identifications")
+        val agreeingIdCount = if (idsArray != null) {
+            (0 until idsArray.length()).count {
+                idsArray.getJSONObject(it).optBoolean("current", false)
+            }
+        } else 0
+
+        val commentsArray = obs.optJSONArray("comments")
+        val comments = if (commentsArray != null) {
+            (0 until minOf(commentsArray.length(), MAX_PREVIEW_COMMENTS)).map { i ->
+                val c = commentsArray.getJSONObject(i)
+                ObservationComment(
+                    username = c.optJSONObject("user")?.optString("login", "?") ?: "?",
+                    body = c.optString("body", ""),
+                )
+            }
+        } else emptyList()
+
+        ObservationDetail(
+            qualityGrade = qualityGrade,
+            agreeingIdCount = agreeingIdCount,
+            commentsCount = commentsCount,
+            comments = comments,
+        )
+    }
+
     private fun authedGet(token: String, path: String): Request =
         Request.Builder()
             .url(baseUrl + path)
@@ -604,6 +645,7 @@ class INaturalistClient(
         private const val NO_TAXON_ID = -1L
         private const val TAXON_TTL_MS = 24L * 60 * 60 * 1000      // taxon ids are stable
         private const val TAXON_FAILURE_TTL_MS = 5L * 60 * 1000    // retry transient failures
+        private const val MAX_PREVIEW_COMMENTS = 3
 
         // iNaturalist's "iconic taxa" — the top-level groupings on a taxon's
         // record. We accept anything that's a vocalising or audibly active
@@ -631,3 +673,15 @@ data class ObservationBody(
 data class CreatedObservation(val id: Long, val uuid: String, val url: String)
 
 class INatException(val code: Int, override val message: String) : RuntimeException(message)
+
+data class ObservationDetail(
+    val qualityGrade: String,
+    val agreeingIdCount: Int,
+    val commentsCount: Int,
+    val comments: List<ObservationComment>,
+)
+
+data class ObservationComment(
+    val username: String,
+    val body: String,
+)

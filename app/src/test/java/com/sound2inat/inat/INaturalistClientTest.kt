@@ -483,4 +483,71 @@ class INaturalistClientTest {
         val url = client.fetchTaxonPhotoUrl("Corvus corone")
         assertThat(url).isEqualTo("https://example.com/cornix.jpg")
     }
+
+    @Test fun `getObservation parses quality grade, id count and comments`() = runTest {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "results": [{
+                    "quality_grade": "research",
+                    "comments_count": 2,
+                    "identifications": [
+                      {"current": true},
+                      {"current": false},
+                      {"current": true}
+                    ],
+                    "comments": [
+                      {"body": "Great find!", "user": {"login": "alice"}},
+                      {"body": "Agreed!", "user": {"login": "bob"}}
+                    ]
+                  }]
+                }
+                """.trimIndent(),
+            ),
+        )
+        val detail = client.getObservation("12345")
+        assertThat(detail.qualityGrade).isEqualTo("research")
+        assertThat(detail.agreeingIdCount).isEqualTo(2)
+        assertThat(detail.commentsCount).isEqualTo(2)
+        assertThat(detail.comments).hasSize(2)
+        assertThat(detail.comments[0].username).isEqualTo("alice")
+        assertThat(detail.comments[0].body).isEqualTo("Great find!")
+        val req = server.takeRequest()
+        assertThat(req.path).startsWith("/v1/observations/12345")
+    }
+
+    @Test fun `getObservation caps comments at 3`() = runTest {
+        val manyComments = (1..5).joinToString(",") {
+            """{"body": "Comment $it", "user": {"login": "user$it"}}"""
+        }
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {"results": [{"quality_grade": "needs_id", "comments_count": 5,
+                  "identifications": [], "comments": [$manyComments]}]}
+                """.trimIndent(),
+            ),
+        )
+        val detail = client.getObservation("42")
+        assertThat(detail.comments).hasSize(3)
+    }
+
+    @Test fun `getObservation throws INatException on 404`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(404).setBody("""{"error":"not found"}"""))
+        val ex = runCatching { client.getObservation("99999") }.exceptionOrNull()
+        assertThat(ex).isInstanceOf(INatException::class.java)
+        assertThat((ex as INatException).code).isEqualTo(404)
+    }
+
+    @Test fun `getObservation handles missing identifications array`() = runTest {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"results": [{"quality_grade": "needs_id", "comments_count": 0}]}""",
+            ),
+        )
+        val detail = client.getObservation("1")
+        assertThat(detail.agreeingIdCount).isEqualTo(0)
+        assertThat(detail.comments).isEmpty()
+    }
 }
