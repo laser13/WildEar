@@ -358,11 +358,14 @@ class ReviewViewModel(
                 if (lat != null && lon != null) {
                     val newNames = rows.map { it.taxonScientificName }.toSet()
                     val cachedNames = regionalStatusCache.keys.toSet()
-                    if (newNames != cachedNames) {
+                    // Ignore the transient empty emission from Room's non-atomic
+                    // DELETE+INSERT in attachDetections — it would cancel any
+                    // in-flight annotation for no reason.
+                    if (newNames != cachedNames && newNames.isNotEmpty()) {
                         Log.d("ReviewVM", "annotation triggered: newNames=$newNames cachedNames=$cachedNames")
                         launchAnnotation(rows, lat, lon)
                     } else {
-                        Log.d("ReviewVM", "annotation skipped (same species set): $newNames")
+                        Log.d("ReviewVM", "annotation skipped (same or empty species set): $newNames")
                     }
                 } else {
                     Log.d("ReviewVM", "annotation skipped: lat=$lat lon=$lon (no GPS)")
@@ -435,6 +438,10 @@ class ReviewViewModel(
                     )
                     _windowPreds.value = outcome.windows
                     _state.value = _state.value.copy(inferenceProgress = null)
+                    // Ensure annotation runs on the final merged species list.
+                    // The Room INSERT emission may have triggered it already; if
+                    // not (same species set hit cache), start it explicitly here.
+                    launchAnnotationIfIdle()
                 }
                 is InferenceOutcome.Failure -> {
                     _state.value = _state.value.copy(
@@ -505,11 +512,14 @@ class ReviewViewModel(
                     _state.value = _state.value.copy(perchProgress = p.coerceIn(0f, 1f))
                 }
                 when (outcome) {
-                    is PerchAnalysisOutcome.Success -> mergeAndPersist(
-                        newModelId = "perch_v2",
-                        newModelVersion = "perch",
-                        freshDetections = outcome.detections,
-                    )
+                    is PerchAnalysisOutcome.Success -> {
+                        mergeAndPersist(
+                            newModelId = "perch_v2",
+                            newModelVersion = "perch",
+                            freshDetections = outcome.detections,
+                        )
+                        launchAnnotationIfIdle()
+                    }
                     is PerchAnalysisOutcome.Failure -> {
                         _state.value = _state.value.copy(perchError = outcome.message)
                     }
@@ -792,6 +802,21 @@ class ReviewViewModel(
      */
     fun release() {
         player.release()
+    }
+
+    /**
+     * Triggers annotation on current species after inference/merge completes,
+     * but only if no annotation is already in flight (avoids double-cancelling
+     * a job that was already started by the Room INSERT emission).
+     */
+    private fun launchAnnotationIfIdle() {
+        if (annotationJob?.isActive == true) return
+        val s = _state.value
+        val lat = s.latitude ?: return
+        val lon = s.longitude ?: return
+        if (s.species.isEmpty()) return
+        Log.d("ReviewVM", "launchAnnotationIfIdle: no active job, launching on ${s.species.size} species")
+        launchAnnotation(s.species, lat, lon)
     }
 
     /**
