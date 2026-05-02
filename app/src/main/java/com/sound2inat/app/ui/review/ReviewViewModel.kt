@@ -358,14 +358,18 @@ class ReviewViewModel(
                 if (lat != null && lon != null) {
                     val newNames = rows.map { it.taxonScientificName }.toSet()
                     val cachedNames = regionalStatusCache.keys.toSet()
-                    // Ignore the transient empty emission from Room's non-atomic
-                    // DELETE+INSERT in attachDetections — it would cancel any
-                    // in-flight annotation for no reason.
-                    if (newNames != cachedNames && newNames.isNotEmpty()) {
+                    // Skip annotation while inference is pending — launchAnnotationIfIdle()
+                    // will run it on the final merged data after analysis completes.
+                    // Also ignore the transient empty emission from Room's non-atomic
+                    // DELETE+INSERT in attachDetections.
+                    val inferenceRunning = draft.status == DraftStatus.PENDING_INFERENCE ||
+                        _state.value.inferenceProgress != null ||
+                        _state.value.perchProgress != null
+                    if (newNames != cachedNames && newNames.isNotEmpty() && !inferenceRunning) {
                         Log.d("ReviewVM", "annotation triggered: newNames=$newNames cachedNames=$cachedNames")
                         launchAnnotation(rows, lat, lon)
                     } else {
-                        Log.d("ReviewVM", "annotation skipped (same or empty species set): $newNames")
+                        Log.d("ReviewVM", "annotation skipped (inference=$inferenceRunning empty=${newNames.isEmpty()} same=${newNames == cachedNames})")
                     }
                 } else {
                     Log.d("ReviewVM", "annotation skipped: lat=$lat lon=$lon (no GPS)")
