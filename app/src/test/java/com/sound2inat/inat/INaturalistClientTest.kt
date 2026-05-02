@@ -410,4 +410,32 @@ class INaturalistClientTest {
         val found = client.hasObservationsInPlace("Columba palumbus", placeId = 7257L)
         assertThat(found).isFalse()
     }
+
+    @Test fun `fetchTaxonPhotoUrl picks exact name match over first result`() = runTest {
+        // Server returns Corvus cornix first, Corvus corone second.
+        server.enqueue(
+            MockResponse().setBody(
+                """{"results":[
+                    {"name":"Corvus cornix","default_photo":{"medium_url":"https://example.com/cornix.jpg"}},
+                    {"name":"Corvus corone","default_photo":{"medium_url":"https://example.com/corone.jpg"}}
+                ]}""",
+            ),
+        )
+        val url = client.fetchTaxonPhotoUrl("Corvus corone")
+        assertThat(url).isEqualTo("https://example.com/corone.jpg")
+        val req = server.takeRequest()
+        assertThat(req.path).contains("per_page=5")
+    }
+
+    @Test fun `fetchTaxonPhotoUrl falls back to first result when no exact match`() = runTest {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"results":[
+                    {"name":"Corvus cornix","default_photo":{"medium_url":"https://example.com/cornix.jpg"}}
+                ]}""",
+            ),
+        )
+        val url = client.fetchTaxonPhotoUrl("Corvus corone")
+        assertThat(url).isEqualTo("https://example.com/cornix.jpg")
+    }
 }

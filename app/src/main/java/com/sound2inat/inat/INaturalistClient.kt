@@ -245,12 +245,14 @@ class INaturalistClient(
      */
     suspend fun fetchTaxonPhotoUrl(scientificName: String): String? = withContext(ioDispatcher) {
         val q = scientificName.replace(' ', '+')
-        val req = anonGet("/taxa?q=$q&rank=species&is_active=true&per_page=1")
+        val req = anonGet("/taxa?q=$q&rank=species&is_active=true&per_page=5")
         val results = runCatching { executeJson(req).optJSONArray("results") }
             .getOrNull() ?: return@withContext null
-        if (results.length() == 0) return@withContext null
-        results.getJSONObject(0)
-            .optJSONObject("default_photo")
+        val taxon = (0 until results.length())
+            .map { results.getJSONObject(it) }
+            .firstOrNull { it.optString("name").equals(scientificName, ignoreCase = true) }
+            ?: if (results.length() > 0) results.getJSONObject(0) else return@withContext null
+        taxon.optJSONObject("default_photo")
             ?.optString("medium_url")
             ?.takeIf { it.isNotBlank() }
     }
