@@ -53,25 +53,34 @@ class RadarViewModel(
         }
     }
 
+    private val refreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
     fun pullRefresh() {
-        if (_state.value.loading) return
-        scope.launch { refreshFor(_state.value.filter, force = true) }
+        if (!refreshInFlight.compareAndSet(false, true)) return
+        scope.launch {
+            try { refreshFor(_state.value.filter, force = true) }
+            finally { refreshInFlight.set(false) }
+        }
     }
 
     private suspend fun primeLocation() {
         val (lat, lon) = getLastKnown()
-        if (lat != null && lon != null) {
-            locationFlow.value = GeoPoint(lat, lon)
+        val hasLastKnown = lat != null && lon != null
+        if (hasLastKnown) {
             _state.update { it.copy(locationStatus = LocationStatus.FallbackToLastKnown) }
         }
         val fix = runCatching { getLocation() }.getOrNull()
-        if (fix != null) {
-            locationFlow.value = GeoPoint(fix.latitude, fix.longitude)
-            _state.update {
-                it.copy(locationStatus = LocationStatus.Live(fix.accuracyMeters ?: 0f))
+        when {
+            fix != null -> {
+                locationFlow.value = GeoPoint(fix.latitude, fix.longitude)
+                _state.update { it.copy(locationStatus = LocationStatus.Live(fix.accuracyMeters ?: 0f)) }
             }
-        } else if (locationFlow.value == null) {
-            _state.update { it.copy(locationStatus = LocationStatus.NoLocation) }
+            hasLastKnown -> {
+                locationFlow.value = GeoPoint(lat!!, lon!!)
+            }
+            else -> {
+                _state.update { it.copy(locationStatus = LocationStatus.NoLocation) }
+            }
         }
     }
 
