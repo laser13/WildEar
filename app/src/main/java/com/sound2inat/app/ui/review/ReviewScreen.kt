@@ -250,6 +250,10 @@ private fun ReviewPage(
                 }
             }
             item { SubmitSection(state = state, vm = vm) }
+            val (likelySpecies, unlikelySpecies) = state.species.partition {
+                it.regionalStatus != RegionalStatus.NOT_CONFIRMED
+            }
+
             item {
                 Text(
                     "Detected species",
@@ -259,7 +263,7 @@ private fun ReviewPage(
             }
             item { HorizontalDivider() }
 
-            items(state.species, key = { it.detectionId }) { row ->
+            items(likelySpecies, key = { it.detectionId }) { row ->
                 SpeciesListItem(
                     row = row,
                     isHighlighted = highlight == row.detectionId,
@@ -271,13 +275,37 @@ private fun ReviewPage(
                 )
                 HorizontalDivider()
             }
-            if (state.species.isEmpty() && state.inferenceProgress == null) {
+            if (likelySpecies.isEmpty() && state.inferenceProgress == null && unlikelySpecies.isEmpty()) {
                 item {
                     Text(
                         "No species detected.",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(16.dp),
                     )
+                }
+            }
+
+            if (unlikelySpecies.isNotEmpty()) {
+                item {
+                    Text(
+                        "Unlikely — not observed nearby",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+                item { HorizontalDivider() }
+                items(unlikelySpecies, key = { it.detectionId }) { row ->
+                    SpeciesListItem(
+                        row = row,
+                        isHighlighted = highlight == row.detectionId,
+                        onClick = {
+                            vm.seekTo(row.firstSeenMs)
+                            vm.highlight(row.detectionId)
+                        },
+                        onCheckedChange = { checked -> vm.toggle(row.detectionId, checked) },
+                    )
+                    HorizontalDivider()
                 }
             }
 
