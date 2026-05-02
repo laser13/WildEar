@@ -330,4 +330,27 @@ class INaturalistClientTest {
         assertThat(path).contains("per_page=200")
         assertThat(path).contains("order_by=observed_on")
     }
+
+    @Test fun `nearbyObservations uses numeric id in obsUrl when uuid absent`() = runTest {
+        server.enqueue(
+            MockResponse().setBody(
+                """{
+                  "results": [{
+                    "id": 99,
+                    "uuid": "",
+                    "taxon": { "id": 1, "name": "Passer domesticus" },
+                    "geojson": { "coordinates": [10.0, 50.0] }
+                  }]
+                }""",
+            ),
+        )
+        val key = com.sound2inat.app.ui.radar.FilterKey(
+            latGrid = 5000, lonGrid = 1000,
+            radiusKm = 5, periodDays = 7,
+            taxa = emptySet(), excludeUserId = null,
+        )
+        val pins = client.nearbyObservations(key, periodEndDateUtc = "2026-04-25")
+        assertThat(pins).hasSize(1)
+        assertThat(pins[0].obsUrl).isEqualTo("https://www.inaturalist.org/observations/99")
+    }
 }
