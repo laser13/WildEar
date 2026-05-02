@@ -157,9 +157,9 @@ class INaturalistClientTest {
     }
 
     @Test
-    fun `hasObservationsNear returns true when total_results meets threshold`() = runTest {
+    fun `hasObservationsNear returns true when at least one observation found`() = runTest {
         server.enqueue(
-            MockResponse().setBody("""{"results":[{"id":1}],"total_results":5}"""),
+            MockResponse().setBody("""{"results":[{"id":1}],"total_results":1}"""),
         )
         val found = client.hasObservationsNear("Parus major", 55.75, 37.62, 200)
         assertThat(found).isTrue()
@@ -172,9 +172,9 @@ class INaturalistClientTest {
     }
 
     @Test
-    fun `hasObservationsNear returns false when total_results below threshold`() = runTest {
+    fun `hasObservationsNear returns false when no observations found`() = runTest {
         server.enqueue(
-            MockResponse().setBody("""{"results":[],"total_results":2}"""),
+            MockResponse().setBody("""{"results":[],"total_results":0}"""),
         )
         val found = client.hasObservationsNear("Gnorimopsar chopi", 55.75, 37.62, 200)
         assertThat(found).isFalse()
@@ -411,9 +411,9 @@ class INaturalistClientTest {
         assertThat(placeId).isNull()
     }
 
-    @Test fun `hasObservationsInPlace returns true when observations found`() = runTest {
+    @Test fun `hasObservationsInPlace returns true when at least one observation found`() = runTest {
         server.enqueue(
-            MockResponse().setBody("""{"results":[],"total_results":3}"""),
+            MockResponse().setBody("""{"results":[],"total_results":1}"""),
         )
         val found = client.hasObservationsInPlace("Parus major", placeId = 7257L)
         assertThat(found).isTrue()
@@ -423,9 +423,9 @@ class INaturalistClientTest {
         assertThat(req.path).contains("per_page=1")
     }
 
-    @Test fun `hasObservationsInPlace returns false when below threshold`() = runTest {
+    @Test fun `hasObservationsInPlace returns false when no observations found`() = runTest {
         server.enqueue(
-            MockResponse().setBody("""{"results":[],"total_results":2}"""),
+            MockResponse().setBody("""{"results":[],"total_results":0}"""),
         )
         val found = client.hasObservationsInPlace("Columba palumbus", placeId = 7257L)
         assertThat(found).isFalse()
