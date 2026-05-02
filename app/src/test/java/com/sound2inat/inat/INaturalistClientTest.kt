@@ -199,7 +199,9 @@ class INaturalistClientTest {
         assertThat(req.getHeader("Authorization")).isEqualTo("jwt")
     }
 
-    @Test fun `nearbySpeciesCounts URL has all params and parses response`() = runTest {
+    @Suppress("LongMethod")
+    @Test
+    fun `nearbySpeciesCounts URL has all params and parses response`() = runTest {
         server.enqueue(
             MockResponse().setBody(
                 """{
@@ -229,8 +231,10 @@ class INaturalistClientTest {
             ),
         )
         val key = com.sound2inat.app.ui.radar.FilterKey(
-            latGrid = 5050, lonGrid = 1010,
-            radiusKm = 5, periodDays = 7,
+            latGrid = 5050,
+            lonGrid = 1010,
+            radiusKm = 5,
+            periodDays = 7,
             taxa = setOf("Aves", "Amphibia"),
             excludeUserId = 42L,
         )
@@ -269,8 +273,10 @@ class INaturalistClientTest {
     @Test fun `nearbySpeciesCounts omits empty taxa and null user_id`() = runTest {
         server.enqueue(MockResponse().setBody("""{"results":[]}"""))
         val key = com.sound2inat.app.ui.radar.FilterKey(
-            latGrid = 5050, lonGrid = 1010,
-            radiusKm = 25, periodDays = 30,
+            latGrid = 5050,
+            lonGrid = 1010,
+            radiusKm = 25,
+            periodDays = 30,
             taxa = emptySet(),
             excludeUserId = null,
         )
@@ -308,8 +314,10 @@ class INaturalistClientTest {
             ),
         )
         val key = com.sound2inat.app.ui.radar.FilterKey(
-            latGrid = 5050, lonGrid = 1010,
-            radiusKm = 5, periodDays = 7,
+            latGrid = 5050,
+            lonGrid = 1010,
+            radiusKm = 5,
+            periodDays = 7,
             taxa = setOf("Aves"),
             excludeUserId = null,
         )
@@ -345,9 +353,12 @@ class INaturalistClientTest {
             ),
         )
         val key = com.sound2inat.app.ui.radar.FilterKey(
-            latGrid = 5000, lonGrid = 1000,
-            radiusKm = 5, periodDays = 7,
-            taxa = emptySet(), excludeUserId = null,
+            latGrid = 5000,
+            lonGrid = 1000,
+            radiusKm = 5,
+            periodDays = 7,
+            taxa = emptySet(),
+            excludeUserId = null,
         )
         val pins = client.nearbyObservations(key, periodEndDateUtc = "2026-04-25")
         assertThat(pins).hasSize(1)

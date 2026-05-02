@@ -1,7 +1,6 @@
 package com.sound2inat.inat
 
 import com.google.common.truth.Truth.assertThat
-import com.sound2inat.app.ui.radar.CachedResult
 import com.sound2inat.app.ui.radar.FilterKey
 import com.sound2inat.app.ui.radar.MapPin
 import com.sound2inat.app.ui.radar.SpeciesAggregate
@@ -15,8 +14,10 @@ import org.junit.Test
 class INatObservationsRepositoryTest {
 
     private val key = FilterKey(
-        latGrid = 5050, lonGrid = 1010,
-        radiusKm = 5, periodDays = 7,
+        latGrid = 5050,
+        lonGrid = 1010,
+        radiusKm = 5,
+        periodDays = 7,
         taxa = emptySet(),
         excludeUserId = null,
     )
@@ -53,8 +54,14 @@ class INatObservationsRepositoryTest {
         var pinsCalls = 0
         var now = 0L
         val repo = INatObservationsRepository(
-            countsLoader = { countsCalls++; emptyList() },
-            pinsLoader = { pinsCalls++; emptyList() },
+            countsLoader = {
+                countsCalls++
+                emptyList()
+            },
+            pinsLoader = {
+                pinsCalls++
+                emptyList()
+            },
             clock = { now },
         )
         repo.fetch(key)
@@ -77,7 +84,10 @@ class INatObservationsRepositoryTest {
     @Test fun `fetch with forceRefresh bypasses cache`() = runTest(UnconfinedTestDispatcher()) {
         var countsCalls = 0
         val repo = INatObservationsRepository(
-            countsLoader = { countsCalls++; emptyList() },
+            countsLoader = {
+                countsCalls++
+                emptyList()
+            },
             pinsLoader = { emptyList() },
             clock = { 0L },
         )

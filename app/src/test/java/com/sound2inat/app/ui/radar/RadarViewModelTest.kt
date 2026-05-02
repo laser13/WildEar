@@ -99,6 +99,7 @@ class RadarViewModelTest {
             assertThat(fakeRepo.calls).hasSize(1)
         }
 
+    @Suppress("LongParameterList")
     private fun TestScope.newVm(
         repo: FakeRepo,
         radius: MutableStateFlow<Int> = MutableStateFlow(5),
@@ -127,8 +128,11 @@ class RadarViewModelTest {
         suspend fun fetch(key: FilterKey, force: Boolean): Result<CachedResult> {
             calls += key
             lastForce = force
-            return if (throwing != null) Result.failure(RuntimeException(throwing))
-            else Result.success(CachedResult(emptyList(), emptyList(), 0L))
+            return if (throwing != null) {
+                Result.failure(RuntimeException(throwing))
+            } else {
+                Result.success(CachedResult(emptyList(), emptyList(), 0L))
+            }
         }
     }
 }

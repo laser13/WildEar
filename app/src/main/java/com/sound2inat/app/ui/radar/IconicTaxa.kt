@@ -1,3 +1,5 @@
+@file:Suppress("MatchingDeclarationName")
+
 package com.sound2inat.app.ui.radar
 
 import androidx.annotation.DrawableRes

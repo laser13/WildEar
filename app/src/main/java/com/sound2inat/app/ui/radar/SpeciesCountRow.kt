@@ -74,7 +74,10 @@ internal fun SpeciesCountRow(
 }
 
 private fun supportingLine(row: SpeciesAggregate): String {
-    val nearest = if (row.nearestObservationKm < 0f) "—"
-    else "%.1f km".format(row.nearestObservationKm)
+    val nearest = if (row.nearestObservationKm < 0f) {
+        "—"
+    } else {
+        "%.1f km".format(row.nearestObservationKm)
+    }
     return "${row.observationCount} obs · nearest $nearest"
 }

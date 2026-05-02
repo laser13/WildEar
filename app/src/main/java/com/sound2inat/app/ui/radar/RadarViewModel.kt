@@ -25,6 +25,7 @@ import org.osmdroid.util.GeoPoint
 import javax.inject.Inject
 import kotlin.math.roundToInt
 
+@Suppress("LongParameterList")
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class RadarViewModel(
     private val repoFetch: suspend (FilterKey, Boolean) -> Result<CachedResult>,
@@ -66,8 +67,7 @@ class RadarViewModel(
     fun pullRefresh() {
         if (!refreshInFlight.compareAndSet(false, true)) return
         scope.launch {
-            try { refreshFor(_state.value.filter, force = true) }
-            finally { refreshInFlight.set(false) }
+            try { refreshFor(_state.value.filter, force = true) } finally { refreshInFlight.set(false) }
         }
     }
 
