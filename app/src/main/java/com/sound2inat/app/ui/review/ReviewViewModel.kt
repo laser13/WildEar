@@ -510,12 +510,15 @@ class ReviewViewModel(
             observationDetailCache[idOrUuid] = detail
             _state.update { s ->
                 s.copy(species = s.species.map { row ->
-                    if (row.detectionId == detectionId) row.copy(
-                        observationDetailState = if (detail != null)
-                            ObservationDetailLoadState.Loaded(detail)
-                        else
-                            ObservationDetailLoadState.Error("Could not load observation details"),
-                    ) else row
+                    if (row.detectionId == detectionId &&
+                        row.observationDetailState is ObservationDetailLoadState.Loading) {
+                        row.copy(
+                            observationDetailState = if (detail != null)
+                                ObservationDetailLoadState.Loaded(detail)
+                            else
+                                ObservationDetailLoadState.Error("Could not load observation details"),
+                        )
+                    } else row
                 })
             }
         }
