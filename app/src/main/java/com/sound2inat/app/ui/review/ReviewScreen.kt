@@ -748,7 +748,7 @@ private fun SpeciesListItem(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                d.comments.forEach { c ->
+                                d.comments.take(3).forEach { c ->
                                     Text(
                                         "\"${c.body}\" — ${c.username}",
                                         style = MaterialTheme.typography.bodySmall,
