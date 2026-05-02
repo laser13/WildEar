@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.MicNone
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -67,6 +68,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.storage.DraftStatus
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -527,6 +529,27 @@ private fun PlayerControls(state: ReviewUiState, vm: ReviewViewModel) {
     // drag-to-seek functionality. See WaveformAndSpectrogram.
 }
 
+@Suppress("FunctionNaming")
+@Composable
+private fun RegionalStatusIcon(status: RegionalStatus) {
+    val tint = when (status) {
+        RegionalStatus.CONFIRMED -> MaterialTheme.colorScheme.primary
+        RegionalStatus.NOT_CONFIRMED -> MaterialTheme.colorScheme.error
+        RegionalStatus.UNVERIFIED -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val desc = when (status) {
+        RegionalStatus.CONFIRMED -> "Observed in region"
+        RegionalStatus.NOT_CONFIRMED -> "Not observed in region"
+        RegionalStatus.UNVERIFIED -> "Regional check unavailable"
+    }
+    Icon(
+        imageVector = Icons.Outlined.Public,
+        contentDescription = desc,
+        tint = tint,
+        modifier = Modifier.size(16.dp),
+    )
+}
+
 @Suppress("FunctionNaming", "LongMethod")
 @Composable
 private fun SpeciesListItem(
@@ -577,14 +600,18 @@ private fun SpeciesListItem(
             Column {
                 val pct = (row.maxConfidence * PERCENT).toInt()
                 Text("$pct%  ·  ${row.detectedWindows} windows  ·  ${row.taxonScientificName}")
-                if (row.confidenceBySource.isNotEmpty()) {
+                if (row.confidenceBySource.isNotEmpty() || row.regionalStatus != null) {
                     Spacer(Modifier.height(4.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         row.confidenceBySource.entries
                             .sortedByDescending { it.value }
                             .forEach { (src, conf) ->
                                 SourceBadge(src, conf)
                             }
+                        row.regionalStatus?.let { RegionalStatusIcon(it) }
                     }
                 }
             }
