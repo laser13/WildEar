@@ -1,6 +1,7 @@
 package com.sound2inat.app.ui.review
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -354,13 +355,16 @@ class ReviewViewModel(
                 val lat = draft.latitude
                 val lon = draft.longitude
                 if (lat != null && lon != null) {
-                    // Only launch annotation if the set of scientific names has changed.
-                    // This avoids unnecessary network calls and annotation status flicker
-                    // when Room re-emits due to unrelated updates (e.g. selection toggles).
                     val newNames = rows.map { it.taxonScientificName }.toSet()
-                    if (newNames != regionalStatusCache.keys.toSet()) {
+                    val cachedNames = regionalStatusCache.keys.toSet()
+                    if (newNames != cachedNames) {
+                        Log.d("ReviewVM", "annotation triggered: newNames=$newNames cachedNames=$cachedNames")
                         launchAnnotation(rows, lat, lon)
+                    } else {
+                        Log.d("ReviewVM", "annotation skipped (same species set): $newNames")
                     }
+                } else {
+                    Log.d("ReviewVM", "annotation skipped: lat=$lat lon=$lon (no GPS)")
                 }
                 recomputePerchEligibility()
                 if (draft.status == DraftStatus.PENDING_INFERENCE && !inferenceStarted) {
@@ -798,32 +802,43 @@ class ReviewViewModel(
      * [_state].species so the UI updates without waiting for a Room re-emission.
      */
     private fun launchAnnotation(rows: List<SpeciesRow>, lat: Double, lon: Double) {
-        val filter = regionFilter ?: return
+        val filter = regionFilter ?: run {
+            Log.d("ReviewVM", "launchAnnotation: regionFilter is null, skipping")
+            return
+        }
+        val wasRunning = annotationJob?.isActive == true
         annotationJob?.cancel()
+        Log.d("ReviewVM", "launchAnnotation: starting for ${rows.size} species (cancelled prev=$wasRunning): ${rows.map { it.taxonScientificName }}")
         annotationJob = scope.launch {
             val radiusKm = Settings.DEFAULT_REGION_RADIUS_KM
-            val annotated = filter.annotate(
-                rows.map { r ->
-                    AggregatedDetection(
-                        taxonScientificName = r.taxonScientificName,
-                        taxonCommonName = r.taxonCommonName,
-                        maxConfidence = r.maxConfidence,
-                        detectedWindows = r.detectedWindows,
-                        firstSeenMs = r.firstSeenMs,
-                        lastSeenMs = r.lastSeenMs,
-                    )
-                },
-                lat, lon, radiusKm,
-            )
-            annotated.forEach { det ->
-                regionalStatusCache[det.taxonScientificName] = det.regionalStatus
-            }
-            _state.update { s ->
-                s.copy(
-                    species = s.species.map { row ->
-                        row.copy(regionalStatus = regionalStatusCache[row.taxonScientificName])
+            try {
+                val annotated = filter.annotate(
+                    rows.map { r ->
+                        AggregatedDetection(
+                            taxonScientificName = r.taxonScientificName,
+                            taxonCommonName = r.taxonCommonName,
+                            maxConfidence = r.maxConfidence,
+                            detectedWindows = r.detectedWindows,
+                            firstSeenMs = r.firstSeenMs,
+                            lastSeenMs = r.lastSeenMs,
+                        )
                     },
+                    lat, lon, radiusKm,
                 )
+                annotated.forEach { det ->
+                    regionalStatusCache[det.taxonScientificName] = det.regionalStatus
+                }
+                Log.d("ReviewVM", "launchAnnotation: complete, updating state with ${annotated.size} statuses")
+                _state.update { s ->
+                    s.copy(
+                        species = s.species.map { row ->
+                            row.copy(regionalStatus = regionalStatusCache[row.taxonScientificName])
+                        },
+                    )
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                Log.d("ReviewVM", "launchAnnotation: job cancelled after annotating ${regionalStatusCache.size} species")
+                throw e
             }
         }
     }
