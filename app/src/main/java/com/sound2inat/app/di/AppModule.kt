@@ -49,10 +49,16 @@ object AppModule {
 
     @Provides @Singleton
     fun provideDraftRepository(
+        db: Sound2iNatDb,
         d: DraftDao,
         det: DetectionDao,
         files: WavFileStore,
-    ): DraftRepository = DraftRepository(d, det, files)
+    ): DraftRepository = DraftRepository(
+        drafts = d,
+        detections = det,
+        files = files,
+        runInTransaction = { block -> db.runInTransaction(block) },
+    )
 
     @Provides @Singleton
     fun provideSettings(@ApplicationContext ctx: Context): Settings = Settings(ctx)

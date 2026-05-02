@@ -43,6 +43,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Calendar
@@ -210,6 +212,7 @@ class ReviewViewModel(
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
+    private val ownsScope: Boolean = externalScope == null
     private val scope: CoroutineScope = externalScope ?: viewModelScope
 
     private val _state = MutableStateFlow(ReviewUiState(draftId = draftId))
@@ -273,6 +276,13 @@ class ReviewViewModel(
     /** Last result of [perchInstalledProbe]; folded into [ReviewUiState.canAnalyzeWithPerch]. */
     private var perchInstalled: Boolean = false
     private var perchJob: Job? = null
+
+    /**
+     * Serialises [mergeAndPersist] across BirdNET and Perch jobs. Without this,
+     * a quick second analysis trigger can race the in-flight read-merge-write
+     * cycle and clobber the other job's results.
+     */
+    private val persistMutex = Mutex()
 
     init {
         scope.launch {
@@ -563,7 +573,7 @@ class ReviewViewModel(
         newModelVersion: String,
         freshDetections: List<AggregatedDetection>,
         promoteToReviewed: Boolean = false,
-    ) {
+    ) = persistMutex.withLock {
         val dwd = repo.observeWithDetections(draftId).first()
         val existing = dwd.detections.map { e ->
             AggregatedDetection(
@@ -799,13 +809,21 @@ class ReviewViewModel(
     }
 
     /**
-     * Release the underlying [AudioPlayer]. Must be called by whichever
-     * scope owns the VM — Hilt's [ViewModel.onCleared] does NOT cascade to
-     * this delegate (the wrapper [ReviewViewModelHilt] is the one tied to
-     * the [androidx.lifecycle.ViewModelStore]).
+     * Release the underlying [AudioPlayer] and cancel all VM-owned coroutines.
+     * Must be called by whichever scope owns the VM — Hilt's
+     * [ViewModel.onCleared] does NOT cascade to this delegate (the factory
+     * pattern in [ReviewViewModelFactory] creates instances outside any
+     * [androidx.lifecycle.ViewModelStore], so [viewModelScope] is never
+     * cancelled automatically).
+     *
+     * When an [externalScope] was injected (tests), only the player is
+     * released — the test owns scope cancellation via `runTest`.
      */
     fun release() {
         player.release()
+        if (ownsScope) {
+            viewModelScope.coroutineContext[Job]?.cancel()
+        }
     }
 
     /**

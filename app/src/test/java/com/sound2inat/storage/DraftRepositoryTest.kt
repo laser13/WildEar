@@ -34,7 +34,13 @@ class DraftRepositoryTest {
             ApplicationProvider.getApplicationContext(),
             Sound2iNatDb::class.java,
         ).allowMainThreadQueries().build()
-        repo = DraftRepository(db.drafts(), db.detections(), WavFileStore(tmp.root), nowMs = { 0L })
+        repo = DraftRepository(
+            drafts = db.drafts(),
+            detections = db.detections(),
+            files = WavFileStore(tmp.root),
+            nowMs = { 0L },
+            runInTransaction = { block -> db.runInTransaction(block) },
+        )
     }
 
     @After

@@ -4,6 +4,7 @@ class DetectionAggregator(
     private val minConfidence: Float = 0.10f,
     private val minWindows: Int = 1,
 ) {
+    private val lock = Any()
     private val incremental = mutableListOf<WindowPrediction>()
 
     /**
@@ -12,18 +13,21 @@ class DetectionAggregator(
      * the live recording screen calls this on every [WindowPrediction] emitted
      * by [LiveInferenceEngine] and renders the result as a list of LiveCards.
      *
-     * NOT thread-safe — caller (RecordingViewModel) collects on a single coroutine.
+     * Synchronised: callers may invoke from different threads (e.g. the
+     * predictions Flow collector vs. a final-flush coroutine after stop).
      */
-    fun addWindow(pred: WindowPrediction): List<AggregatedDetection> {
+    fun addWindow(pred: WindowPrediction): List<AggregatedDetection> = synchronized(lock) {
         incremental.add(pred)
-        return aggregate(incremental)
+        aggregate(incremental.toList())
     }
 
     /** Re-aggregates the current incremental buffer without adding a new window. */
-    fun snapshot(): List<AggregatedDetection> = aggregate(incremental)
+    fun snapshot(): List<AggregatedDetection> = synchronized(lock) {
+        aggregate(incremental.toList())
+    }
 
     /** Drops accumulated windows (e.g. between recordings). */
-    fun reset() { incremental.clear() }
+    fun reset() = synchronized(lock) { incremental.clear() }
 
     fun aggregate(preds: List<WindowPrediction>): List<AggregatedDetection> =
         preds

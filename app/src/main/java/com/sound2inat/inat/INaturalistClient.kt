@@ -44,7 +44,14 @@ class INaturalistClient(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
-    private val taxonIdCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    /**
+     * Cache value carries an expiry timestamp so transient lookup failures
+     * (NO_TAXON_ID) don't permanently blacklist a species for the process
+     * lifetime. See [TAXON_TTL_MS] / [TAXON_FAILURE_TTL_MS].
+     */
+    private data class TaxonCacheEntry(val id: Long, val expiryMs: Long)
+
+    private val taxonIdCache = java.util.concurrent.ConcurrentHashMap<String, TaxonCacheEntry>()
 
     /** Returns [Pair] of `(login, userId)` on success; throws [INatException] otherwise. */
     suspend fun verifyTokenWithUser(token: String): Pair<String, Long> = withContext(ioDispatcher) {
@@ -344,9 +351,10 @@ class INaturalistClient(
         }
 
     private suspend fun taxonQueryParam(scientificName: String): String {
-        val cached = taxonIdCache[scientificName]
+        val now = System.currentTimeMillis()
+        val cached = taxonIdCache[scientificName]?.takeIf { it.expiryMs > now }
         val taxonId: Long? = when {
-            cached != null -> if (cached == NO_TAXON_ID) null else cached
+            cached != null -> if (cached.id == NO_TAXON_ID) null else cached.id
             else -> {
                 val q = scientificName.replace(' ', '+')
                 val result = runCatching {
@@ -357,7 +365,8 @@ class INaturalistClient(
                         .firstOrNull { it.optString("name").equals(scientificName, ignoreCase = true) }
                         ?.getLong("id")
                 }.getOrNull()
-                taxonIdCache[scientificName] = result ?: NO_TAXON_ID
+                val ttl = if (result != null) TAXON_TTL_MS else TAXON_FAILURE_TTL_MS
+                taxonIdCache[scientificName] = TaxonCacheEntry(result ?: NO_TAXON_ID, now + ttl)
                 android.util.Log.d(LOG_TAG, "resolveTaxonId $scientificName → $result")
                 result
             }
@@ -593,6 +602,8 @@ class INaturalistClient(
 
         const val MIN_REGIONAL_OBSERVATIONS = 1
         private const val NO_TAXON_ID = -1L
+        private const val TAXON_TTL_MS = 24L * 60 * 60 * 1000      // taxon ids are stable
+        private const val TAXON_FAILURE_TTL_MS = 5L * 60 * 1000    // retry transient failures
 
         // iNaturalist's "iconic taxa" — the top-level groupings on a taxon's
         // record. We accept anything that's a vocalising or audibly active

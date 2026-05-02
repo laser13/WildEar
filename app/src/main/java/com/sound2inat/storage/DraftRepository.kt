@@ -19,6 +19,12 @@ class DraftRepository(
     private val files: WavFileStore,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /**
+     * Wraps multi-step writes (draft + detections) in a single SQLite
+     * transaction. Production passes [Sound2iNatDb.runInTransaction];
+     * tests with fake DAOs default to inline execution.
+     */
+    private val runInTransaction: (block: () -> Unit) -> Unit = { it() },
 ) {
     fun observeAll(): Flow<List<DraftEntity>> = drafts.observeAll()
 
@@ -84,37 +90,39 @@ class DraftRepository(
         detections: List<AggregatedDetection>,
     ) {
         val now = nowMs()
-        drafts.insert(
-            DraftEntity(
-                id = id,
-                audioPath = audioPath,
-                recordedAtUtcMs = recordedAtUtcMs,
-                durationMs = durationMs,
-                latitude = latitude,
-                longitude = longitude,
-                locationAccuracyMeters = accuracyMeters,
-                status = DraftStatus.PENDING_REVIEW,
-                modelId = modelId,
-                modelVersion = modelVersion,
-                createdAtUtcMs = now,
-                updatedAtUtcMs = now,
-            ),
-        )
-        this.detections.insertAll(
-            detections.map {
-                DetectionEntity(
-                    draftId = id,
-                    taxonScientificName = it.taxonScientificName,
-                    taxonCommonName = it.taxonCommonName,
-                    maxConfidence = it.maxConfidence,
-                    detectedWindows = it.detectedWindows,
-                    firstSeenMs = it.firstSeenMs,
-                    lastSeenMs = it.lastSeenMs,
-                    isSelectedByUser = false,
-                    sources = SourceConfidences.encode(it.confidenceBySource),
-                )
-            },
-        )
+        runInTransaction {
+            drafts.insert(
+                DraftEntity(
+                    id = id,
+                    audioPath = audioPath,
+                    recordedAtUtcMs = recordedAtUtcMs,
+                    durationMs = durationMs,
+                    latitude = latitude,
+                    longitude = longitude,
+                    locationAccuracyMeters = accuracyMeters,
+                    status = DraftStatus.PENDING_REVIEW,
+                    modelId = modelId,
+                    modelVersion = modelVersion,
+                    createdAtUtcMs = now,
+                    updatedAtUtcMs = now,
+                ),
+            )
+            this.detections.insertAll(
+                detections.map {
+                    DetectionEntity(
+                        draftId = id,
+                        taxonScientificName = it.taxonScientificName,
+                        taxonCommonName = it.taxonCommonName,
+                        maxConfidence = it.maxConfidence,
+                        detectedWindows = it.detectedWindows,
+                        firstSeenMs = it.firstSeenMs,
+                        lastSeenMs = it.lastSeenMs,
+                        isSelectedByUser = false,
+                        sources = SourceConfidences.encode(it.confidenceBySource),
+                    )
+                },
+            )
+        }
     }
 
     fun attachDetections(
@@ -124,31 +132,33 @@ class DraftRepository(
         items: List<AggregatedDetection>,
     ) {
         val now = nowMs()
-        val current = drafts.getById(draftId) ?: error("draft $draftId missing")
-        drafts.update(
-            current.copy(
-                status = DraftStatus.PENDING_REVIEW,
-                modelId = modelId,
-                modelVersion = modelVersion,
-                updatedAtUtcMs = now,
-            ),
-        )
-        detections.deleteForDraft(draftId)
-        detections.insertAll(
-            items.map {
-                DetectionEntity(
-                    draftId = draftId,
-                    taxonScientificName = it.taxonScientificName,
-                    taxonCommonName = it.taxonCommonName,
-                    maxConfidence = it.maxConfidence,
-                    detectedWindows = it.detectedWindows,
-                    firstSeenMs = it.firstSeenMs,
-                    lastSeenMs = it.lastSeenMs,
-                    isSelectedByUser = false,
-                    sources = SourceConfidences.encode(it.confidenceBySource),
-                )
-            },
-        )
+        runInTransaction {
+            val current = drafts.getById(draftId) ?: error("draft $draftId missing")
+            drafts.update(
+                current.copy(
+                    status = DraftStatus.PENDING_REVIEW,
+                    modelId = modelId,
+                    modelVersion = modelVersion,
+                    updatedAtUtcMs = now,
+                ),
+            )
+            detections.deleteForDraft(draftId)
+            detections.insertAll(
+                items.map {
+                    DetectionEntity(
+                        draftId = draftId,
+                        taxonScientificName = it.taxonScientificName,
+                        taxonCommonName = it.taxonCommonName,
+                        maxConfidence = it.maxConfidence,
+                        detectedWindows = it.detectedWindows,
+                        firstSeenMs = it.firstSeenMs,
+                        lastSeenMs = it.lastSeenMs,
+                        isSelectedByUser = false,
+                        sources = SourceConfidences.encode(it.confidenceBySource),
+                    )
+                },
+            )
+        }
     }
 
     fun setSelection(detectionId: Long, selected: Boolean) {

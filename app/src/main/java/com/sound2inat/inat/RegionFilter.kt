@@ -14,10 +14,15 @@ interface RegionLookup {
     suspend fun checkNear(scientificName: String, lat: Double, lon: Double, radiusKm: Int): Boolean
 }
 
-class RegionFilter(private val lookup: RegionLookup) {
+class RegionFilter(
+    private val lookup: RegionLookup,
+    private val nowMs: () -> Long = System::currentTimeMillis,
+) {
 
-    private val placeCache = ConcurrentHashMap<String, List<Long>>()
-    private val statusCache = ConcurrentHashMap<String, RegionalStatus>()
+    private data class TimedEntry<T>(val value: T, val expiryMs: Long)
+
+    private val placeCache = ConcurrentHashMap<String, TimedEntry<List<Long>>>()
+    private val statusCache = ConcurrentHashMap<String, TimedEntry<RegionalStatus>>()
 
     suspend fun annotate(
         detections: List<AggregatedDetection>,
@@ -37,13 +42,17 @@ class RegionFilter(private val lookup: RegionLookup) {
 
     private suspend fun resolvePlace(lat: Double, lon: Double): List<Long> {
         val key = "${(lat * 100).roundToInt()}|${(lon * 100).roundToInt()}"
-        placeCache[key]?.let {
-            Log.d(TAG, "resolvePlace: cache hit key=$key → $it")
-            return it
+        val now = nowMs()
+        placeCache[key]?.takeIf { it.expiryMs > now }?.let {
+            Log.d(TAG, "resolvePlace: cache hit key=$key → ${it.value}")
+            return it.value
         }
         val resolved = runCatching { lookup.getPlaceIds(lat, lon) }.getOrDefault(emptyList())
         Log.d(TAG, "resolvePlace: fetched key=$key → $resolved")
-        placeCache[key] = resolved
+        // Empty result (network failure / no places) cached for short TTL only,
+        // so a transient error doesn't permanently force the radius fallback.
+        val ttl = if (resolved.isNotEmpty()) PLACE_TTL_MS else FAILURE_TTL_MS
+        placeCache[key] = TimedEntry(resolved, now + ttl)
         return resolved
     }
 
@@ -59,9 +68,10 @@ class RegionFilter(private val lookup: RegionLookup) {
         } else {
             "$taxon|r|${(lat * 100).roundToInt()}|${(lon * 100).roundToInt()}|$radiusKm"
         }
-        statusCache[key]?.let {
-            Log.d(TAG, "resolveStatus: cache hit $taxon → $it")
-            return it
+        val now = nowMs()
+        statusCache[key]?.takeIf { it.expiryMs > now }?.let {
+            Log.d(TAG, "resolveStatus: cache hit $taxon → ${it.value}")
+            return it.value
         }
         val status = runCatching {
             val found = if (placeIds.isNotEmpty()) {
@@ -71,7 +81,16 @@ class RegionFilter(private val lookup: RegionLookup) {
             }
             if (found) RegionalStatus.CONFIRMED else RegionalStatus.NOT_CONFIRMED
         }.getOrDefault(RegionalStatus.UNVERIFIED)
-        statusCache[key] = status
+        // UNVERIFIED is the network-error fallback: cache briefly so a single
+        // failed lookup doesn't poison the species for the entire app session.
+        val ttl = if (status == RegionalStatus.UNVERIFIED) FAILURE_TTL_MS else STATUS_TTL_MS
+        statusCache[key] = TimedEntry(status, now + ttl)
         return status
+    }
+
+    companion object {
+        private const val PLACE_TTL_MS = 24L * 60 * 60 * 1000      // places don't change daily
+        private const val STATUS_TTL_MS = 6L * 60 * 60 * 1000       // new observations could land
+        private const val FAILURE_TTL_MS = 5L * 60 * 1000           // transient errors recover fast
     }
 }

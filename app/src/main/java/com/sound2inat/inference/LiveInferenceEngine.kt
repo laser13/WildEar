@@ -69,6 +69,7 @@ open class LiveInferenceEngine(
     @Volatile private var stopped = false
 
     open fun start(scope: CoroutineScope) {
+        check(!stopped) { "LiveInferenceEngine is single-use: cannot start after stop" }
         if (workerJob != null) return
         workerJob = scope.launch(Dispatchers.Default) { worker() }
     }
