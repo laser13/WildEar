@@ -1,8 +1,14 @@
 package com.sound2inat.app.ui.radar
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sound2inat.app.data.Settings
+import com.sound2inat.inat.INatAuthRepository
+import com.sound2inat.inat.INatObservationsRepository
 import com.sound2inat.location.Fix
+import com.sound2inat.location.LocationProvider
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -12,9 +18,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.osmdroid.util.GeoPoint
+import javax.inject.Inject
 import kotlin.math.roundToInt
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
@@ -122,5 +130,31 @@ class RadarViewModel(
 
     private companion object {
         const val DEBOUNCE_MS = 300L
+    }
+}
+
+@HiltViewModel
+class RadarViewModelHilt @Inject constructor(
+    private val repo: INatObservationsRepository,
+    private val auth: INatAuthRepository,
+    private val location: LocationProvider,
+    private val settings: Settings,
+    @Suppress("UNUSED_PARAMETER") savedStateHandle: SavedStateHandle,
+) : ViewModel() {
+    val delegate: RadarViewModel = RadarViewModel(
+        repoFetch = { key, force -> repo.fetch(key, force) },
+        radarRadiusKm = settings.radarRadiusKm,
+        radarPeriodDays = settings.radarPeriodDays,
+        radarTaxa = settings.radarTaxa,
+        getLastKnown = { settings.lastKnownLat.first() to settings.lastKnownLon.first() },
+        getLocation = { location.getCurrent() },
+        userId = { auth.userId },
+    )
+
+    fun setRadius(km: Int) = viewModelScope.launch { settings.setRadarRadiusKm(km) }
+    fun setPeriod(d: Int) = viewModelScope.launch { settings.setRadarPeriodDays(d) }
+    fun toggleTaxon(id: String) = viewModelScope.launch {
+        val cur = settings.radarTaxa.first()
+        settings.setRadarTaxa(if (id in cur) cur - id else cur + id)
     }
 }
