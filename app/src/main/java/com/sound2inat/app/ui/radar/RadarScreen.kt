@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -28,6 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sound2inat.app.permissions.LocalPermissionsController
+import com.sound2inat.app.permissions.Permission
+import com.sound2inat.app.permissions.PermissionStatus
 
 private const val MAP_HEIGHT_DP = 280
 
@@ -37,6 +41,16 @@ fun RadarScreen(onOpenSettings: () -> Unit) {
     val vm: RadarViewModelHilt = hiltViewModel()
     val state by vm.delegate.state.collectAsState()
     val ctx = LocalContext.current
+    val perms = LocalPermissionsController.current
+
+    LaunchedEffect(Unit) {
+        if (perms.statuses.value[Permission.ACCESS_FINE_LOCATION] != PermissionStatus.GRANTED) {
+            val result = perms.request(setOf(Permission.ACCESS_FINE_LOCATION))
+            if (result[Permission.ACCESS_FINE_LOCATION] == PermissionStatus.GRANTED) {
+                vm.delegate.pullRefresh()
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
