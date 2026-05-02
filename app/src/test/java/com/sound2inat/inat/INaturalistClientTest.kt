@@ -364,4 +364,50 @@ class INaturalistClientTest {
         assertThat(pins).hasSize(1)
         assertThat(pins[0].obsUrl).isEqualTo("https://www.inaturalist.org/observations/99")
     }
+
+    @Test fun `getNearbyStandardPlace returns first standard place id`() = runTest {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"results":{"standard":[{"id":7257,"name":"Cyprus"}],"community":[]}}""",
+            ),
+        )
+        val placeId = client.getNearbyStandardPlace(34.9, 33.1)
+        assertThat(placeId).isEqualTo(7257L)
+        val req = server.takeRequest()
+        assertThat(req.path).contains("places/nearby")
+        assertThat(req.path).contains("nelat=35.9")
+        assertThat(req.path).contains("swlat=33.9")
+    }
+
+    @Test fun `getNearbyStandardPlace returns null when no standard places`() = runTest {
+        server.enqueue(
+            MockResponse().setBody("""{"results":{"standard":[],"community":[]}}"""),
+        )
+        val placeId = client.getNearbyStandardPlace(34.9, 33.1)
+        assertThat(placeId).isNull()
+        val req = server.takeRequest()
+        assertThat(req.path).contains("places/nearby")
+        assertThat(req.path).contains("nelat=35.9")
+        assertThat(req.path).contains("swlat=33.9")
+    }
+
+    @Test fun `hasObservationsInPlace returns true when observations found`() = runTest {
+        server.enqueue(
+            MockResponse().setBody("""{"results":[],"total_results":3}"""),
+        )
+        val found = client.hasObservationsInPlace("Parus major", placeId = 7257L)
+        assertThat(found).isTrue()
+        val req = server.takeRequest()
+        assertThat(req.path).contains("taxon_name=Parus+major")
+        assertThat(req.path).contains("place_id=7257")
+        assertThat(req.path).contains("per_page=1")
+    }
+
+    @Test fun `hasObservationsInPlace returns false when none found`() = runTest {
+        server.enqueue(
+            MockResponse().setBody("""{"results":[],"total_results":0}"""),
+        )
+        val found = client.hasObservationsInPlace("Columba palumbus", placeId = 7257L)
+        assertThat(found).isFalse()
+    }
 }

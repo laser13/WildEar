@@ -277,6 +277,41 @@ class INaturalistClient(
     }
 
     /**
+     * Finds the first standard iNaturalist place that covers the 2° bounding box around
+     * ([lat], [lon]). Returns the place id or null if no standard places are found.
+     *
+     * Fail-silent: returns null on any network or parse error.
+     */
+    suspend fun getNearbyStandardPlace(lat: Double, lon: Double): Long? =
+        withContext(ioDispatcher) {
+            val path = "/places/nearby" +
+                "?nelat=${lat + 1.0}&nelng=${lon + 1.0}" +
+                "&swlat=${lat - 1.0}&swlng=${lon - 1.0}"
+            runCatching {
+                val results = executeJson(anonGet(path)).getJSONObject("results")
+                val standard = results.getJSONArray("standard")
+                if (standard.length() == 0) null else standard.getJSONObject(0).getLong("id")
+            }.getOrNull()
+        }
+
+    /**
+     * Returns true if [scientificName] has at least one observation within [placeId] on
+     * iNaturalist. Anonymous — no token required.
+     *
+     * Fail-open: returns true on any network or parse error so a transient outage never
+     * silently drops a valid detection.
+     */
+    suspend fun hasObservationsInPlace(scientificName: String, placeId: Long): Boolean =
+        withContext(ioDispatcher) {
+            val q = scientificName.replace(' ', '+')
+            runCatching {
+                executeJson(anonGet("/observations?taxon_name=$q&place_id=$placeId&per_page=1"))
+            }
+                .map { json -> json.optInt("total_results", 0) > 0 }
+                .getOrDefault(true)
+        }
+
+    /**
      * Returns the species observed within the radar filter window, ranked
      * by `count` descending. The `nearestObservationKm` / `nearestObservationUrl`
      * fields come back populated with sentinel values (`-1f` and the public
