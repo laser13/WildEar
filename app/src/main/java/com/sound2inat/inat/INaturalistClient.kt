@@ -279,8 +279,11 @@ class INaturalistClient(
     }
 
     /**
-     * Finds the first standard iNaturalist place that covers the 2° bounding box around
-     * ([lat], [lon]). Returns the place id or null if no standard places are found.
+     * Finds the country-level iNaturalist place (admin_level == 0) that covers ([lat], [lon]).
+     * Returns the place id or null if no country-level standard place is found.
+     *
+     * Deliberately skips continents (admin_level < 0) and sub-country divisions so
+     * observation checks are scoped to the user's country, not a continent or a tiny park.
      *
      * Fail-silent: returns null on any network or parse error.
      */
@@ -292,7 +295,10 @@ class INaturalistClient(
             runCatching {
                 val results = executeJson(anonGet(path)).getJSONObject("results")
                 val standard = results.getJSONArray("standard")
-                if (standard.length() == 0) null else standard.getJSONObject(0).getLong("id")
+                (0 until standard.length())
+                    .map { standard.getJSONObject(it) }
+                    .firstOrNull { it.optInt("admin_level", -99) == 0 }
+                    ?.getLong("id")
             }.getOrNull()
         }
 

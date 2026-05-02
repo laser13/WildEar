@@ -365,10 +365,10 @@ class INaturalistClientTest {
         assertThat(pins[0].obsUrl).isEqualTo("https://www.inaturalist.org/observations/99")
     }
 
-    @Test fun `getNearbyStandardPlace returns first standard place id`() = runTest {
+    @Test fun `getNearbyStandardPlace returns country-level place id`() = runTest {
         server.enqueue(
             MockResponse().setBody(
-                """{"results":{"standard":[{"id":7257,"name":"Cyprus"}],"community":[]}}""",
+                """{"results":{"standard":[{"id":7257,"name":"Cyprus","admin_level":0}],"community":[]}}""",
             ),
         )
         val placeId = client.getNearbyStandardPlace(34.9, 33.1)
@@ -377,6 +377,16 @@ class INaturalistClientTest {
         assertThat(req.path).contains("places/nearby")
         assertThat(req.path).contains("nelat=35.9")
         assertThat(req.path).contains("swlat=33.9")
+    }
+
+    @Test fun `getNearbyStandardPlace skips continent and returns country`() = runTest {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"results":{"standard":[{"id":97395,"name":"Asia","admin_level":-10},{"id":7257,"name":"Cyprus","admin_level":0}],"community":[]}}""",
+            ),
+        )
+        val placeId = client.getNearbyStandardPlace(34.9, 33.1)
+        assertThat(placeId).isEqualTo(7257L)
     }
 
     @Test fun `getNearbyStandardPlace returns null when no standard places`() = runTest {
@@ -389,6 +399,16 @@ class INaturalistClientTest {
         assertThat(req.path).contains("places/nearby")
         assertThat(req.path).contains("nelat=35.9")
         assertThat(req.path).contains("swlat=33.9")
+    }
+
+    @Test fun `getNearbyStandardPlace returns null when only continents available`() = runTest {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"results":{"standard":[{"id":97395,"name":"Asia","admin_level":-10}],"community":[]}}""",
+            ),
+        )
+        val placeId = client.getNearbyStandardPlace(34.9, 33.1)
+        assertThat(placeId).isNull()
     }
 
     @Test fun `hasObservationsInPlace returns true when observations found`() = runTest {
