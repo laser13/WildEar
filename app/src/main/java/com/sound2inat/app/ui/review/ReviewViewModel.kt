@@ -9,6 +9,7 @@ import javax.inject.Singleton
 import com.sound2inat.app.data.Settings
 import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INaturalistClient
+import com.sound2inat.inat.ObservationDetail
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.RegionalStatus
@@ -209,6 +210,9 @@ class ReviewViewModel(
      */
     private val minWindowsProvider: suspend () -> Int = { 1 },
     private val regionRadiusKmProvider: suspend () -> Int = { Settings.DEFAULT_REGION_RADIUS_KM },
+    private val observationFetcher: suspend (idOrUuid: String) -> ObservationDetail = {
+        throw com.sound2inat.inat.INatException(-1, "No observation fetcher configured")
+    },
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -263,6 +267,7 @@ class ReviewViewModel(
      * statuses rather than resetting them to null.
      */
     private val regionalStatusCache: MutableMap<String, RegionalStatus?> = mutableMapOf()
+    private val observationDetailCache = mutableMapOf<String, ObservationDetail?>()
     private var annotationJob: Job? = null
 
     /** Latest playback position from the player; ticks every 50 ms during playback. */
@@ -469,6 +474,59 @@ class ReviewViewModel(
 
     fun toggle(detectionId: Long, selected: Boolean) {
         scope.launch(ioDispatcher) { repo.setSelection(detectionId, selected) }
+    }
+
+    fun loadObservationDetail(detectionId: Long, observationUrl: String) {
+        val idOrUuid = observationUrl.trimEnd('/').substringAfterLast('/')
+            .takeIf { it.isNotBlank() } ?: return
+
+        if (observationDetailCache.containsKey(idOrUuid)) {
+            val cached = observationDetailCache[idOrUuid]
+            _state.update { s ->
+                s.copy(species = s.species.map { row ->
+                    if (row.detectionId == detectionId) row.copy(
+                        observationDetailState = if (cached != null)
+                            ObservationDetailLoadState.Loaded(cached)
+                        else
+                            ObservationDetailLoadState.Error("Observation not available"),
+                    ) else row
+                })
+            }
+            return
+        }
+
+        _state.update { s ->
+            s.copy(species = s.species.map { row ->
+                if (row.detectionId == detectionId) row.copy(
+                    observationDetailState = ObservationDetailLoadState.Loading,
+                ) else row
+            })
+        }
+
+        scope.launch {
+            val detail = runCatching { observationFetcher(idOrUuid) }.getOrNull()
+            observationDetailCache[idOrUuid] = detail
+            _state.update { s ->
+                s.copy(species = s.species.map { row ->
+                    if (row.detectionId == detectionId) row.copy(
+                        observationDetailState = if (detail != null)
+                            ObservationDetailLoadState.Loaded(detail)
+                        else
+                            ObservationDetailLoadState.Error("Could not load observation details"),
+                    ) else row
+                })
+            }
+        }
+    }
+
+    fun collapseObservationDetail(detectionId: Long) {
+        _state.update { s ->
+            s.copy(species = s.species.map { row ->
+                if (row.detectionId == detectionId) row.copy(
+                    observationDetailState = ObservationDetailLoadState.NotLoaded,
+                ) else row
+            })
+        }
     }
 
     /**
@@ -959,6 +1017,7 @@ class ReviewViewModelFactory @Inject constructor(
         regionFilter = regionFilter,
         minWindowsProvider = { settings.minWindows.first() },
         regionRadiusKmProvider = { settings.regionRadiusKm.first() },
+        observationFetcher = { id -> inatClient.getObservation(id) },
     )
 }
 

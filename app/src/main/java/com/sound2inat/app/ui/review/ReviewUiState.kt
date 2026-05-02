@@ -1,5 +1,6 @@
 package com.sound2inat.app.ui.review
 
+import com.sound2inat.inat.ObservationDetail
 import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.storage.DraftStatus
 
@@ -18,6 +19,7 @@ data class SpeciesRow(
     val taxonPhotoUrl: String? = null,
     /** Regional presence status from iNaturalist; null until annotation runs. */
     val regionalStatus: RegionalStatus? = null,
+    val observationDetailState: ObservationDetailLoadState = ObservationDetailLoadState.NotLoaded,
 )
 
 data class ReviewUiState(
@@ -71,4 +73,11 @@ sealed interface InatSubmissionState {
     data object InProgress : InatSubmissionState
     data class Done(val urls: List<String>) : InatSubmissionState
     data class Failed(val message: String) : InatSubmissionState
+}
+
+sealed interface ObservationDetailLoadState {
+    data object NotLoaded : ObservationDetailLoadState
+    data object Loading : ObservationDetailLoadState
+    data class Loaded(val detail: ObservationDetail) : ObservationDetailLoadState
+    data class Error(val message: String) : ObservationDetailLoadState
 }

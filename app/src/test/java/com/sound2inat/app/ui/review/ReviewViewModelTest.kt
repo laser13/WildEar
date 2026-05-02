@@ -588,6 +588,180 @@ class ReviewViewModelTest {
     private fun noopInference(): InferenceJob = InferenceJob { _, _, _, _, _ ->
         InferenceOutcome.Success("birdnet_v2_4", "2.4", emptyList())
     }
+
+    @Test
+    fun `loadObservationDetail sets Loading then Loaded on success`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "obs1"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(listOf(DetectionEntity(
+                    id = 99L,
+                    draftId = draftId,
+                    taxonScientificName = "Parus major",
+                    taxonCommonName = null,
+                    maxConfidence = 0.9f,
+                    detectedWindows = 1,
+                    firstSeenMs = 0L,
+                    lastSeenMs = 1_000L,
+                    isSelectedByUser = false,
+                )))
+            }
+            val repo = repo(draftDao, detectionDao)
+            val expectedDetail = com.sound2inat.inat.ObservationDetail(
+                qualityGrade = "research",
+                agreeingIdCount = 3,
+                commentsCount = 1,
+                comments = listOf(com.sound2inat.inat.ObservationComment("alice", "Nice!")),
+            )
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = InferenceJob { _, _, _, _, _ -> InferenceOutcome.Failure("skip") },
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+                observationFetcher = { expectedDetail },
+            )
+            vm.loadObservationDetail(
+                detectionId = 99L,
+                observationUrl = "https://www.inaturalist.org/observations/12345",
+            )
+            val row = vm.state.value.species.firstOrNull { it.detectionId == 99L }
+            assertThat(row).isNotNull()
+            val detailState = row!!.observationDetailState
+            assertThat(detailState).isInstanceOf(ObservationDetailLoadState.Loaded::class.java)
+            assertThat((detailState as ObservationDetailLoadState.Loaded).detail.qualityGrade)
+                .isEqualTo("research")
+            assertThat(detailState.detail.agreeingIdCount).isEqualTo(3)
+        }
+
+    @Test
+    fun `loadObservationDetail sets Error when fetcher throws`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "obs2"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(listOf(DetectionEntity(
+                    id = 77L,
+                    draftId = draftId,
+                    taxonScientificName = "Apus apus",
+                    taxonCommonName = null,
+                    maxConfidence = 0.8f,
+                    detectedWindows = 1,
+                    firstSeenMs = 0L,
+                    lastSeenMs = 1_000L,
+                    isSelectedByUser = false,
+                )))
+            }
+            val repo = repo(draftDao, detectionDao)
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = InferenceJob { _, _, _, _, _ -> InferenceOutcome.Failure("skip") },
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+                observationFetcher = { throw com.sound2inat.inat.INatException(500, "Server error") },
+            )
+            vm.loadObservationDetail(
+                detectionId = 77L,
+                observationUrl = "https://www.inaturalist.org/observations/99999",
+            )
+            val row = vm.state.value.species.firstOrNull { it.detectionId == 77L }
+            assertThat(row).isNotNull()
+            assertThat(row!!.observationDetailState)
+                .isInstanceOf(ObservationDetailLoadState.Error::class.java)
+        }
+
+    @Test
+    fun `loadObservationDetail returns cached result on second call`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "obs3"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(listOf(DetectionEntity(
+                    id = 55L,
+                    draftId = draftId,
+                    taxonScientificName = "Turdus merula",
+                    taxonCommonName = null,
+                    maxConfidence = 0.85f,
+                    detectedWindows = 1,
+                    firstSeenMs = 0L,
+                    lastSeenMs = 1_000L,
+                    isSelectedByUser = false,
+                )))
+            }
+            val repo = repo(draftDao, detectionDao)
+            var fetchCount = 0
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = InferenceJob { _, _, _, _, _ -> InferenceOutcome.Failure("skip") },
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+                observationFetcher = {
+                    fetchCount++
+                    com.sound2inat.inat.ObservationDetail("research", 1, 0, emptyList())
+                },
+            )
+            vm.loadObservationDetail(55L, "https://www.inaturalist.org/observations/111")
+            vm.collapseObservationDetail(55L)
+            vm.loadObservationDetail(55L, "https://www.inaturalist.org/observations/111")
+            assertThat(fetchCount).isEqualTo(1)
+            val row = vm.state.value.species.first { it.detectionId == 55L }
+            assertThat(row.observationDetailState).isInstanceOf(ObservationDetailLoadState.Loaded::class.java)
+        }
+
+    @Test
+    fun `collapseObservationDetail resets state to NotLoaded`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "obs4"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(listOf(DetectionEntity(
+                    id = 33L,
+                    draftId = draftId,
+                    taxonScientificName = "Hirundo rustica",
+                    taxonCommonName = null,
+                    maxConfidence = 0.75f,
+                    detectedWindows = 1,
+                    firstSeenMs = 0L,
+                    lastSeenMs = 1_000L,
+                    isSelectedByUser = false,
+                )))
+            }
+            val repo = repo(draftDao, detectionDao)
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = InferenceJob { _, _, _, _, _ -> InferenceOutcome.Failure("skip") },
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+                observationFetcher = {
+                    com.sound2inat.inat.ObservationDetail("needs_id", 0, 0, emptyList())
+                },
+            )
+            vm.loadObservationDetail(33L, "https://www.inaturalist.org/observations/222")
+            val rowAfterLoad = vm.state.value.species.first { it.detectionId == 33L }
+            assertThat(rowAfterLoad.observationDetailState)
+                .isInstanceOf(ObservationDetailLoadState.Loaded::class.java)
+
+            vm.collapseObservationDetail(33L)
+            val rowAfterCollapse = vm.state.value.species.first { it.detectionId == 33L }
+            assertThat(rowAfterCollapse.observationDetailState)
+                .isEqualTo(ObservationDetailLoadState.NotLoaded)
+        }
 }
 
 private class FakeAudioPlayer : AudioPlayer {
