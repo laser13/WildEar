@@ -10,6 +10,7 @@ import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inference.AggregatedDetection
+import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.BirdNetMetaModel
 import com.sound2inat.inference.DetectionAggregator
@@ -194,6 +195,16 @@ class ReviewViewModel(
      * `perch_v2`-sourced detection on the draft.
      */
     private val perchInstalledProbe: suspend () -> Boolean = { false },
+    /**
+     * Optional regional annotation engine. When null, [launchAnnotation] is a
+     * no-op and [SpeciesRow.regionalStatus] stays null for all rows.
+     */
+    private val regionFilter: RegionFilter? = null,
+    /**
+     * Returns the current `minWindows` threshold. Injected as a lambda so the
+     * VM is testable without an Android [Settings] instance.
+     */
+    private val minWindowsProvider: suspend () -> Int = { 1 },
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -240,6 +251,14 @@ class ReviewViewModel(
      * `_state.value.species` — a snapshot that could already be empty).
      */
     private val photoUrlCache: MutableMap<String, String?> = mutableMapOf()
+
+    /**
+     * Long-lived cache `taxonScientificName → RegionalStatus`. Populated by
+     * [launchAnnotation] so re-emissions from Room preserve already-fetched
+     * statuses rather than resetting them to null.
+     */
+    private val regionalStatusCache: MutableMap<String, RegionalStatus?> = mutableMapOf()
+    private var annotationJob: Job? = null
 
     /** Latest playback position from the player; ticks every 50 ms during playback. */
     val playerPosition: StateFlow<Long> = player.position
@@ -305,14 +324,10 @@ class ReviewViewModel(
                 // _state.value.species — DraftRepository.attachDetections
                 // (delete + insert without @Transaction) emits an empty list
                 // between the two writes, which would wipe a snapshot map.
-                _state.value = _state.value.copy(
-                    status = draft.status,
-                    recordedAtUtcMs = draft.recordedAtUtcMs,
-                    latitude = draft.latitude,
-                    longitude = draft.longitude,
-                    durationMs = draft.durationMs,
-                    audioPath = draft.audioPath,
-                    species = dwd.detections.map { e ->
+                val minWin = minWindowsProvider()
+                val rows = dwd.detections
+                    .filter { e -> e.detectedWindows >= minWin }
+                    .map { e ->
                         SpeciesRow(
                             detectionId = e.id,
                             taxonScientificName = e.taxonScientificName,
@@ -324,9 +339,29 @@ class ReviewViewModel(
                             isSelected = e.isSelectedByUser,
                             confidenceBySource = SourceConfidences.decode(e.sources),
                             taxonPhotoUrl = photoUrlCache[e.taxonScientificName],
+                            regionalStatus = regionalStatusCache[e.taxonScientificName],
                         )
-                    },
+                    }
+                _state.value = _state.value.copy(
+                    status = draft.status,
+                    recordedAtUtcMs = draft.recordedAtUtcMs,
+                    latitude = draft.latitude,
+                    longitude = draft.longitude,
+                    durationMs = draft.durationMs,
+                    audioPath = draft.audioPath,
+                    species = rows,
                 )
+                val lat = draft.latitude
+                val lon = draft.longitude
+                if (lat != null && lon != null) {
+                    // Only launch annotation if the set of scientific names has changed.
+                    // This avoids unnecessary network calls and annotation status flicker
+                    // when Room re-emits due to unrelated updates (e.g. selection toggles).
+                    val newNames = rows.map { it.taxonScientificName }.toSet()
+                    if (newNames != regionalStatusCache.keys.toSet()) {
+                        launchAnnotation(rows, lat, lon)
+                    }
+                }
                 recomputePerchEligibility()
                 if (draft.status == DraftStatus.PENDING_INFERENCE && !inferenceStarted) {
                     inferenceStarted = true
@@ -754,6 +789,45 @@ class ReviewViewModel(
         player.release()
     }
 
+    /**
+     * Annotates [rows] with regional presence data from iNaturalist. No-op
+     * when [regionFilter] is null. Any previously running annotation job is
+     * cancelled so only the latest species list triggers network calls.
+     *
+     * Results are stored in [regionalStatusCache] and merged into
+     * [_state].species so the UI updates without waiting for a Room re-emission.
+     */
+    private fun launchAnnotation(rows: List<SpeciesRow>, lat: Double, lon: Double) {
+        val filter = regionFilter ?: return
+        annotationJob?.cancel()
+        annotationJob = scope.launch {
+            val radiusKm = Settings.DEFAULT_REGION_RADIUS_KM
+            val annotated = filter.annotate(
+                rows.map { r ->
+                    AggregatedDetection(
+                        taxonScientificName = r.taxonScientificName,
+                        taxonCommonName = r.taxonCommonName,
+                        maxConfidence = r.maxConfidence,
+                        detectedWindows = r.detectedWindows,
+                        firstSeenMs = r.firstSeenMs,
+                        lastSeenMs = r.lastSeenMs,
+                    )
+                },
+                lat, lon, radiusKm,
+            )
+            annotated.forEach { det ->
+                regionalStatusCache[det.taxonScientificName] = det.regionalStatus
+            }
+            _state.update { s ->
+                s.copy(
+                    species = s.species.map { row ->
+                        row.copy(regionalStatus = regionalStatusCache[row.taxonScientificName])
+                    },
+                )
+            }
+        }
+    }
+
     private companion object {
         /** Milliseconds an overlay/row stays highlighted after a tap. */
         const val HighlightDurationMs = 800L
@@ -819,6 +893,8 @@ class ReviewViewModelFactory @Inject constructor(
             modelManager.stateFor(com.sound2inat.modelmanager.PerchV2.descriptor) is
                 ModelInstallState.Ready
         },
+        regionFilter = regionFilter,
+        minWindowsProvider = { settings.minWindows.first() },
     )
 }
 
@@ -1063,13 +1139,10 @@ private class ProductionInferenceJob(
             settings.setLastKnownCoords(latitude, longitude)
         }
 
-        // TODO(Task 3): replace pass-through with regionFilter.annotate() call
-        val filteredDetections = rawDetections
-
         InferenceOutcome.Success(
             modelId = ids,
             modelVersion = versions,
-            detections = filteredDetections,
+            detections = rawDetections,
             windows = allPreds,
         )
     }

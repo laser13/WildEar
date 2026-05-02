@@ -511,6 +511,54 @@ class ReviewViewModelTest {
             assertThat(frog.confidenceBySource.keys).contains("perch_v2")
         }
 
+    @Test
+    fun `minWindows filters species from DB path`() = runTest(UnconfinedTestDispatcher()) {
+        val draftId = "d11"
+        val draftDao = FakeDraftDao().apply {
+            insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+        }
+        val detectionDao = FakeDetectionDao().apply {
+            insertAll(
+                listOf(
+                    DetectionEntity(
+                        id = 10L,
+                        draftId = draftId,
+                        taxonScientificName = "Cuculus canorus",
+                        taxonCommonName = "Common Cuckoo",
+                        maxConfidence = 0.7f,
+                        detectedWindows = 1,
+                        firstSeenMs = 0L,
+                        lastSeenMs = 1_000L,
+                        isSelectedByUser = false,
+                    ),
+                    DetectionEntity(
+                        id = 11L,
+                        draftId = draftId,
+                        taxonScientificName = "Parus major",
+                        taxonCommonName = "Great Tit",
+                        maxConfidence = 0.9f,
+                        detectedWindows = 3,
+                        firstSeenMs = 0L,
+                        lastSeenMs = 3_000L,
+                        isSelectedByUser = false,
+                    ),
+                ),
+            )
+        }
+        val vm = ReviewViewModel(
+            draftId = draftId,
+            repo = repo(draftDao, detectionDao),
+            player = FakeAudioPlayer(),
+            inference = noopInference(),
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+            minWindowsProvider = { 2 },
+            externalScope = backgroundScope,
+        )
+        val names = vm.state.value.species.map { it.taxonScientificName }
+        assertThat(names).containsExactly("Parus major")
+        assertThat(names).doesNotContain("Cuculus canorus")
+    }
+
     private fun draftFor(id: String, status: DraftStatus): DraftEntity = DraftEntity(
         id = id,
         audioPath = "/tmp/$id.wav",

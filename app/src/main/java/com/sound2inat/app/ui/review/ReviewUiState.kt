@@ -1,5 +1,6 @@
 package com.sound2inat.app.ui.review
 
+import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.storage.DraftStatus
 
 data class SpeciesRow(
@@ -15,6 +16,8 @@ data class SpeciesRow(
     val confidenceBySource: Map<String, Float> = emptyMap(),
     /** iNaturalist default_photo.medium_url; null until fetched or if unavailable. */
     val taxonPhotoUrl: String? = null,
+    /** Regional presence status from iNaturalist; null until annotation runs. */
+    val regionalStatus: RegionalStatus? = null,
 )
 
 data class ReviewUiState(
