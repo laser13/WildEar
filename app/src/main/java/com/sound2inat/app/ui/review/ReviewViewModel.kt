@@ -342,6 +342,7 @@ class ReviewViewModel(
                 // (delete + insert without @Transaction) emits an empty list
                 // between the two writes, which would wipe a snapshot map.
                 val minWin = minWindowsProvider()
+                val prevDetailStates = _state.value.species.associate { it.detectionId to it.observationDetailState }
                 val rows = dwd.detections
                     .filter { e -> e.detectedWindows >= minWin }
                     .map { e ->
@@ -357,6 +358,7 @@ class ReviewViewModel(
                             confidenceBySource = SourceConfidences.decode(e.sources),
                             taxonPhotoUrl = photoUrlCache[e.taxonScientificName],
                             regionalStatus = regionalStatusCache[e.taxonScientificName],
+                            observationDetailState = prevDetailStates[e.id] ?: ObservationDetailLoadState.NotLoaded,
                         )
                     }
                 _state.value = _state.value.copy(

@@ -590,7 +590,7 @@ class ReviewViewModelTest {
     }
 
     @Test
-    fun `loadObservationDetail sets Loading then Loaded on success`() =
+    fun `loadObservationDetail sets Loaded state on successful fetch`() =
         runTest(UnconfinedTestDispatcher()) {
             val draftId = "obs1"
             val draftDao = FakeDraftDao().apply {
