@@ -157,9 +157,9 @@ class INaturalistClientTest {
     }
 
     @Test
-    fun `hasObservationsNear returns true when total_results is positive`() = runTest {
+    fun `hasObservationsNear returns true when total_results meets threshold`() = runTest {
         server.enqueue(
-            MockResponse().setBody("""{"results":[{"id":1}],"total_results":1}"""),
+            MockResponse().setBody("""{"results":[{"id":1}],"total_results":5}"""),
         )
         val found = client.hasObservationsNear("Parus major", 55.75, 37.62, 200)
         assertThat(found).isTrue()
@@ -172,9 +172,9 @@ class INaturalistClientTest {
     }
 
     @Test
-    fun `hasObservationsNear returns false when total_results is zero`() = runTest {
+    fun `hasObservationsNear returns false when total_results below threshold`() = runTest {
         server.enqueue(
-            MockResponse().setBody("""{"results":[],"total_results":0}"""),
+            MockResponse().setBody("""{"results":[],"total_results":2}"""),
         )
         val found = client.hasObservationsNear("Gnorimopsar chopi", 55.75, 37.62, 200)
         assertThat(found).isFalse()
@@ -403,9 +403,9 @@ class INaturalistClientTest {
         assertThat(req.path).contains("per_page=1")
     }
 
-    @Test fun `hasObservationsInPlace returns false when none found`() = runTest {
+    @Test fun `hasObservationsInPlace returns false when below threshold`() = runTest {
         server.enqueue(
-            MockResponse().setBody("""{"results":[],"total_results":0}"""),
+            MockResponse().setBody("""{"results":[],"total_results":2}"""),
         )
         val found = client.hasObservationsInPlace("Columba palumbus", placeId = 7257L)
         assertThat(found).isFalse()

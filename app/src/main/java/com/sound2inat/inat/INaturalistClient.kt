@@ -258,8 +258,8 @@ class INaturalistClient(
     }
 
     /**
-     * Returns true if [scientificName] has at least one observation within [radiusKm] km of
-     * ([lat], [lon]) on iNaturalist. Anonymous — no token required.
+     * Returns true if [scientificName] has at least [MIN_REGIONAL_OBSERVATIONS] observations
+     * within [radiusKm] km of ([lat], [lon]) on iNaturalist. Anonymous — no token required.
      *
      * Fail-open: returns true on any network or parse error so a transient outage never
      * silently drops a valid detection.
@@ -274,7 +274,7 @@ class INaturalistClient(
         val path = "/observations?taxon_name=$q&lat=$lat&lng=$lon&radius=$radiusKm&per_page=1"
         val req = anonGet(path)
         runCatching { executeJson(req) }
-            .map { json -> json.optInt("total_results", 0) > 0 }
+            .map { json -> json.optInt("total_results", 0) >= MIN_REGIONAL_OBSERVATIONS }
             .getOrDefault(true)
     }
 
@@ -297,8 +297,8 @@ class INaturalistClient(
         }
 
     /**
-     * Returns true if [scientificName] has at least one observation within [placeId] on
-     * iNaturalist. Anonymous — no token required.
+     * Returns true if [scientificName] has at least [MIN_REGIONAL_OBSERVATIONS] observations
+     * within [placeId] on iNaturalist. Anonymous — no token required.
      *
      * Fail-open: returns true on any network or parse error so a transient outage never
      * silently drops a valid detection.
@@ -309,7 +309,7 @@ class INaturalistClient(
             runCatching {
                 executeJson(anonGet("/observations?taxon_name=$q&place_id=$placeId&per_page=1"))
             }
-                .map { json -> json.optInt("total_results", 0) > 0 }
+                .map { json -> json.optInt("total_results", 0) >= MIN_REGIONAL_OBSERVATIONS }
                 .getOrDefault(true)
         }
 
@@ -538,6 +538,11 @@ class INaturalistClient(
         private const val LOG_TAG = "INatHttp"
         private const val LOG_BODY_LEN = 1000
         private val SUCCESS_RANGE = 200..299
+
+        /** Minimum iNat observation count to call a species "confirmed" in the region.
+         *  A threshold of 3 filters out one-off vagrant records while keeping
+         *  genuine residents that have just a few local observations. */
+        const val MIN_REGIONAL_OBSERVATIONS = 3
 
         // iNaturalist's "iconic taxa" — the top-level groupings on a taxon's
         // record. We accept anything that's a vocalising or audibly active

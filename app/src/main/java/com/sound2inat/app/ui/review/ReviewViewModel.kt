@@ -206,6 +206,7 @@ class ReviewViewModel(
      * VM is testable without an Android [Settings] instance.
      */
     private val minWindowsProvider: suspend () -> Int = { 1 },
+    private val regionRadiusKmProvider: suspend () -> Int = { Settings.DEFAULT_REGION_RADIUS_KM },
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -810,7 +811,7 @@ class ReviewViewModel(
         annotationJob?.cancel()
         Log.d("ReviewVM", "launchAnnotation: starting for ${rows.size} species (cancelled prev=$wasRunning): ${rows.map { it.taxonScientificName }}")
         annotationJob = scope.launch {
-            val radiusKm = Settings.DEFAULT_REGION_RADIUS_KM
+            val radiusKm = regionRadiusKmProvider()
             try {
                 val annotated = filter.annotate(
                     rows.map { r ->
@@ -910,6 +911,7 @@ class ReviewViewModelFactory @Inject constructor(
         },
         regionFilter = regionFilter,
         minWindowsProvider = { settings.minWindows.first() },
+        regionRadiusKmProvider = { settings.regionRadiusKm.first() },
     )
 }
 
