@@ -2,7 +2,7 @@ package com.sound2inat.app.permissions
 
 import kotlinx.coroutines.flow.StateFlow
 
-enum class Permission { RECORD_AUDIO, ACCESS_FINE_LOCATION }
+enum class Permission { RECORD_AUDIO, ACCESS_FINE_LOCATION, POST_NOTIFICATIONS }
 enum class PermissionStatus { GRANTED, DENIED, PERMANENTLY_DENIED }
 
 interface PermissionsController {
