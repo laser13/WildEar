@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
@@ -77,6 +79,7 @@ class DefaultRecordingController(
 ) : RecordingController {
 
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
+    private val startMutex = Mutex()
 
     private val _state = MutableStateFlow<RecordingSessionState>(RecordingSessionState.Idle)
     override val state: StateFlow<RecordingSessionState> = _state
@@ -87,7 +90,7 @@ class DefaultRecordingController(
 
     private var draftId: String? = null
     private var recordingStartMs: Long = 0L
-    private var fix: Fix? = null
+    @Volatile private var fix: Fix? = null
     private var tickJob: Job? = null
     private var rmsJob: Job? = null
     private var locationJob: Job? = null
@@ -99,31 +102,33 @@ class DefaultRecordingController(
     private var activeAggregator: DetectionAggregator? = null
 
     override suspend fun start() {
-        if (_state.value is RecordingSessionState.Recording) return
-        val id = UUID.randomUUID().toString().also { draftId = it }
-        val target = files.newRecordingFile(id)
-        recordingStartMs = nowMs()
-        recorder.start(target)
-        _state.value = RecordingSessionState.Recording(
-            draftId = id,
-            recordingStartMs = recordingStartMs,
-            elapsedMs = 0L,
-            rms = 0f,
-            gps = GpsStatus.Acquiring,
-            warningSoftLimit = false,
-            backlogWindows = 0,
-            liveCards = emptyList(),
-            lastDetection = null,
-        )
+        startMutex.withLock {
+            if (_state.value is RecordingSessionState.Recording) return@withLock
+            val id = UUID.randomUUID().toString().also { draftId = it }
+            val target = files.newRecordingFile(id)
+            recordingStartMs = nowMs()
+            recorder.start(target)
+            _state.value = RecordingSessionState.Recording(
+                draftId = id,
+                recordingStartMs = recordingStartMs,
+                elapsedMs = 0L,
+                rms = 0f,
+                gps = GpsStatus.Acquiring,
+                warningSoftLimit = false,
+                backlogWindows = 0,
+                liveCards = emptyList(),
+                lastDetection = null,
+            )
 
-        locationJob = scope.launch { fix = location.getCurrent(locationTimeoutMs) }
-        tickJob = scope.launch { tickLoop() }
-        rmsJob = scope.launch {
-            recorder.rmsLevel.collect { rms ->
-                updateRecording { copy(rms = rms) }
+            locationJob = scope.launch { fix = location.getCurrent(locationTimeoutMs) }
+            tickJob = scope.launch { tickLoop() }
+            rmsJob = scope.launch {
+                recorder.rmsLevel.collect { rms ->
+                    updateRecording { copy(rms = rms) }
+                }
             }
+            startLiveInference()
         }
-        startLiveInference()
     }
 
     private suspend fun startLiveInference() {
