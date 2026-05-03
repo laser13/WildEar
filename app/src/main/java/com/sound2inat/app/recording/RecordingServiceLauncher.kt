@@ -19,6 +19,7 @@ class DefaultRecordingServiceLauncher @Inject constructor() : RecordingServiceLa
         )
     }
 
+    // startService delivers the action to onStartCommand; the service calls stopSelf() internally
     override fun stop(ctx: Context) {
         ctx.startService(
             Intent(ctx, RecordingService::class.java).setAction(RecordingService.ACTION_STOP),

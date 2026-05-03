@@ -68,5 +68,6 @@ class AndroidPermissionsController(private val activity: ComponentActivity) : Pe
     }
 
     private fun permissionFromRaw(raw: String): Permission =
-        Permission.values().first { isRequestable(it) && rawNameFor(it) == raw }
+        Permission.values().firstOrNull { isRequestable(it) && rawNameFor(it) == raw }
+            ?: Permission.RECORD_AUDIO
 }
