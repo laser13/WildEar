@@ -1,5 +1,7 @@
 package com.sound2inat.inat
 
+import com.sound2inat.inference.SourceStats
+import com.sound2inat.modelmanager.KnownModels
 import com.sound2inat.storage.DetectionEntity
 import com.sound2inat.storage.DraftDao
 import com.sound2inat.storage.DraftStatus
@@ -72,6 +74,7 @@ class INatSubmitter(
 
         val cropDir = File(tmpRoot, "inat_uploads").apply { mkdirs() }
         val createdRows = mutableListOf<InatObservationEntity>()
+        val createdPairs = mutableListOf<Pair<InatObservationEntity, DetectionEntity>>()
         val failures = mutableListOf<String>()
 
         for (det in selected) {
@@ -83,6 +86,7 @@ class INatSubmitter(
                         "Uploaded ${det.taxonScientificName} -> ${row.observationUrl}",
                     )
                     createdRows += row
+                    createdPairs += row to det
                 } else {
                     android.util.Log.w(LOG_TAG, "No iNat match for ${det.taxonScientificName}")
                     failures += "${det.taxonScientificName}: no iNat match"
@@ -108,8 +112,8 @@ class INatSubmitter(
         }
 
         // Cross-link pass — best-effort; failures don't unwind the upload.
-        if (createdRows.size > 1) {
-            crossLink(token, createdRows)
+        if (createdPairs.size > 1) {
+            crossLink(token, createdPairs)
         }
 
         val primary = createdRows.first()
@@ -210,19 +214,38 @@ class INatSubmitter(
         return "${draftId}__$safe.wav"
     }
 
-    private fun baseDescription(det: DetectionEntity): String =
-        "Recorded with WildEar (BirdNET v2.4). Detected ${det.detectedWindows} window(s)" +
-            " between ${det.firstSeenMs / MS}–${det.lastSeenMs / MS} s," +
-            " max confidence ${"%.0f".format(det.maxConfidence * PCT)}%."
-
-    private suspend fun crossLink(token: String, rows: List<InatObservationEntity>) {
-        for (row in rows) {
-            val others = rows.filter { it.id != row.id }
-            val description = buildString {
-                append("Recorded with WildEar (BirdNET v2.4) as part of a multi-species clip. ")
-                append("Sibling observations from the same recording: ")
-                append(others.joinToString(", ") { "${it.taxonScientificName} → ${it.observationUrl}" })
+    private fun baseDescription(det: DetectionEntity): String {
+        val stats = SourceStats.decode(det.sources)
+        val header = "Recorded with WildEar."
+        return if (stats.isEmpty()) {
+            "$header\nDetected ${det.detectedWindows} window(s)" +
+                " between ${det.firstSeenMs / MS}–${det.lastSeenMs / MS} s," +
+                " max confidence ${"%.0f".format(det.maxConfidence * PCT)}%."
+        } else {
+            val lines = stats.entries.sortedBy { it.key }.joinToString("\n") { (src, stat) ->
+                val name = sourceDisplayName(src)
+                "$name detected ${stat.windows} window(s)" +
+                    " between ${stat.firstSeenMs / MS}–${stat.lastSeenMs / MS} s," +
+                    " max confidence ${"%.0f".format(stat.maxConf * PCT)}%."
             }
+            "$header\n$lines"
+        }
+    }
+
+    private fun sourceDisplayName(id: String): String =
+        KnownModels.firstOrNull { it.id == id }?.displayName ?: id
+
+    private suspend fun crossLink(
+        token: String,
+        pairs: List<Pair<InatObservationEntity, DetectionEntity>>,
+    ) {
+        for ((row, det) in pairs) {
+            val others = pairs.filter { it.first.id != row.id }
+            val siblings = others.joinToString("\n") { (sibRow, _) ->
+                " - ${sibRow.taxonScientificName} → ${sibRow.observationUrl}"
+            }
+            val description = baseDescription(det) +
+                "\n\nSibling observations from the same recording:\n$siblings"
             runCatching { client.updateObservationDescription(token, row.observationId, description) }
         }
     }

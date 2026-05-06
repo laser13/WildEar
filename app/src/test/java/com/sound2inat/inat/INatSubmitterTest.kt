@@ -102,6 +102,13 @@ class INatSubmitterTest {
         return DraftWithDetections(draft, detections)
     }
 
+    /** Like [draftWith] but sets [sources] on the first detection. */
+    private fun draftWithSources(name: String, sources: String): DraftWithDetections {
+        val base = draftWith(listOf(name))
+        val det  = base.detections.first().copy(sources = sources)
+        return base.copy(detections = listOf(det))
+    }
+
     @Test fun `single species creates one observation and persists row`() = runTest {
         // resolveTaxon
         server.enqueue(
@@ -233,6 +240,66 @@ class INatSubmitterTest {
         val result = submitter.submit("", draftWith(listOf("Parus major")))
         assertThat(result).isInstanceOf(INatSubmitter.Result.Failure::class.java)
         assertThat(server.requestCount).isEqualTo(0)
+    }
+
+    @Test fun `description contains per-source model lines when sources populated`() = runTest {
+        val sources = "birdnet_v2_4=0.85:3:0:9000;perch_v2=0.62:1:3000:6000"
+        val draft = draftWithSources("Parus major", sources)
+
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":12345,"iconic_taxon_name":"Aves"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":900,"uuid":"u-1"}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":1}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":11}"""))
+        server.enqueue(MockResponse().setBody("""{"id":12}"""))
+
+        submitter.submit("jwt", draft)
+
+        // Drain taxa request, then inspect the createObservation POST body.
+        server.takeRequest()  // GET /taxa
+        val obsRequest = server.takeRequest()  // POST /observations
+        val body = obsRequest.body.readUtf8()
+
+        assertThat(body).contains("Recorded with WildEar.")
+        assertThat(body).contains("BirdNET v2.4 detected 3 window(s) between 0–9 s")
+        assertThat(body).contains("Perch v2 (Google) detected 1 window(s) between 3–6 s")
+    }
+
+    @Test fun `cross-link description contains base description and sibling bullet list`() = runTest {
+        val sources = "birdnet_v2_4=0.85:3:0:9000"
+        val base = draftWith(listOf("Parus major", "Sylvia atricapilla"))
+        val dets = base.detections.mapIndexed { i, d ->
+            if (i == 0) d.copy(sources = sources) else d
+        }
+        val draft = base.copy(detections = dets)
+
+        // Parus major
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":1,"iconic_taxon_name":"Aves"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":700,"uuid":"u-A"}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":555}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":11}"""))
+        server.enqueue(MockResponse().setBody("""{"id":12}"""))
+        // Sylvia atricapilla
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":2,"iconic_taxon_name":"Aves"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":701,"uuid":"u-B"}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":556}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":13}"""))
+        server.enqueue(MockResponse().setBody("""{"id":14}"""))
+        // PUT cross-links
+        server.enqueue(MockResponse().setBody("""{"id":700}"""))
+        server.enqueue(MockResponse().setBody("""{"id":701}"""))
+
+        submitter.submit("jwt", draft)
+
+        repeat(10) { server.takeRequest() }
+
+        val put1Body = server.takeRequest().body.readUtf8()
+        assertThat(put1Body).contains("Recorded with WildEar.")
+        assertThat(put1Body).contains("Sibling observations from the same recording:")
+        assertThat(put1Body).contains(" - Sylvia atricapilla →")
+
+        val put2Body = server.takeRequest().body.readUtf8()
+        assertThat(put2Body).contains("Sibling observations from the same recording:")
+        assertThat(put2Body).contains(" - Parus major →")
     }
 }
 
