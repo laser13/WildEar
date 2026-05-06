@@ -1,7 +1,6 @@
 package com.sound2inat.app.ui.review
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
@@ -26,7 +24,6 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
-import androidx.compose.material.icons.outlined.MicNone
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -64,14 +61,11 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import coil.compose.AsyncImage
 import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.storage.DraftStatus
 import java.text.SimpleDateFormat
@@ -159,6 +153,7 @@ private fun ReviewPage(
     }
 
     var pickerVisible by remember { mutableStateOf(false) }
+    var detailsRow by remember { mutableStateOf<SpeciesRow?>(null) }
     val isAnalysisRunning = state.inferenceProgress != null || state.perchProgress != null
     val uploadedUrls = remember(state.inatObservations) { state.inatObservations.toMap() }
 
@@ -279,7 +274,7 @@ private fun ReviewPage(
 
             item {
                 Text(
-                    "Detected species",
+                    reviewSpeciesSectionTitle(),
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
@@ -291,10 +286,7 @@ private fun ReviewPage(
                     row = row,
                     isHighlighted = highlight == row.detectionId,
                     uploadedUrl = uploadedUrls[row.taxonScientificName],
-                    onClick = {
-                        vm.seekTo(row.firstSeenMs)
-                        vm.highlight(row.detectionId)
-                    },
+                    onRowClick = { detailsRow = row },
                     onCheckedChange = { checked -> vm.toggle(row.detectionId, checked) },
                     onExpandDetail = {
                         uploadedUrls[row.taxonScientificName]?.let { url ->
@@ -330,10 +322,7 @@ private fun ReviewPage(
                         row = row,
                         isHighlighted = highlight == row.detectionId,
                         uploadedUrl = uploadedUrls[row.taxonScientificName],
-                        onClick = {
-                            vm.seekTo(row.firstSeenMs)
-                            vm.highlight(row.detectionId)
-                        },
+                        onRowClick = { detailsRow = row },
                         onCheckedChange = { checked -> vm.toggle(row.detectionId, checked) },
                         onExpandDetail = {
                             uploadedUrls[row.taxonScientificName]?.let { url ->
@@ -362,6 +351,17 @@ private fun ReviewPage(
                 vm.analyzeWithPerch()
             },
             onDismiss = { pickerVisible = false },
+        )
+    }
+
+    detailsRow?.let { row ->
+        SpeciesDetailsSheet(
+            row = row,
+            onDismiss = { detailsRow = null },
+            onSeekTo = { ms ->
+                vm.seekTo(ms)
+                vm.highlight(row.detectionId)
+            },
         )
     }
 }
@@ -439,15 +439,10 @@ private fun DenoisePreviewToggle(
 ) {
     val tooltipState = rememberTooltipState(isPersistent = true)
     val coScope = rememberCoroutineScope()
-    val tooltipText = when {
-        state.denoisingInProgress -> "Building denoised preview…"
-        state.denoisePreviewEnabled ->
-            "Spectrogram and playback reflect the noise-reduction pipeline. " +
-                "Disable to compare against the original recording."
-        else ->
-            "Toggle to preview the cleaned-up audio. The original recording " +
-                "is always preserved."
-    }
+    val tooltipText = playbackDenoiseTooltip(
+        denoisePreviewEnabled = state.denoisePreviewEnabled,
+        denoisingInProgress = state.denoisingInProgress,
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -456,7 +451,7 @@ private fun DenoisePreviewToggle(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "Denoise",
+            playbackDenoiseLabel(),
             style = MaterialTheme.typography.bodyMedium,
         )
         TooltipBox(
@@ -470,7 +465,7 @@ private fun DenoisePreviewToggle(
             ) {
                 Icon(
                     Icons.AutoMirrored.Outlined.HelpOutline,
-                    contentDescription = "About denoise",
+                    contentDescription = "About playback denoise",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(DENOISE_HELP_ICON_SIZE_DP.dp),
                 )
@@ -507,13 +502,7 @@ private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
     val inProgress = state.inatSubmission is InatSubmissionState.InProgress
     val canSubmit = !alreadyUploaded && selectedCount > 0 && !inProgress
 
-    val label = when {
-        inProgress -> "Uploading…"
-        alreadyUploaded -> "Already uploaded"
-        selectedCount == 0 -> "Select species to submit"
-        selectedCount == 1 -> "Submit 1 species to iNaturalist"
-        else -> "Submit $selectedCount species to iNaturalist"
-    }
+    val label = reviewSubmitLabel(state.status, state.inatSubmission, selectedCount)
 
     Surface(shadowElevation = 4.dp) {
         Button(
@@ -645,7 +634,7 @@ private fun SpeciesListItem(
     row: SpeciesRow,
     isHighlighted: Boolean,
     uploadedUrl: String?,
-    onClick: () -> Unit,
+    onRowClick: () -> Unit,
     onCheckedChange: (Boolean) -> Unit,
     onExpandDetail: () -> Unit,
     onCollapseDetail: () -> Unit,
@@ -665,35 +654,21 @@ private fun SpeciesListItem(
                         else -> onCollapseDetail()
                     }
                 } else {
-                    onClick()
-                    onCheckedChange(!row.isSelected)
+                    onRowClick()
                 }
             }
             .background(containerColor),
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         leadingContent = {
-            Box(
-                modifier = Modifier
-                    .size(PHOTO_SIZE_DP.dp)
-                    .clip(RoundedCornerShape(PHOTO_CORNER_DP.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (row.taxonPhotoUrl != null) {
-                    AsyncImage(
-                        model = row.taxonPhotoUrl,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-                } else {
-                    Icon(
-                        Icons.Outlined.MicNone,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
+            if (uploadedUrl != null) {
+                Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = "Uploaded",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+            } else {
+                Checkbox(checked = row.isSelected, onCheckedChange = onCheckedChange)
             }
         },
         headlineContent = {
@@ -767,78 +742,50 @@ private fun SpeciesListItem(
                         }
                     }
                 } else {
-                    val pct = (row.maxConfidence * PERCENT).toInt()
-                    Text(
-                        "${confidenceLabel(row.maxConfidence)} · $pct% · ${row.detectedWindows} audio fragments",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (row.confidenceBySource.isNotEmpty() || row.regionalStatus != null) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            row.confidenceBySource.entries
-                                .sortedByDescending { it.value }
-                                .forEach { (src, conf) ->
-                                    SourceBadge(src, conf)
-                                }
-                            row.regionalStatus?.let { RegionalStatusIcon(it) }
-                        }
-                    }
+                    row.regionalStatus?.let { RegionalStatusIcon(it) }
                 }
             }
         },
         trailingContent = {
-            if (uploadedUrl != null) {
-                Icon(
-                    Icons.Filled.CheckCircle,
-                    contentDescription = "Uploaded",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp),
-                )
-            } else {
-                Checkbox(checked = row.isSelected, onCheckedChange = onCheckedChange)
-            }
+            Text(
+                speciesRowTrailingLabel(row.maxConfidence, row.detectedWindows),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
         },
     )
 }
 
-@Suppress("FunctionNaming")
-@Composable
-private fun SourceBadge(source: String, confidence: Float) {
-    val pct = (confidence * PERCENT).toInt()
-    val label = displayNameFor(source)
-    Text(
-        text = "$label $pct%",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSecondaryContainer,
-        fontWeight = FontWeight.Medium,
-        modifier = Modifier
-            .background(
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                shape = RoundedCornerShape(BADGE_CORNER_DP.dp),
-            )
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(BADGE_CORNER_DP.dp),
-            )
-            .padding(horizontal = 8.dp, vertical = 2.dp),
-    )
+internal fun reviewSpeciesSectionTitle(): String = "Detected wildlife"
+
+internal fun reviewSubmitLabel(
+    status: DraftStatus,
+    submission: InatSubmissionState,
+    selectedCount: Int,
+): String {
+    val alreadyUploaded = status == DraftStatus.UPLOADED ||
+        submission is InatSubmissionState.Done
+    return when {
+        submission is InatSubmissionState.InProgress -> "Uploading…"
+        alreadyUploaded -> "Already uploaded"
+        selectedCount == 0 -> "Select species"
+        selectedCount == 1 -> "Submit 1 selected"
+        else -> "Submit $selectedCount selected"
+    }
 }
 
-private fun displayNameFor(source: String): String = when (source) {
-    "birdnet_v2_4" -> "BirdNET"
-    "perch_v2" -> "Perch"
-    else -> source
-}
+internal fun speciesRowTrailingLabel(confidence: Float, detectedWindows: Int): String =
+    "${(confidence * PERCENT).toInt()}% ×$detectedWindows"
 
-private fun confidenceLabel(confidence: Float): String = when {
-    confidence >= 0.9f -> "High confidence"
-    confidence >= 0.7f -> "Likely"
-    confidence >= 0.5f -> "Uncertain"
-    else -> "Low confidence"
+internal fun playbackDenoiseLabel(): String = "Playback denoise"
+
+internal fun playbackDenoiseTooltip(
+    denoisePreviewEnabled: Boolean,
+    denoisingInProgress: Boolean,
+): String = when {
+    denoisingInProgress -> "Building denoised preview…"
+    denoisePreviewEnabled -> "Makes listening easier. Original recording is kept."
+    else -> "Makes listening easier. Original recording is kept."
 }
 
 private fun qualityGradeLabel(grade: String): String = when (grade) {
@@ -861,8 +808,5 @@ private fun formatMs(ms: Long): String {
 private const val MS_PER_SECOND = 1000L
 private const val SECONDS_PER_MINUTE = 60L
 private const val PERCENT = 100f
-private const val BADGE_CORNER_DP = 8
-private const val PHOTO_SIZE_DP = 56
-private const val PHOTO_CORNER_DP = 4
 private const val DENOISE_HELP_SIZE_DP = 24
 private const val DENOISE_HELP_ICON_SIZE_DP = 18
