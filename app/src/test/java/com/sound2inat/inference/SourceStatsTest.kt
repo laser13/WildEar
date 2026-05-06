@@ -33,7 +33,7 @@ class SourceStatsTest {
     }
 
     @Test fun `decode skips malformed tokens silently`() {
-        val result = SourceStats.decode("bad;birdnet_v2_4=0.85:3:500:12000;=also-bad")
+        val result = SourceStats.decode("bad;birdnet_v2_4=0.85:3:500:12000;=also-bad;key=")
         assertThat(result).hasSize(1)
         assertThat(result["birdnet_v2_4"]).isEqualTo(SourceStat(0.85f, 3, 500L, 12_000L))
     }

@@ -36,7 +36,7 @@ object SourceStats {
                 if (eq <= 0 || eq == token.length - 1) continue
                 val key = token.substring(0, eq).trim()
                 val parts = token.substring(eq + 1).trim().split(':')
-                if (parts.size < 4) continue  // old format — skip
+                if (parts.size < 4) continue  // old format or corrupt — skip
                 val conf    = parts[0].toFloatOrNull() ?: continue
                 val windows = parts[1].toIntOrNull()  ?: continue
                 val firstMs = parts[2].toLongOrNull()  ?: continue
