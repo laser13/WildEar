@@ -6,7 +6,6 @@ import android.os.IBinder
 import androidx.core.app.ServiceCompat
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -39,7 +38,7 @@ class RecordingService : Service() {
 
     private fun handleStart() {
         startForeground(NOTIF_ID, notificationBuilder.buildInitial())
-        serviceScope.launch(start = CoroutineStart.UNDISPATCHED) { controller.start() }
+        serviceScope.launch { controller.start() }
         observeRecordingState()
     }
 
