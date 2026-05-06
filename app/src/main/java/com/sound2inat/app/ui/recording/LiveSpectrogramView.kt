@@ -27,6 +27,9 @@ private const val BITMAP_HEIGHT_BINS = 256    // log-binned from 1025 to 256
 private const val FFT_SIZE = 2048
 private const val HOP_SIZE = 512
 
+/** Default display ceiling: show 0–10 kHz (wildlife calls). */
+private const val DISPLAY_MAX_HZ = 10_000
+
 /**
  * Fixed dB window for the colour lookup. We can't do offline-style dynamic
  * min/max rescale (it'd flicker the whole image), so we apply gamma to lift
@@ -82,7 +85,7 @@ fun LiveSpectrogramView(
             val drew = withContext(Dispatchers.Default) {
                 val columns = spectrogram.process(block)
                 for (col in columns) {
-                    ring.append(logBinDown(col, BITMAP_HEIGHT_BINS))
+                    ring.append(logBinDown(col, BITMAP_HEIGHT_BINS, sampleRateHz))
                 }
                 if (columns.isNotEmpty()) {
                     fillPixels(pixels, ring, BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS)
@@ -109,18 +112,26 @@ fun LiveSpectrogramView(
 
 /**
  * Maps the linear FFT magnitude column (size = fftSize/2 + 1, e.g. 1025) to
- * [outBins] log-spaced rows. Low frequencies (where bird calls live) get more
- * vertical space than high frequencies.
+ * [outBins] log-spaced rows covering 0–[DISPLAY_MAX_HZ] Hz. Low frequencies
+ * (where bird calls live) get more vertical space than high frequencies.
+ *
+ * The frequency ceiling is determined by [sampleRateHz] and [DISPLAY_MAX_HZ]:
+ * bins above the [DISPLAY_MAX_HZ] cut-off are excluded so the display focuses
+ * on wildlife call frequencies (default 0–10 kHz).
  */
-private fun logBinDown(src: FloatArray, outBins: Int): FloatArray {
+private fun logBinDown(src: FloatArray, outBins: Int, sampleRateHz: Int): FloatArray {
     val out = FloatArray(outBins)
-    val srcMaxIdx = src.size - 1
+    val nyquistBins = src.size  // fftSize/2 + 1
+    // FFT bin index corresponding to DISPLAY_MAX_HZ.
+    val displayMaxBin = (DISPLAY_MAX_HZ.toLong() * (nyquistBins - 1) * 2 / sampleRateHz)
+        .toInt()
+        .coerceIn(1, nyquistBins - 1)
     val logMin = 0.0  // covers DC at the bottom row
-    val logMax = ln(srcMaxIdx.toDouble())
+    val logMax = ln(displayMaxBin.toDouble())
     for (j in 0 until outBins) {
         val frac = j.toDouble() / (outBins - 1)
         val srcIdxLog = logMin + frac * (logMax - logMin)
-        val srcIdx = exp(srcIdxLog).toInt().coerceIn(0, srcMaxIdx)
+        val srcIdx = exp(srcIdxLog).toInt().coerceIn(0, displayMaxBin)
         out[j] = src[srcIdx]
     }
     return out

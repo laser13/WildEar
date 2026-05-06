@@ -33,7 +33,7 @@ class MelSpectrogramTest {
         // average across time
         val avg = FloatArray(params.melBins) { i -> out[i].average().toFloat() }
         val peakBin = avg.indices.maxBy { avg[it] }
-        val melMax = 2595.0 * Math.log10(1 + 24_000.0 / 700)
+        val melMax = 2595.0 * Math.log10(1 + params.fMax / 700.0)
         val melTarget = 2595.0 * Math.log10(1 + 1000.0 / 700)
         val expectedBin = (melTarget / melMax * params.melBins).toInt()
         assertThat(peakBin).isIn((expectedBin - 4)..(expectedBin + 4))
