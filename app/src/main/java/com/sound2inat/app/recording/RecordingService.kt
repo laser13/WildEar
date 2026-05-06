@@ -24,6 +24,7 @@ class RecordingService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var observerJob: Job? = null
+    private val stopped = java.util.concurrent.atomic.AtomicBoolean(false)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -44,7 +45,7 @@ class RecordingService : Service() {
 
     private fun handleStop() {
         observerJob?.cancel()
-        serviceScope.launch(start = CoroutineStart.UNDISPATCHED) {
+        serviceScope.launch {
             controller.stop()
             stopForegroundAndSelf()
         }
@@ -73,8 +74,10 @@ class RecordingService : Service() {
     }
 
     private fun stopForegroundAndSelf() {
-        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        if (stopped.compareAndSet(false, true)) {
+            ServiceCompat.stopForeground(this@RecordingService, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
     }
 
     override fun onDestroy() {

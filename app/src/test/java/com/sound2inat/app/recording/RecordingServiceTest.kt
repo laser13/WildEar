@@ -11,6 +11,7 @@ import dagger.hilt.android.testing.HiltAndroidTest
 import dagger.hilt.android.testing.UninstallModules
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -63,6 +64,8 @@ class RecordingServiceTest {
                 .setAction(RecordingService.ACTION_STOP),
         ).create().startCommand(0, 1).get()
 
+        // serviceScope uses Dispatchers.IO; yield a few times to let the launched coroutine run
+        repeat(10) { yield() }
         assertThat(fakeController.stopCalled).isTrue()
     }
 
