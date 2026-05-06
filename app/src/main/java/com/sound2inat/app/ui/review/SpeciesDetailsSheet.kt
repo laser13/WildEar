@@ -143,11 +143,14 @@ internal fun SpeciesDetailsSheet(
                 Spacer(Modifier.height(4.dp))
             }
 
-            val timeRange = SpeciesTimeRange(
-                startMs = row.firstSeenMs,
-                endMs = row.lastSeenMs,
-            )
-            items(listOf(timeRange)) { range ->
+            // Use per-window fragment ranges when available; fall back to the
+            // firstSeenMs/lastSeenMs bounds for pre-v5 (legacy) rows.
+            val timeRanges = if (row.fragmentRanges.isNotEmpty()) {
+                row.fragmentRanges.map { SpeciesTimeRange(it.startMs, it.endMs) }
+            } else {
+                listOf(SpeciesTimeRange(startMs = row.firstSeenMs, endMs = row.lastSeenMs))
+            }
+            items(timeRanges) { range ->
                 Text(
                     text = formatSheetMs(range.startMs) + "–" + formatSheetMs(range.endMs),
                     style = MaterialTheme.typography.bodyMedium,

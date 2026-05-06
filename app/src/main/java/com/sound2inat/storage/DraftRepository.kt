@@ -1,6 +1,7 @@
 package com.sound2inat.storage
 
 import com.sound2inat.inference.AggregatedDetection
+import com.sound2inat.inference.FragmentRanges
 import com.sound2inat.inference.SourceConfidences
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -119,6 +120,8 @@ class DraftRepository(
                         lastSeenMs = it.lastSeenMs,
                         isSelectedByUser = false,
                         sources = SourceConfidences.encode(it.confidenceBySource),
+                        fragmentRanges = FragmentRanges.encode(it.fragmentRanges),
+                        aggregatedConfidence = it.aggregatedConfidence,
                     )
                 },
             )
@@ -155,6 +158,8 @@ class DraftRepository(
                         lastSeenMs = it.lastSeenMs,
                         isSelectedByUser = false,
                         sources = SourceConfidences.encode(it.confidenceBySource),
+                        fragmentRanges = FragmentRanges.encode(it.fragmentRanges),
+                        aggregatedConfidence = it.aggregatedConfidence,
                     )
                 },
             )

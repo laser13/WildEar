@@ -8,7 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [DraftEntity::class, DetectionEntity::class, InatObservationEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -58,6 +58,15 @@ abstract class Sound2iNatDb : RoomDatabase() {
         val MIGRATION_3_4: Migration = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE detections ADD COLUMN sources TEXT")
+            }
+        }
+
+        // v5: per-window fragment ranges and aggregated confidence on detections.
+        // Both columns have safe defaults so pre-v5 rows remain readable.
+        val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE detections ADD COLUMN fragmentRanges TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE detections ADD COLUMN aggregatedConfidence REAL NOT NULL DEFAULT 0.0")
             }
         }
     }

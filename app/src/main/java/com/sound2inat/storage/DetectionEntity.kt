@@ -32,4 +32,11 @@ data class DetectionEntity(
      * for rows written before v4 (legacy single-model path).
      */
     val sources: String? = null,
+    /**
+     * Window time ranges serialised as `"startMs:endMs,startMs:endMs,…"`.
+     * Empty string for rows written before v5 (pre-fragment-range tracking).
+     */
+    val fragmentRanges: String = "",
+    /** Average confidence across all contributing windows. 0 for pre-v5 rows. */
+    val aggregatedConfidence: Float = 0f,
 )

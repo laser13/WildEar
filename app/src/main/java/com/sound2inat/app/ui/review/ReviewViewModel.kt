@@ -12,6 +12,7 @@ import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.ObservationDetail
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inference.AggregatedDetection
+import com.sound2inat.inference.FragmentRanges
 import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.BirdNetMetaModel
@@ -359,6 +360,7 @@ class ReviewViewModel(
                             taxonPhotoUrl = photoUrlCache[e.taxonScientificName],
                             regionalStatus = regionalStatusCache[e.taxonScientificName],
                             observationDetailState = prevDetailStates[e.id] ?: ObservationDetailLoadState.NotLoaded,
+                            fragmentRanges = FragmentRanges.decode(e.fragmentRanges),
                         )
                     }
                 _state.value = _state.value.copy(
@@ -647,6 +649,8 @@ class ReviewViewModel(
                 firstSeenMs = e.firstSeenMs,
                 lastSeenMs = e.lastSeenMs,
                 confidenceBySource = SourceConfidences.decode(e.sources),
+                fragmentRanges = FragmentRanges.decode(e.fragmentRanges),
+                aggregatedConfidence = e.aggregatedConfidence,
             )
         }
         val merged = mergeBySpecies(existing, freshDetections)

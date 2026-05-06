@@ -39,6 +39,9 @@ class DetectionAggregator(
                     .filter { it.source.isNotEmpty() }
                     .groupBy { it.source }
                     .mapValues { (_, src) -> src.maxOf { it.confidence } }
+                val ranges = items
+                    .map { FragmentRange(it.startMs, it.endMs) }
+                    .sortedBy { it.startMs }
                 AggregatedDetection(
                     taxonScientificName = taxon,
                     taxonCommonName = items.firstNotNullOfOrNull { it.taxonCommonName },
@@ -47,6 +50,8 @@ class DetectionAggregator(
                     firstSeenMs = items.minOf { it.startMs },
                     lastSeenMs = items.maxOf { it.endMs },
                     confidenceBySource = bySource,
+                    fragmentRanges = ranges,
+                    aggregatedConfidence = items.map { it.confidence }.average().toFloat(),
                 )
             }
             .filter { it.detectedWindows >= minWindows }

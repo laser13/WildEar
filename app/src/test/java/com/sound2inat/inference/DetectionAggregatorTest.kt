@@ -124,6 +124,46 @@ class DetectionAggregatorTest {
         assertThat(a).isEqualTo(b)
     }
 
+    @Test
+    fun `fragment ranges accumulated per window`() {
+        val preds = listOf(
+            wp(0, 3_000, "Parus major", 0.8f),
+            wp(1_000, 4_000, "Parus major", 0.6f),
+            wp(2_000, 5_000, "Parus major", 0.9f),
+        )
+        val out = agg.aggregate(preds).first()
+        assertThat(out.fragmentRanges).containsExactly(
+            FragmentRange(0L, 3_000L),
+            FragmentRange(1_000L, 4_000L),
+            FragmentRange(2_000L, 5_000L),
+        ).inOrder()
+    }
+
+    @Test
+    fun `aggregated confidence is average of all window confidences`() {
+        val preds = listOf(
+            wp(0, 3_000, "Parus major", 0.8f),
+            wp(1_000, 4_000, "Parus major", 0.6f),
+            wp(2_000, 5_000, "Parus major", 0.7f),
+        )
+        val out = agg.aggregate(preds).first()
+        // (0.8 + 0.6 + 0.7) / 3 = 0.7
+        assertThat(out.aggregatedConfidence).isWithin(1e-6f).of(0.7f)
+    }
+
+    @Test
+    fun `fragment ranges sorted by startMs`() {
+        // Feed windows out of chronological order
+        val preds = listOf(
+            wp(2_000, 5_000, "Parus major", 0.7f),
+            wp(0, 3_000, "Parus major", 0.8f),
+            wp(1_000, 4_000, "Parus major", 0.6f),
+        )
+        val out = agg.aggregate(preds).first()
+        val starts = out.fragmentRanges.map { it.startMs }
+        assertThat(starts).containsExactly(0L, 1_000L, 2_000L).inOrder()
+    }
+
     private fun wp(s: Long, e: Long, t: String, c: Float) =
         WindowPrediction(s, e, t, t, c)
 }

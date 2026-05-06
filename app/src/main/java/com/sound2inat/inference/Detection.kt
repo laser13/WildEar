@@ -29,4 +29,8 @@ data class AggregatedDetection(
      */
     val confidenceBySource: Map<String, Float> = emptyMap(),
     val regionalStatus: RegionalStatus? = null,
+    /** Individual window time ranges that contributed to this detection, sorted by startMs. */
+    val fragmentRanges: List<FragmentRange> = emptyList(),
+    /** Average confidence across all contributing windows. */
+    val aggregatedConfidence: Float = 0f,
 )

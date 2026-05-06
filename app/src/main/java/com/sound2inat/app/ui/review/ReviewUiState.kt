@@ -1,6 +1,7 @@
 package com.sound2inat.app.ui.review
 
 import com.sound2inat.inat.ObservationDetail
+import com.sound2inat.inference.FragmentRange
 import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.storage.DraftStatus
 
@@ -20,6 +21,8 @@ data class SpeciesRow(
     /** Regional presence status from iNaturalist; null until annotation runs. */
     val regionalStatus: RegionalStatus? = null,
     val observationDetailState: ObservationDetailLoadState = ObservationDetailLoadState.NotLoaded,
+    /** Per-window detection time ranges, sorted by startMs. Empty for legacy rows. */
+    val fragmentRanges: List<FragmentRange> = emptyList(),
 )
 
 data class ReviewUiState(
