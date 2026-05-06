@@ -43,7 +43,7 @@ class LiveInferenceEngineTest {
             model = model,
             yamNetGate = null,
             spectralSubtractor = null,            // disable to isolate timing
-            applyHighPass = false,                 // disable for predictability
+            usePreprocessing = false,                 // disable for predictability
             sampleRateHz = sampleRateHz,
             windowSamples = windowSamples,
             hopSamples = hopSamples,
@@ -66,7 +66,7 @@ class LiveInferenceEngineTest {
     fun `subsequent windows hop by 1500ms`() = runTest(UnconfinedTestDispatcher()) {
         val model = fakeModel("X x", 0.5f)
         val engine = LiveInferenceEngine(
-            model = model, yamNetGate = null, spectralSubtractor = null, applyHighPass = false,
+            model = model, yamNetGate = null, spectralSubtractor = null, usePreprocessing = false,
             sampleRateHz = sampleRateHz, windowSamples = windowSamples, hopSamples = hopSamples,
         )
         val collected = mutableListOf<WindowPrediction>()
@@ -114,7 +114,7 @@ class LiveInferenceEngineTest {
             )
         }
         val engine = LiveInferenceEngine(
-            model = model, yamNetGate = downrankGate, spectralSubtractor = null, applyHighPass = false,
+            model = model, yamNetGate = downrankGate, spectralSubtractor = null, usePreprocessing = false,
             sampleRateHz = sampleRateHz, windowSamples = windowSamples, hopSamples = hopSamples,
         )
         engine.start(backgroundScope)
@@ -132,7 +132,7 @@ class LiveInferenceEngineTest {
     fun `stop without feed completes cleanly`() = runTest(UnconfinedTestDispatcher()) {
         val engine = LiveInferenceEngine(
             model = fakeModel("x", 0f),
-            yamNetGate = null, spectralSubtractor = null, applyHighPass = false,
+            yamNetGate = null, spectralSubtractor = null, usePreprocessing = false,
             sampleRateHz = sampleRateHz, windowSamples = windowSamples, hopSamples = hopSamples,
         )
         engine.start(backgroundScope)
@@ -143,7 +143,7 @@ class LiveInferenceEngineTest {
     fun `stop is idempotent`() = runTest(UnconfinedTestDispatcher()) {
         val engine = LiveInferenceEngine(
             model = fakeModel("x", 0f),
-            yamNetGate = null, spectralSubtractor = null, applyHighPass = false,
+            yamNetGate = null, spectralSubtractor = null, usePreprocessing = false,
             sampleRateHz = sampleRateHz, windowSamples = windowSamples, hopSamples = hopSamples,
         )
         engine.start(backgroundScope)
@@ -156,7 +156,7 @@ class LiveInferenceEngineTest {
     fun `feed in tiny blocks still emits at correct cadence`() = runTest(UnconfinedTestDispatcher()) {
         val engine = LiveInferenceEngine(
             model = fakeModel("Y", 0.5f),
-            yamNetGate = null, spectralSubtractor = null, applyHighPass = false,
+            yamNetGate = null, spectralSubtractor = null, usePreprocessing = false,
             sampleRateHz = sampleRateHz, windowSamples = windowSamples, hopSamples = hopSamples,
         )
         val collected = mutableListOf<WindowPrediction>()
@@ -178,5 +178,112 @@ class LiveInferenceEngineTest {
         assertThat(collected[0].startMs).isEqualTo(0L)
         assertThat(collected[1].startMs).isEqualTo(1_500L)
         collector.cancel()
+    }
+
+    // ── Preprocessing flag tests ──────────────────────────────────────────────
+
+    /** Spy SpectralSubtractor that records whether process() was called. */
+    private class SpySpectralSubtractor : SpectralSubtractor() {
+        var called = false
+        override fun process(window: FloatArray): FloatArray {
+            called = true
+            return super.process(window)
+        }
+    }
+
+    /**
+     * Verify [LiveInferenceEngine.usePreprocessing] defaults to false (raw-first).
+     * This is a structural test — it checks the flag value directly rather than
+     * observable audio effects (HPF accuracy is covered in AudioPreprocessorTest).
+     */
+    @Test
+    fun `usePreprocessing defaults to false (raw-first)`() {
+        val engine = LiveInferenceEngine(
+            model = fakeModel("x", 0f),
+            yamNetGate = null,
+            spectralSubtractor = null,
+            sampleRateHz = sampleRateHz,
+            windowSamples = windowSamples,
+            hopSamples = hopSamples,
+        )
+        assertThat(engine.usePreprocessing).isFalse()
+    }
+
+    @Test
+    fun `usePreprocessing=true flag is stored and readable`() {
+        val engine = LiveInferenceEngine(
+            model = fakeModel("x", 0f),
+            yamNetGate = null,
+            spectralSubtractor = null,
+            sampleRateHz = sampleRateHz,
+            windowSamples = windowSamples,
+            hopSamples = hopSamples,
+            usePreprocessing = true,
+        )
+        assertThat(engine.usePreprocessing).isTrue()
+    }
+
+    /**
+     * SpectralSubtractor that signals a latch when process() is first called.
+     * Used to reliably detect whether the preprocessing path was taken,
+     * independently of test-scheduler timing.
+     */
+    private class LatchSpectralSubtractor : SpectralSubtractor() {
+        private val latch = java.util.concurrent.CountDownLatch(1)
+        var called = false
+        fun awaitCalledOrTimeout(ms: Long): Boolean {
+            return latch.await(ms, java.util.concurrent.TimeUnit.MILLISECONDS)
+        }
+        override fun process(window: FloatArray): FloatArray {
+            called = true
+            latch.countDown()
+            return super.process(window)
+        }
+    }
+
+    @Test
+    fun `usePreprocessing=false skips spectral subtractor even when one is provided`() = runTest(UnconfinedTestDispatcher()) {
+        val spy = SpySpectralSubtractor()
+        val engine = LiveInferenceEngine(
+            model = fakeModel("X", 0.5f),
+            yamNetGate = null,
+            spectralSubtractor = spy,
+            sampleRateHz = sampleRateHz,
+            windowSamples = windowSamples,
+            hopSamples = hopSamples,
+            usePreprocessing = false, // explicit — subtractor must NOT be called
+        )
+        engine.start(backgroundScope)
+        engine.feed(FloatArray(windowSamples) { 0.1f })
+        runCurrent()
+        engine.stop()
+        runCurrent()
+
+        assertThat(spy.called).isFalse()
+    }
+
+    @Test
+    fun `usePreprocessing=true invokes spectral subtractor per window`() = runTest(UnconfinedTestDispatcher()) {
+        val latchSub = LatchSpectralSubtractor()
+        // Use a tiny window (1024 samples) to keep the FFT inside SpectralSubtractor fast.
+        val tinyWindow = 1024
+        val tinyHop = 512
+        val engine = LiveInferenceEngine(
+            model = fakeModel("X", 0.5f),
+            yamNetGate = null,
+            spectralSubtractor = latchSub,
+            sampleRateHz = sampleRateHz,
+            windowSamples = tinyWindow,
+            hopSamples = tinyHop,
+            usePreprocessing = true,
+        )
+        engine.start(backgroundScope)
+        engine.feed(FloatArray(tinyWindow) { 0.1f })
+        // Wait up to 5 s of real time for the Default-thread worker to invoke the subtractor,
+        // bypassing the virtual-clock drain-timeout issue in stop().
+        val called = latchSub.awaitCalledOrTimeout(5_000L)
+        engine.stop()
+
+        assertThat(called).isTrue()
     }
 }

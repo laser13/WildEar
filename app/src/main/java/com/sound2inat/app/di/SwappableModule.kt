@@ -120,6 +120,7 @@ object SwappableModule {
             yamNetGate = yamGate,
             spectralSubtractor = SpectralSubtractor(),
             sampleRateHz = sampleRateHz,
+            usePreprocessing = false,  // raw-first: preprocessing is an explicit opt-in for benchmarking
         )
     }
 }

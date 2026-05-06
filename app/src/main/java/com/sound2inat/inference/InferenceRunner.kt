@@ -12,8 +12,15 @@ import java.io.RandomAccessFile
  *
  * Pipeline per run:
  *   1. Read + resample to model rate (ShortArray).
- *   2. Normalize to [-1, 1] and apply high-pass filter to full signal (FloatArray).
- *   3. Per window: SpectralSubtractor → YamNetGate check → model.predict().
+ *   2. Normalize to [-1, 1] (FloatArray). When [usePreprocessing] is true, also
+ *      apply a high-pass filter to the full signal before window slicing so the
+ *      IIR filter has no edge effects at window boundaries.
+ *   3. Per window: when [usePreprocessing] is true apply SpectralSubtractor →
+ *      YamNetGate check → model.predict().
+ *
+ * **Default is raw-first**: [usePreprocessing] defaults to `false` so the model
+ * receives unprocessed (normalized-only) samples. Set to `true` for the
+ * experimental benchmark path that applies high-pass + spectral subtraction.
  *
  * Pass null for [spectralSubtractor] or [yamNetGate] to skip those steps.
  * Fail-open: the gate's own error handling returns true on any exception.
@@ -23,6 +30,8 @@ class InferenceRunner(
     private val hopSeconds: Float = 1f,
     private val spectralSubtractor: SpectralSubtractor? = null,
     private val yamNetGate: YamNetGate? = null,
+    /** When true, apply high-pass filter + spectral subtraction before inference. Defaults to false (raw-first). */
+    val usePreprocessing: Boolean = false,
 ) {
     private val _progress = MutableStateFlow(0f)
     val progress: StateFlow<Float> = _progress
@@ -42,16 +51,16 @@ class InferenceRunner(
             Resampler.resample(rawSamples, nativeRate, targetRate)
         }
 
-        // Normalize and apply high-pass filter to the full signal before slicing
+        // Normalize to [-1, 1]. High-pass filter is applied only in preprocessing mode
         // so the IIR filter has no edge effects at window boundaries.
         val normalized = FloatArray(resampled.size) { i -> resampled[i] / Short.MAX_VALUE.toFloat() }
-        val filtered = highPassFilter(normalized, targetRate)
+        val prepared = if (usePreprocessing) highPassFilter(normalized, targetRate) else normalized
 
         val windowSeconds = model.windowMs / MS_PER_SECOND
         val win = (windowSeconds * targetRate).toInt()
         val hop = (hopSeconds * targetRate).toInt()
         require(win > 0 && hop > 0) { "Invalid window/hop: win=$win hop=$hop" }
-        val frames = if (filtered.size < win) 0 else 1 + (filtered.size - win) / hop
+        val frames = if (prepared.size < win) 0 else 1 + (prepared.size - win) / hop
         if (frames == 0) {
             _progress.value = 1f
             return emptyList()
@@ -59,8 +68,8 @@ class InferenceRunner(
         val out = ArrayList<WindowPrediction>(frames * 5)
         for (f in 0 until frames) {
             val s = f * hop
-            var window = filtered.copyOfRange(s, s + win)
-            window = spectralSubtractor?.process(window) ?: window
+            var window = prepared.copyOfRange(s, s + win)
+            window = if (usePreprocessing) spectralSubtractor?.process(window) ?: window else window
             _progress.value = (f + 1).toFloat() / frames
             val gateResult = yamNetGate?.classify(window, targetRate)  // null = fail-open → PASS
             val startMs = (s.toLong() * MS_PER_SECOND_LONG) / targetRate

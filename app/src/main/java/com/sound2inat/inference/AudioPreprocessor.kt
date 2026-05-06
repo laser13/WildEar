@@ -82,11 +82,11 @@ fun denoiseFull(samples: FloatArray, sampleRateHz: Int): FloatArray {
  *
  * NOT thread-safe — create one instance per InferenceRunner run.
  */
-class SpectralSubtractor {
+open class SpectralSubtractor {
 
     private var noiseProfile: FloatArray? = null
 
-    fun process(window: FloatArray): FloatArray {
+    open fun process(window: FloatArray): FloatArray {
         val fftSize = nextPow2(window.size)
         val expectedProfileSize = fftSize / 2 + 1
         val existingProfile = noiseProfile

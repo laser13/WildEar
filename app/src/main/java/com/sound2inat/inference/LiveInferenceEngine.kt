@@ -18,10 +18,15 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Streaming live inference: buffers float audio blocks, slices into
- * [windowSamples]-long windows hopped by [hopSamples], applies HPF +
- * [SpectralSubtractor] + [YamNetGate] + [model] per window. Emits raw
- * [WindowPrediction] with no confidence threshold filtering — downstream
- * `DetectionAggregator` handles thresholds.
+ * [windowSamples]-long windows hopped by [hopSamples], optionally applies
+ * HPF + [SpectralSubtractor] when [usePreprocessing] is true, then
+ * [YamNetGate] + [model] per window. Emits raw [WindowPrediction] with no
+ * confidence threshold filtering — downstream `DetectionAggregator` handles
+ * thresholds.
+ *
+ * **Default is raw-first**: [usePreprocessing] defaults to `false` so the
+ * model receives unprocessed (normalized-only) samples. Set to `true` for the
+ * experimental benchmark path that applies high-pass + spectral subtraction.
  *
  * Backpressure: a [Channel] with capacity [queueCapacity] and DROP_OLDEST
  * overflow buffers windows for the worker. If inference falls behind real
@@ -41,7 +46,11 @@ open class LiveInferenceEngine(
     private val sampleRateHz: Int = 48_000,
     private val windowSamples: Int = sampleRateHz * 3,
     private val hopSamples: Int = sampleRateHz * 3 / 2,
-    private val applyHighPass: Boolean = true,
+    /**
+     * When true, apply high-pass filter + spectral subtraction before
+     * passing audio to the gate and model. Defaults to false (raw-first).
+     */
+    val usePreprocessing: Boolean = false,
     private val queueCapacity: Int = 8,
 ) {
     protected val _predictions = MutableSharedFlow<WindowPrediction>(extraBufferCapacity = 64)
@@ -132,8 +141,10 @@ open class LiveInferenceEngine(
 
     private suspend fun runWindow(w: Window) {
         var samples = w.samples
-        if (applyHighPass) samples = highPassFilter(samples, sampleRateHz)
-        spectralSubtractor?.let { samples = it.process(samples) }
+        if (usePreprocessing) {
+            samples = highPassFilter(samples, sampleRateHz)
+            spectralSubtractor?.let { samples = it.process(samples) }
+        }
         val gateResult = yamNetGate?.classify(samples, sampleRateHz)  // null = fail-open → PASS
         val preds = model.predict(
             pcmFloat32 = samples,
