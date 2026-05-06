@@ -240,7 +240,7 @@ class INatSubmitter(
         pairs: List<Pair<InatObservationEntity, DetectionEntity>>,
     ) {
         for ((row, det) in pairs) {
-            val others = pairs.filter { it.first.id != row.id }
+            val others = pairs.filter { it.first.observationId != row.observationId }
             val siblings = others.joinToString("\n") { (sibRow, _) ->
                 " - ${sibRow.taxonScientificName} → ${sibRow.observationUrl}"
             }

@@ -670,6 +670,7 @@ class ReviewViewModel(
     ) = persistMutex.withLock {
         val dwd = repo.observeWithDetections(draftId).first()
         val existing = dwd.detections.map { e ->
+            val fullStats = SourceStats.decode(e.sources)
             AggregatedDetection(
                 taxonScientificName = e.taxonScientificName,
                 taxonCommonName = e.taxonCommonName,
@@ -677,7 +678,11 @@ class ReviewViewModel(
                 detectedWindows = e.detectedWindows,
                 firstSeenMs = e.firstSeenMs,
                 lastSeenMs = e.lastSeenMs,
-                confidenceBySource = SourceStats.decodeConfidenceOnly(e.sources),
+                confidenceBySource  = if (fullStats.isNotEmpty()) fullStats.mapValues { it.value.maxConf }
+                                      else SourceStats.decodeConfidenceOnly(e.sources),
+                windowsBySource     = fullStats.mapValues { it.value.windows },
+                firstSeenBySource   = fullStats.mapValues { it.value.firstSeenMs },
+                lastSeenBySource    = fullStats.mapValues { it.value.lastSeenMs },
                 fragmentRanges = FragmentRanges.decode(e.fragmentRanges),
                 aggregatedConfidence = e.aggregatedConfidence,
             )
@@ -1112,12 +1117,21 @@ internal fun mergeBySpecies(
             byName[d.taxonScientificName] = d
             continue
         }
-        val mergedSources = (prior.confidenceBySource.keys + d.confidenceBySource.keys)
+        val allSourceKeys = prior.confidenceBySource.keys + d.confidenceBySource.keys
+        val mergedSources = allSourceKeys.associateWith { key ->
+            maxOf(prior.confidenceBySource[key] ?: 0f, d.confidenceBySource[key] ?: 0f)
+        }
+        val mergedWindows = (prior.windowsBySource.keys + d.windowsBySource.keys)
             .associateWith { key ->
-                maxOf(
-                    prior.confidenceBySource[key] ?: 0f,
-                    d.confidenceBySource[key] ?: 0f,
-                )
+                (prior.windowsBySource[key] ?: 0) + (d.windowsBySource[key] ?: 0)
+            }
+        val mergedFirstSeen = (prior.firstSeenBySource.keys + d.firstSeenBySource.keys)
+            .associateWith { key ->
+                minOf(prior.firstSeenBySource[key] ?: Long.MAX_VALUE, d.firstSeenBySource[key] ?: Long.MAX_VALUE)
+            }
+        val mergedLastSeen = (prior.lastSeenBySource.keys + d.lastSeenBySource.keys)
+            .associateWith { key ->
+                maxOf(prior.lastSeenBySource[key] ?: 0L, d.lastSeenBySource[key] ?: 0L)
             }
         byName[d.taxonScientificName] = AggregatedDetection(
             taxonScientificName = d.taxonScientificName,
@@ -1126,7 +1140,10 @@ internal fun mergeBySpecies(
             detectedWindows = prior.detectedWindows + d.detectedWindows,
             firstSeenMs = minOf(prior.firstSeenMs, d.firstSeenMs),
             lastSeenMs = maxOf(prior.lastSeenMs, d.lastSeenMs),
-            confidenceBySource = mergedSources,
+            confidenceBySource  = mergedSources,
+            windowsBySource     = mergedWindows,
+            firstSeenBySource   = mergedFirstSeen,
+            lastSeenBySource    = mergedLastSeen,
         )
     }
     return byName.values.sortedByDescending { it.maxConfidence }

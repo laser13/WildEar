@@ -28,8 +28,9 @@ data class DetectionEntity(
     val lastSeenMs: Long,
     val isSelectedByUser: Boolean,
     /**
-     * Per-source max confidence serialised as `"src1=0.85;src2=0.62"`. `null`
-     * for rows written before v4 (legacy single-model path).
+     * Per-source detection stats serialised as `"src1=conf:windows:firstMs:lastMs;src2=…"`.
+     * `null` for rows written before v4. Old v4 rows have `"src=conf"` only (no colon fields);
+     * [com.sound2inat.inference.SourceStats.decode] returns empty map for those (backward-compat).
      */
     val sources: String? = null,
     /**

@@ -2,7 +2,8 @@ package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.inference.AggregatedDetection
-import com.sound2inat.inference.SourceConfidences
+import com.sound2inat.inference.SourceStat
+import com.sound2inat.inference.SourceStats
 import com.sound2inat.inference.WindowPrediction
 import com.sound2inat.storage.DetectionDao
 import com.sound2inat.storage.DetectionEntity
@@ -389,7 +390,7 @@ class ReviewViewModelTest {
                             firstSeenMs = 0L,
                             lastSeenMs = 3_000L,
                             isSelectedByUser = false,
-                            sources = SourceConfidences.encode(mapOf("birdnet_v2_4" to 0.81f)),
+                            sources = SourceStats.encode(mapOf("birdnet_v2_4" to SourceStat(0.81f, 3, 0L, 3_000L))),
                         ),
                     ),
                 )
@@ -430,7 +431,7 @@ class ReviewViewModelTest {
                             firstSeenMs = 1_000L,
                             lastSeenMs = 4_000L,
                             isSelectedByUser = false,
-                            sources = SourceConfidences.encode(mapOf("perch_v2" to 0.7f)),
+                            sources = SourceStats.encode(mapOf("perch_v2" to SourceStat(0.7f, 2, 1_000L, 4_000L))),
                         ),
                     ),
                 )
@@ -467,7 +468,7 @@ class ReviewViewModelTest {
                             firstSeenMs = 0L,
                             lastSeenMs = 3_000L,
                             isSelectedByUser = false,
-                            sources = SourceConfidences.encode(mapOf("birdnet_v2_4" to 0.81f)),
+                            sources = SourceStats.encode(mapOf("birdnet_v2_4" to SourceStat(0.81f, 3, 0L, 3_000L))),
                         ),
                     ),
                 )
@@ -730,6 +731,44 @@ class ReviewViewModelTest {
             assertThat(fetchCount).isEqualTo(1)
             val row = vm.state.value.species.first { it.detectionId == 55L }
             assertThat(row.observationDetailState).isInstanceOf(ObservationDetailLoadState.Loaded::class.java)
+        }
+
+    @Test
+    fun `mergeBySpecies propagates per-source windows and time bounds`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val existing = listOf(
+                AggregatedDetection(
+                    taxonScientificName = "Parus major",
+                    taxonCommonName = null,
+                    maxConfidence = 0.85f,
+                    detectedWindows = 2,
+                    firstSeenMs = 0L,
+                    lastSeenMs = 6_000L,
+                    confidenceBySource  = mapOf("birdnet_v2_4" to 0.85f),
+                    windowsBySource     = mapOf("birdnet_v2_4" to 2),
+                    firstSeenBySource   = mapOf("birdnet_v2_4" to 0L),
+                    lastSeenBySource    = mapOf("birdnet_v2_4" to 6_000L),
+                ),
+            )
+            val incoming = listOf(
+                AggregatedDetection(
+                    taxonScientificName = "Parus major",
+                    taxonCommonName = null,
+                    maxConfidence = 0.62f,
+                    detectedWindows = 1,
+                    firstSeenMs = 3_000L,
+                    lastSeenMs = 8_000L,
+                    confidenceBySource  = mapOf("perch_v2" to 0.62f),
+                    windowsBySource     = mapOf("perch_v2" to 1),
+                    firstSeenBySource   = mapOf("perch_v2" to 3_000L),
+                    lastSeenBySource    = mapOf("perch_v2" to 8_000L),
+                ),
+            )
+            val result = mergeBySpecies(existing, incoming).first()
+
+            assertThat(result.windowsBySource).containsExactly("birdnet_v2_4", 2, "perch_v2", 1)
+            assertThat(result.firstSeenBySource).containsExactly("birdnet_v2_4", 0L, "perch_v2", 3_000L)
+            assertThat(result.lastSeenBySource).containsExactly("birdnet_v2_4", 6_000L, "perch_v2", 8_000L)
         }
 
     @Test
