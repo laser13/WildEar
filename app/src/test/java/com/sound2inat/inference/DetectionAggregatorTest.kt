@@ -66,7 +66,7 @@ class DetectionAggregatorTest {
         val agg2 = DetectionAggregator(minConfidence = 0.10f, minWindows = 2)
         val preds = listOf(
             wp(0, 3_000, "Parus major", 0.8f),
-            wp(1_000, 4_000, "Parus major", 0.6f),   // 2 windows — passes
+            wp(1_000, 4_000, "Parus major", 0.6f), // 2 windows — passes
             wp(0, 3_000, "Sylvia atricapilla", 0.9f), // 1 window — filtered
         )
         val out = agg2.aggregate(preds).map { it.taxonScientificName }
@@ -162,6 +162,33 @@ class DetectionAggregatorTest {
         val out = agg.aggregate(preds).first()
         val starts = out.fragmentRanges.map { it.startMs }
         assertThat(starts).containsExactly(0L, 1_000L, 2_000L).inOrder()
+    }
+
+    @Test
+    fun `per-source maps populated from source-tagged predictions`() {
+        val preds = listOf(
+            WindowPrediction(0L,     3_000L, "Parus major", null, 0.85f, "birdnet_v2_4"),
+            WindowPrediction(3_000L, 6_000L, "Parus major", null, 0.70f, "birdnet_v2_4"),
+            WindowPrediction(1_000L, 6_000L, "Parus major", null, 0.62f, "perch_v2"),
+        )
+        val out = DetectionAggregator(minConfidence = 0.10f).aggregate(preds).first()
+
+        assertThat(out.windowsBySource).containsExactly("birdnet_v2_4", 2, "perch_v2", 1)
+        assertThat(out.firstSeenBySource).containsExactly("birdnet_v2_4", 0L, "perch_v2", 1_000L)
+        assertThat(out.lastSeenBySource).containsExactly("birdnet_v2_4", 6_000L, "perch_v2", 6_000L)
+    }
+
+    @Test
+    fun `per-source maps empty when all predictions have no source tag`() {
+        val preds = listOf(
+            wp(0L, 3_000L, "Parus major", 0.8f),  // source = "" (default wp helper)
+            wp(1_000L, 4_000L, "Parus major", 0.6f),
+        )
+        val out = DetectionAggregator(minConfidence = 0.10f).aggregate(preds).first()
+
+        assertThat(out.windowsBySource).isEmpty()
+        assertThat(out.firstSeenBySource).isEmpty()
+        assertThat(out.lastSeenBySource).isEmpty()
     }
 
     private fun wp(s: Long, e: Long, t: String, c: Float) =

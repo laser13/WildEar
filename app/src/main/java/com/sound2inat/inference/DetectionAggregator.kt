@@ -35,22 +35,26 @@ class DetectionAggregator(
             .filter { isLivingTaxon(it.taxonScientificName) }
             .groupBy { it.taxonScientificName }
             .map { (taxon, items) ->
-                val bySource = items
-                    .filter { it.source.isNotEmpty() }
-                    .groupBy { it.source }
-                    .mapValues { (_, src) -> src.maxOf { it.confidence } }
+                val groupedBySource   = items.filter { it.source.isNotEmpty() }.groupBy { it.source }
+                val bySource          = groupedBySource.mapValues { (_, src) -> src.maxOf { it.confidence } }
+                val windowsBySource   = groupedBySource.mapValues { (_, src) -> src.size }
+                val firstSeenBySource = groupedBySource.mapValues { (_, src) -> src.minOf { it.startMs } }
+                val lastSeenBySource  = groupedBySource.mapValues { (_, src) -> src.maxOf { it.endMs } }
                 val ranges = items
                     .map { FragmentRange(it.startMs, it.endMs) }
                     .sortedBy { it.startMs }
                 AggregatedDetection(
                     taxonScientificName = taxon,
-                    taxonCommonName = items.firstNotNullOfOrNull { it.taxonCommonName },
-                    maxConfidence = items.maxOf { it.confidence },
-                    detectedWindows = items.size,
-                    firstSeenMs = items.minOf { it.startMs },
-                    lastSeenMs = items.maxOf { it.endMs },
-                    confidenceBySource = bySource,
-                    fragmentRanges = ranges,
+                    taxonCommonName     = items.firstNotNullOfOrNull { it.taxonCommonName },
+                    maxConfidence       = items.maxOf { it.confidence },
+                    detectedWindows     = items.size,
+                    firstSeenMs         = items.minOf { it.startMs },
+                    lastSeenMs          = items.maxOf { it.endMs },
+                    confidenceBySource  = bySource,
+                    windowsBySource     = windowsBySource,
+                    firstSeenBySource   = firstSeenBySource,
+                    lastSeenBySource    = lastSeenBySource,
+                    fragmentRanges      = ranges,
                     aggregatedConfidence = items.map { it.confidence }.average().toFloat(),
                 )
             }

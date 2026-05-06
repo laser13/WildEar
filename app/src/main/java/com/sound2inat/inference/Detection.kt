@@ -28,6 +28,12 @@ data class AggregatedDetection(
      * unidentified source was used (e.g. legacy code paths).
      */
     val confidenceBySource: Map<String, Float> = emptyMap(),
+    /** Per-model number of windows that contributed to this detection. */
+    val windowsBySource: Map<String, Int> = emptyMap(),
+    /** Per-model earliest window start time (ms) for this detection. */
+    val firstSeenBySource: Map<String, Long> = emptyMap(),
+    /** Per-model latest window end time (ms) for this detection. */
+    val lastSeenBySource: Map<String, Long> = emptyMap(),
     val regionalStatus: RegionalStatus? = null,
     /** Individual window time ranges that contributed to this detection, sorted by startMs. */
     val fragmentRanges: List<FragmentRange> = emptyList(),
