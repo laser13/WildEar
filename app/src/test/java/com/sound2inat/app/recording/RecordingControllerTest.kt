@@ -15,7 +15,6 @@ import com.sound2inat.storage.DetectionEntity
 import com.sound2inat.storage.DraftDao
 import com.sound2inat.storage.DraftEntity
 import com.sound2inat.storage.DraftRepository
-import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.WavFileStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -86,7 +85,7 @@ class RecordingControllerTest {
         val recorder = FakeRecorder()
         val ctrl = build(recorder = recorder)
         ctrl.start()
-        ctrl.start()  // second call must be no-op
+        ctrl.start() // second call must be no-op
         assertThat(recorder.startCount).isEqualTo(1)
         ctrl.cancel()
     }
@@ -199,6 +198,7 @@ private object StubBioModel : BioacousticModel {
     override val expectedSampleRateHz: Int = 48_000
     override val windowMs: Long = 3_000L
     override suspend fun load(modelFile: File, labelsFile: File) = Unit
+
     @Suppress("LongParameterList")
     override suspend fun predict(
         pcmFloat32: FloatArray,
@@ -259,4 +259,6 @@ private class FakeDetectionDao : DetectionDao {
         inserted.removeAll { it.draftId == draftId }
         return before - inserted.size
     }
+    override fun observeCountsByDraft(): kotlinx.coroutines.flow.Flow<List<com.sound2inat.storage.DraftDetectionCount>> =
+        kotlinx.coroutines.flow.flowOf(emptyList())
 }

@@ -88,6 +88,8 @@ class SettingsViewModelTest {
             writeYamNetGateEnabled = {},
             birdNetMetaEnabledFlow = MutableStateFlow(true),
             writeBirdNetMetaEnabled = {},
+            allowDeleteUploadedFlow = MutableStateFlow(false),
+            writeAllowDeleteUploaded = {},
             externalScope = backgroundScope,
         )
         val sections = vm.state.value.sections.associateBy { it.modelId }
@@ -103,7 +105,10 @@ class SettingsViewModelTest {
         val vm = build(
             initial = ModelInstallState.NotInstalled,
             regionalFilterEnabledFlow = flow,
-            writeRegionalFilterEnabled = { captured += it; flow.value = it },
+            writeRegionalFilterEnabled = {
+                captured += it
+                flow.value = it
+            },
             scope = backgroundScope,
         )
         vm.setRegionalFilterEnabled(false)
@@ -118,7 +123,10 @@ class SettingsViewModelTest {
         val vm = build(
             initial = ModelInstallState.NotInstalled,
             regionRadiusKmFlow = flow,
-            writeRegionRadiusKm = { captured += it; flow.value = it },
+            writeRegionRadiusKm = {
+                captured += it
+                flow.value = it
+            },
             scope = backgroundScope,
         )
         vm.setRegionRadiusKm(350)
@@ -133,7 +141,10 @@ class SettingsViewModelTest {
         val vm = build(
             initial = ModelInstallState.NotInstalled,
             minWindowsFlow = flow,
-            writeMinWindows = { captured += it; flow.value = it },
+            writeMinWindows = {
+                captured += it
+                flow.value = it
+            },
             scope = backgroundScope,
         )
         vm.setMinWindows(5)
@@ -148,7 +159,10 @@ class SettingsViewModelTest {
         val vm = build(
             initial = ModelInstallState.NotInstalled,
             spectralSubtractionEnabledFlow = flow,
-            writeSpectralSubtractionEnabled = { captured += it; flow.value = it },
+            writeSpectralSubtractionEnabled = {
+                captured += it
+                flow.value = it
+            },
             scope = backgroundScope,
         )
         vm.setSpectralSubtractionEnabled(false)
@@ -163,7 +177,10 @@ class SettingsViewModelTest {
         val vm = build(
             initial = ModelInstallState.NotInstalled,
             yamNetGateEnabledFlow = flow,
-            writeYamNetGateEnabled = { captured += it; flow.value = it },
+            writeYamNetGateEnabled = {
+                captured += it
+                flow.value = it
+            },
             scope = backgroundScope,
         )
         vm.setYamNetGateEnabled(false)
@@ -178,7 +195,10 @@ class SettingsViewModelTest {
         val vm = build(
             initial = ModelInstallState.NotInstalled,
             birdNetMetaEnabledFlow = flow,
-            writeBirdNetMetaEnabled = { captured += it; flow.value = it },
+            writeBirdNetMetaEnabled = {
+                captured += it
+                flow.value = it
+            },
             scope = backgroundScope,
         )
         vm.setBirdNetMetaEnabled(false)
@@ -225,6 +245,8 @@ class SettingsViewModelTest {
         writeYamNetGateEnabled = writeYamNetGateEnabled,
         birdNetMetaEnabledFlow = birdNetMetaEnabledFlow,
         writeBirdNetMetaEnabled = writeBirdNetMetaEnabled,
+        allowDeleteUploadedFlow = MutableStateFlow(false),
+        writeAllowDeleteUploaded = {},
         externalScope = scope,
     )
 }

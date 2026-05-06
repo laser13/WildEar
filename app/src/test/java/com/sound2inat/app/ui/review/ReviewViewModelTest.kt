@@ -597,17 +597,21 @@ class ReviewViewModelTest {
                 insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
             }
             val detectionDao = FakeDetectionDao().apply {
-                insertAll(listOf(DetectionEntity(
-                    id = 99L,
-                    draftId = draftId,
-                    taxonScientificName = "Parus major",
-                    taxonCommonName = null,
-                    maxConfidence = 0.9f,
-                    detectedWindows = 1,
-                    firstSeenMs = 0L,
-                    lastSeenMs = 1_000L,
-                    isSelectedByUser = false,
-                )))
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 99L,
+                            draftId = draftId,
+                            taxonScientificName = "Parus major",
+                            taxonCommonName = null,
+                            maxConfidence = 0.9f,
+                            detectedWindows = 1,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 1_000L,
+                            isSelectedByUser = false,
+                        )
+                    )
+                )
             }
             val repo = repo(draftDao, detectionDao)
             val expectedDetail = com.sound2inat.inat.ObservationDetail(
@@ -646,17 +650,21 @@ class ReviewViewModelTest {
                 insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
             }
             val detectionDao = FakeDetectionDao().apply {
-                insertAll(listOf(DetectionEntity(
-                    id = 77L,
-                    draftId = draftId,
-                    taxonScientificName = "Apus apus",
-                    taxonCommonName = null,
-                    maxConfidence = 0.8f,
-                    detectedWindows = 1,
-                    firstSeenMs = 0L,
-                    lastSeenMs = 1_000L,
-                    isSelectedByUser = false,
-                )))
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 77L,
+                            draftId = draftId,
+                            taxonScientificName = "Apus apus",
+                            taxonCommonName = null,
+                            maxConfidence = 0.8f,
+                            detectedWindows = 1,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 1_000L,
+                            isSelectedByUser = false,
+                        )
+                    )
+                )
             }
             val repo = repo(draftDao, detectionDao)
             val vm = ReviewViewModel(
@@ -686,17 +694,21 @@ class ReviewViewModelTest {
                 insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
             }
             val detectionDao = FakeDetectionDao().apply {
-                insertAll(listOf(DetectionEntity(
-                    id = 55L,
-                    draftId = draftId,
-                    taxonScientificName = "Turdus merula",
-                    taxonCommonName = null,
-                    maxConfidence = 0.85f,
-                    detectedWindows = 1,
-                    firstSeenMs = 0L,
-                    lastSeenMs = 1_000L,
-                    isSelectedByUser = false,
-                )))
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 55L,
+                            draftId = draftId,
+                            taxonScientificName = "Turdus merula",
+                            taxonCommonName = null,
+                            maxConfidence = 0.85f,
+                            detectedWindows = 1,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 1_000L,
+                            isSelectedByUser = false,
+                        )
+                    )
+                )
             }
             val repo = repo(draftDao, detectionDao)
             var fetchCount = 0
@@ -728,17 +740,21 @@ class ReviewViewModelTest {
                 insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
             }
             val detectionDao = FakeDetectionDao().apply {
-                insertAll(listOf(DetectionEntity(
-                    id = 33L,
-                    draftId = draftId,
-                    taxonScientificName = "Hirundo rustica",
-                    taxonCommonName = null,
-                    maxConfidence = 0.75f,
-                    detectedWindows = 1,
-                    firstSeenMs = 0L,
-                    lastSeenMs = 1_000L,
-                    isSelectedByUser = false,
-                )))
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 33L,
+                            draftId = draftId,
+                            taxonScientificName = "Hirundo rustica",
+                            taxonCommonName = null,
+                            maxConfidence = 0.75f,
+                            detectedWindows = 1,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 1_000L,
+                            isSelectedByUser = false,
+                        )
+                    )
+                )
             }
             val repo = repo(draftDao, detectionDao)
             val vm = ReviewViewModel(
@@ -862,4 +878,6 @@ private class FakeDetectionDao : DetectionDao {
         emitter.value = rows.toList()
         return before - rows.size
     }
+    override fun observeCountsByDraft(): kotlinx.coroutines.flow.Flow<List<com.sound2inat.storage.DraftDetectionCount>> =
+        kotlinx.coroutines.flow.flowOf(emptyList())
 }
