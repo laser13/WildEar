@@ -62,10 +62,10 @@ class InferenceRunner(
             var window = filtered.copyOfRange(s, s + win)
             window = spectralSubtractor?.process(window) ?: window
             _progress.value = (f + 1).toFloat() / frames
-            if (yamNetGate?.isBiological(window, targetRate) == false) continue
+            val gateResult = yamNetGate?.classify(window, targetRate)  // null = fail-open → PASS
             val startMs = (s.toLong() * MS_PER_SECOND_LONG) / targetRate
             val endMs = ((s + win).toLong() * MS_PER_SECOND_LONG) / targetRate
-            out += model.predict(
+            val predictions = model.predict(
                 pcmFloat32 = window,
                 sampleRateHz = targetRate,
                 latitude = latitude,
@@ -74,6 +74,14 @@ class InferenceRunner(
                 windowStartMs = startMs,
                 windowEndMs = endMs,
             )
+            // Gate is soft: DOWNRANK only filters when no species has high confidence.
+            // null (fail-open) or PASS always includes results; DOWNRANK is overridden
+            // when at least one prediction has confidence >= HIGH_CONFIDENCE_OVERRIDE.
+            if (gateResult?.recommendation == GateRecommendation.DOWNRANK) {
+                val hasHighConfidence = predictions.any { it.confidence >= HIGH_CONFIDENCE_OVERRIDE }
+                if (!hasHighConfidence) continue
+            }
+            out += predictions
         }
         return out
     }
@@ -81,6 +89,8 @@ class InferenceRunner(
     private companion object {
         const val MS_PER_SECOND = 1_000f
         const val MS_PER_SECOND_LONG = 1_000L
+        /** If any prediction has confidence >= this, override a DOWNRANK gate decision. */
+        const val HIGH_CONFIDENCE_OVERRIDE = 0.7f
     }
 }
 

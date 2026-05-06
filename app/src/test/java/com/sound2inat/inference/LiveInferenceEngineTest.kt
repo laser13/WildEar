@@ -84,8 +84,8 @@ class LiveInferenceEngineTest {
     }
 
     @Test
-    fun `gate rejection skips model prediction`() = runTest(UnconfinedTestDispatcher()) {
-        var modelCalls = 0
+    fun `DOWNRANK gate with low-confidence model suppresses predictions`() = runTest(UnconfinedTestDispatcher()) {
+        val emitted = mutableListOf<WindowPrediction>()
         val model = object : BioacousticModel {
             override val modelId = "fake"
             override val modelVersion = "0"
@@ -96,23 +96,36 @@ class LiveInferenceEngineTest {
                 pcmFloat32: FloatArray, sampleRateHz: Int,
                 latitude: Double?, longitude: Double?, observedAtMillis: Long,
                 windowStartMs: Long, windowEndMs: Long,
-            ): List<WindowPrediction> { modelCalls++; return emptyList() }
+            ): List<WindowPrediction> = listOf(
+                WindowPrediction(
+                    startMs = windowStartMs, endMs = windowEndMs,
+                    taxonScientificName = "Fakus testus", taxonCommonName = null,
+                    confidence = 0.30f,  // below 0.7 HIGH_CONFIDENCE_OVERRIDE
+                )
+            )
             override fun close() {}
         }
-        val rejectingGate = object : YamNetGate {
-            override suspend fun isBiological(pcmFloat32: FloatArray, sampleRateHz: Int) = false
+        // Gate returns DOWNRANK — low-confidence predictions should be suppressed
+        val downrankGate = YamNetGate { _, _ ->
+            YamNetGateResult(
+                biologicalScore = 0.02f,
+                backgroundScore = 0.85f,
+                recommendation = GateRecommendation.DOWNRANK,
+            )
         }
         val engine = LiveInferenceEngine(
-            model = model, yamNetGate = rejectingGate, spectralSubtractor = null, applyHighPass = false,
+            model = model, yamNetGate = downrankGate, spectralSubtractor = null, applyHighPass = false,
             sampleRateHz = sampleRateHz, windowSamples = windowSamples, hopSamples = hopSamples,
         )
         engine.start(backgroundScope)
+        val collector = backgroundScope.launch { engine.predictions.collect { emitted += it } }
         engine.feed(FloatArray(windowSamples) { 0.1f })
         runCurrent()
         engine.stop()
         runCurrent()
 
-        assertThat(modelCalls).isEqualTo(0)
+        assertThat(emitted).isEmpty()
+        collector.cancel()
     }
 
     @Test

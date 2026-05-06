@@ -134,13 +134,19 @@ open class LiveInferenceEngine(
         var samples = w.samples
         if (applyHighPass) samples = highPassFilter(samples, sampleRateHz)
         spectralSubtractor?.let { samples = it.process(samples) }
-        if (yamNetGate?.isBiological(samples, sampleRateHz) == false) return
+        val gateResult = yamNetGate?.classify(samples, sampleRateHz)  // null = fail-open → PASS
         val preds = model.predict(
             pcmFloat32 = samples,
             sampleRateHz = sampleRateHz,
             latitude = null, longitude = null, observedAtMillis = 0L,
             windowStartMs = w.startMs, windowEndMs = w.endMs,
         )
+        // Gate is soft: DOWNRANK only suppresses when no species has high confidence.
+        // null (fail-open) or PASS always emits; DOWNRANK is overridden when at least
+        // one prediction has confidence >= HIGH_CONFIDENCE_OVERRIDE.
+        if (gateResult?.recommendation == GateRecommendation.DOWNRANK) {
+            if (preds.none { it.confidence >= HIGH_CONFIDENCE_OVERRIDE }) return
+        }
         for (p in preds) _predictions.tryEmit(p)
     }
 
@@ -160,6 +166,8 @@ open class LiveInferenceEngine(
         private const val TAG = "LiveInferenceEngine"
         private const val BACKLOG_WARN = 3
         private const val DRAIN_TIMEOUT_MS = 5_000L
+        /** If any prediction has confidence >= this, override a DOWNRANK gate decision. */
+        private const val HIGH_CONFIDENCE_OVERRIDE = 0.7f
     }
 }
 

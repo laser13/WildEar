@@ -128,16 +128,22 @@ class InferenceRunnerTest {
     }
 
     @Test
-    fun `gate returning false skips all windows — no model predictions`() = runTest {
+    fun `gate returning DOWNRANK skips all windows when model confidence is low`() = runTest {
         val wav = writeSilentWav(durationSeconds = 5)
-        val model = RecordingFakeModel()
-        val alwaysSkipGate = YamNetGate { _, _ -> false }
-        val runner = InferenceRunner(model, hopSeconds = 1f, yamNetGate = alwaysSkipGate)
+        val model = RecordingFakeModel()  // returns confidence 0.5, below 0.7 override threshold
+        val alwaysDownrankGate = YamNetGate { _, _ ->
+            YamNetGateResult(
+                biologicalScore = 0.02f,
+                backgroundScore = 0.85f,
+                recommendation = GateRecommendation.DOWNRANK,
+            )
+        }
+        val runner = InferenceRunner(model, hopSeconds = 1f, yamNetGate = alwaysDownrankGate)
 
         val out = runner.run(wav, latitude = null, longitude = null, observedAtMillis = 0L)
 
+        // No predictions emitted — DOWNRANK + confidence 0.5 < 0.7 override threshold
         assertThat(out).isEmpty()
-        assertThat(model.calls).isEmpty()
         assertThat(runner.progress.value).isEqualTo(1.0f)
     }
 }

@@ -9,10 +9,13 @@ import java.io.File
 
 /**
  * YAMNet-based biological gate. Resamples each window to 16 kHz, splits into
- * 0.975 s frames, runs YAMNet TFLite, and returns false only when the maximum
- * biological class score across all frames is < 0.15 AND at least one frame
- * has a known noise class as its top-1 prediction with bio score < 0.15.
- * Fail-open: any error or missing model returns true.
+ * 0.975 s frames, runs YAMNet TFLite, and returns a [YamNetGateResult] with:
+ *   - [YamNetGateResult.biologicalScore]: max bio class probability across frames
+ *   - [YamNetGateResult.backgroundScore]: max noise class probability across frames
+ *   - [YamNetGateResult.recommendation]: PASS if bio score >= threshold or no
+ *     frame has an obvious noise top-1 with low bio score; DOWNRANK otherwise
+ *
+ * Fail-open: any error or missing model returns null (callers treat null as PASS).
  */
 class YamNetTfliteGate(
     private val factory: InterpreterFactory,
@@ -24,16 +27,17 @@ class YamNetTfliteGate(
     private var bioIndices: Set<Int> = emptySet()
     private var noiseIndices: Set<Int> = emptySet()
 
-    override suspend fun isBiological(pcmFloat32: FloatArray, sampleRateHz: Int): Boolean =
-        runCatching { isBiologicalInternal(pcmFloat32, sampleRateHz) }.getOrDefault(true)
+    override suspend fun classify(pcmFloat32: FloatArray, sampleRateHz: Int): YamNetGateResult? =
+        runCatching { classifyInternal(pcmFloat32, sampleRateHz) }.getOrNull()
 
     @Suppress("ReturnCount")
-    private suspend fun isBiologicalInternal(pcmFloat32: FloatArray, sampleRateHz: Int): Boolean {
+    private suspend fun classifyInternal(pcmFloat32: FloatArray, sampleRateHz: Int): YamNetGateResult? {
         ensureLoaded()
-        val interp = interpreter ?: return true  // model not installed yet — fail open
+        val interp = interpreter ?: return null  // model not installed yet — fail open
         val resampled = resampleTo16k(pcmFloat32, sampleRateHz)
 
         var maxBioScore = 0f
+        var maxNoiseScore = 0f
         var anyNoiseTopWithLowBio = false
         var frameStart = 0
         while (frameStart < resampled.size) {
@@ -47,12 +51,20 @@ class YamNetTfliteGate(
             val probs = output[0]
 
             val bioScore = bioIndices.maxOfOrNull { probs[it] } ?: 0f
+            val noiseScore = noiseIndices.maxOfOrNull { probs[it] } ?: 0f
             val topClass = probs.indices.maxByOrNull { probs[it] } ?: 0
             if (bioScore > maxBioScore) maxBioScore = bioScore
+            if (noiseScore > maxNoiseScore) maxNoiseScore = noiseScore
             if (topClass in noiseIndices && bioScore < BIO_THRESHOLD) anyNoiseTopWithLowBio = true
             frameStart += YAMNET_FRAME_SIZE
         }
-        return !(maxBioScore < BIO_THRESHOLD && anyNoiseTopWithLowBio)
+        val passes = !(maxBioScore < BIO_THRESHOLD && anyNoiseTopWithLowBio)
+        val recommendation = if (passes) GateRecommendation.PASS else GateRecommendation.DOWNRANK
+        return YamNetGateResult(
+            biologicalScore = maxBioScore,
+            backgroundScore = maxNoiseScore,
+            recommendation = recommendation,
+        )
     }
 
     private suspend fun ensureLoaded() = mutex.withLock {
