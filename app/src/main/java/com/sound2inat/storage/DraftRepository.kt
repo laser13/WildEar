@@ -2,7 +2,8 @@ package com.sound2inat.storage
 
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.FragmentRanges
-import com.sound2inat.inference.SourceConfidences
+import com.sound2inat.inference.SourceStat
+import com.sound2inat.inference.SourceStats
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -119,7 +120,16 @@ class DraftRepository(
                         firstSeenMs = it.firstSeenMs,
                         lastSeenMs = it.lastSeenMs,
                         isSelectedByUser = false,
-                        sources = SourceConfidences.encode(it.confidenceBySource),
+                        sources = SourceStats.encode(
+                            it.confidenceBySource.mapValues { (src, conf) ->
+                                SourceStat(
+                                    maxConf     = conf,
+                                    windows     = it.windowsBySource[src]   ?: 0,
+                                    firstSeenMs = it.firstSeenBySource[src] ?: it.firstSeenMs,
+                                    lastSeenMs  = it.lastSeenBySource[src]  ?: it.lastSeenMs,
+                                )
+                            }
+                        ),
                         fragmentRanges = FragmentRanges.encode(it.fragmentRanges),
                         aggregatedConfidence = it.aggregatedConfidence,
                     )
@@ -157,7 +167,16 @@ class DraftRepository(
                         firstSeenMs = it.firstSeenMs,
                         lastSeenMs = it.lastSeenMs,
                         isSelectedByUser = false,
-                        sources = SourceConfidences.encode(it.confidenceBySource),
+                        sources = SourceStats.encode(
+                            it.confidenceBySource.mapValues { (src, conf) ->
+                                SourceStat(
+                                    maxConf     = conf,
+                                    windows     = it.windowsBySource[src]   ?: 0,
+                                    firstSeenMs = it.firstSeenBySource[src] ?: it.firstSeenMs,
+                                    lastSeenMs  = it.lastSeenBySource[src]  ?: it.lastSeenMs,
+                                )
+                            }
+                        ),
                         fragmentRanges = FragmentRanges.encode(it.fragmentRanges),
                         aggregatedConfidence = it.aggregatedConfidence,
                     )

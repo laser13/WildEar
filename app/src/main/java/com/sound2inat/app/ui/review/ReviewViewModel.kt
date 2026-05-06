@@ -5,20 +5,19 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import javax.inject.Singleton
 import com.sound2inat.app.data.Settings
 import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.ObservationDetail
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inference.AggregatedDetection
-import com.sound2inat.inference.FragmentRanges
-import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.BirdNetMetaModel
 import com.sound2inat.inference.DetectionAggregator
+import com.sound2inat.inference.FragmentRanges
 import com.sound2inat.inference.InferenceRunner
-import com.sound2inat.inference.SourceConfidences
+import com.sound2inat.inference.RegionalStatus
+import com.sound2inat.inference.SourceStats
 import com.sound2inat.inference.SpectralSubtractor
 import com.sound2inat.inference.WavReader
 import com.sound2inat.inference.WindowPrediction
@@ -51,6 +50,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Calendar
 import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Result of a single inference invocation. Either [Success] with the
@@ -356,7 +356,7 @@ class ReviewViewModel(
                             firstSeenMs = e.firstSeenMs,
                             lastSeenMs = e.lastSeenMs,
                             isSelected = e.isSelectedByUser,
-                            confidenceBySource = SourceConfidences.decode(e.sources),
+                            confidenceBySource = SourceStats.decodeConfidenceOnly(e.sources),
                             taxonPhotoUrl = photoUrlCache[e.taxonScientificName],
                             regionalStatus = regionalStatusCache[e.taxonScientificName],
                             observationDetailState = prevDetailStates[e.id] ?: ObservationDetailLoadState.NotLoaded,
@@ -388,7 +388,11 @@ class ReviewViewModel(
                         Log.d("ReviewVM", "annotation triggered: newNames=$newNames cachedNames=$cachedNames")
                         launchAnnotation(rows, lat, lon)
                     } else {
-                        Log.d("ReviewVM", "annotation skipped (inference=$inferenceRunning empty=${newNames.isEmpty()} same=${newNames == cachedNames})")
+                        Log.d(
+                            "ReviewVM",
+                            "annotation skipped (inference=$inferenceRunning" +
+                                " empty=${newNames.isEmpty()} same=${newNames == cachedNames})"
+                        )
                     }
                 } else {
                     Log.d("ReviewVM", "annotation skipped: lat=$lat lon=$lon (no GPS)")
@@ -487,52 +491,77 @@ class ReviewViewModel(
         if (observationDetailCache.containsKey(idOrUuid)) {
             val cached = observationDetailCache[idOrUuid]
             _state.update { s ->
-                s.copy(species = s.species.map { row ->
-                    if (row.detectionId == detectionId) row.copy(
-                        observationDetailState = if (cached != null)
-                            ObservationDetailLoadState.Loaded(cached)
-                        else
-                            ObservationDetailLoadState.Error("Observation not available"),
-                    ) else row
-                })
+                s.copy(
+                    species = s.species.map { row ->
+                        if (row.detectionId == detectionId) {
+                            row.copy(
+                                observationDetailState = if (cached != null) {
+                                    ObservationDetailLoadState.Loaded(cached)
+                                } else {
+                                    ObservationDetailLoadState.Error("Observation not available")
+                                },
+                            )
+                        } else {
+                            row
+                        }
+                    }
+                )
             }
             return
         }
 
         _state.update { s ->
-            s.copy(species = s.species.map { row ->
-                if (row.detectionId == detectionId) row.copy(
-                    observationDetailState = ObservationDetailLoadState.Loading,
-                ) else row
-            })
+            s.copy(
+                species = s.species.map { row ->
+                    if (row.detectionId == detectionId) {
+                        row.copy(
+                            observationDetailState = ObservationDetailLoadState.Loading,
+                        )
+                    } else {
+                        row
+                    }
+                }
+            )
         }
 
         scope.launch {
             val detail = runCatching { observationFetcher(idOrUuid) }.getOrNull()
-            observationDetailCache[idOrUuid] = detail
+            if (detail != null) observationDetailCache[idOrUuid] = detail
             _state.update { s ->
-                s.copy(species = s.species.map { row ->
-                    if (row.detectionId == detectionId &&
-                        row.observationDetailState is ObservationDetailLoadState.Loading) {
-                        row.copy(
-                            observationDetailState = if (detail != null)
-                                ObservationDetailLoadState.Loaded(detail)
-                            else
-                                ObservationDetailLoadState.Error("Could not load observation details"),
-                        )
-                    } else row
-                })
+                s.copy(
+                    species = s.species.map { row ->
+                        if (row.detectionId == detectionId &&
+                            row.observationDetailState is ObservationDetailLoadState.Loading
+                        ) {
+                            row.copy(
+                                observationDetailState = if (detail != null) {
+                                    ObservationDetailLoadState.Loaded(detail)
+                                } else {
+                                    ObservationDetailLoadState.Error("Could not load observation details")
+                                },
+                            )
+                        } else {
+                            row
+                        }
+                    }
+                )
             }
         }
     }
 
     fun collapseObservationDetail(detectionId: Long) {
         _state.update { s ->
-            s.copy(species = s.species.map { row ->
-                if (row.detectionId == detectionId) row.copy(
-                    observationDetailState = ObservationDetailLoadState.NotLoaded,
-                ) else row
-            })
+            s.copy(
+                species = s.species.map { row ->
+                    if (row.detectionId == detectionId) {
+                        row.copy(
+                            observationDetailState = ObservationDetailLoadState.NotLoaded,
+                        )
+                    } else {
+                        row
+                    }
+                }
+            )
         }
     }
 
@@ -648,7 +677,7 @@ class ReviewViewModel(
                 detectedWindows = e.detectedWindows,
                 firstSeenMs = e.firstSeenMs,
                 lastSeenMs = e.lastSeenMs,
-                confidenceBySource = SourceConfidences.decode(e.sources),
+                confidenceBySource = SourceStats.decodeConfidenceOnly(e.sources),
                 fragmentRanges = FragmentRanges.decode(e.fragmentRanges),
                 aggregatedConfidence = e.aggregatedConfidence,
             )
@@ -923,7 +952,11 @@ class ReviewViewModel(
         }
         val wasRunning = annotationJob?.isActive == true
         annotationJob?.cancel()
-        Log.d("ReviewVM", "launchAnnotation: starting for ${rows.size} species (cancelled prev=$wasRunning): ${rows.map { it.taxonScientificName }}")
+        Log.d(
+            "ReviewVM",
+            "launchAnnotation: starting for ${rows.size} species (cancelled prev=$wasRunning):" +
+                " ${rows.map { it.taxonScientificName }}"
+        )
         annotationJob = scope.launch {
             val radiusKm = regionRadiusKmProvider()
             try {
@@ -952,7 +985,10 @@ class ReviewViewModel(
                     )
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
-                Log.d("ReviewVM", "launchAnnotation: job cancelled after annotating ${regionalStatusCache.size} species")
+                Log.d(
+                    "ReviewVM",
+                    "launchAnnotation: job cancelled after annotating ${regionalStatusCache.size} species"
+                )
                 throw e
             }
         }
@@ -1021,7 +1057,7 @@ class ReviewViewModelFactory @Inject constructor(
         perchAnalysis = ProductionPerchAnalysisJob(models, modelManager, settings, yamNetGate),
         perchInstalledProbe = {
             modelManager.stateFor(com.sound2inat.modelmanager.PerchV2.descriptor) is
-                ModelInstallState.Ready
+            ModelInstallState.Ready
         },
         regionFilter = regionFilter,
         minWindowsProvider = { settings.minWindows.first() },
