@@ -9,6 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Test-friendly audio player abstraction. The Android implementation wraps
@@ -69,34 +70,39 @@ class MediaPlayerAudioPlayer(
 
     @Suppress("TooGenericExceptionCaught")
     override fun start(path: String) {
-        try {
-            if (loadedPath != path) {
-                player?.release()
-                _position.value = 0L
-                val mp = MediaPlayer().apply {
-                    setDataSource(path)
-                    prepare()
-                    setOnCompletionListener {
-                        _isPlaying.value = false
-                        _position.value = duration.toLong()
+        scope.launch {
+            try {
+                if (loadedPath != path) {
+                    player?.release()
+                    _position.value = 0L
+                    // setDataSource + prepare both block on file IO; keep them off Main.
+                    val mp = withContext(Dispatchers.IO) {
+                        MediaPlayer().apply {
+                            setDataSource(path)
+                            prepare()
+                        }
                     }
-                    setOnErrorListener { _, what, extra ->
+                    mp.setOnCompletionListener {
+                        _isPlaying.value = false
+                        _position.value = mp.duration.toLong()
+                    }
+                    mp.setOnErrorListener { _, what, extra ->
                         _lastError.value = "MediaPlayer error $what/$extra"
                         _isPlaying.value = false
                         true
                     }
+                    player = mp
+                    loadedPath = path
+                    _durationMs.value = mp.duration.toLong()
+                    _lastError.value = null
                 }
-                player = mp
-                loadedPath = path
-                _durationMs.value = mp.duration.toLong()
-                _lastError.value = null
+                player?.start()
+                _isPlaying.value = true
+                startTicking()
+            } catch (t: Throwable) {
+                _lastError.value = t.message ?: t::class.simpleName.orEmpty()
+                _isPlaying.value = false
             }
-            player?.start()
-            _isPlaying.value = true
-            startTicking()
-        } catch (t: Throwable) {
-            _lastError.value = t.message ?: t::class.simpleName.orEmpty()
-            _isPlaying.value = false
         }
     }
 

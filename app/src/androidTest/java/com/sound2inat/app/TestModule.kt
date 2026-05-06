@@ -2,9 +2,13 @@ package com.sound2inat.app
 
 import com.sound2inat.app.di.SwappableModule
 import com.sound2inat.inference.BioacousticModel
+import com.sound2inat.inference.BirdNetMetaModel
+import com.sound2inat.inference.LiveInferenceEngineFactory
 import com.sound2inat.inference.WindowPrediction
+import com.sound2inat.inference.YamNetGate
 import com.sound2inat.location.Fix
 import com.sound2inat.location.LocationProvider
+import com.sound2inat.modelmanager.BirdNetV24
 import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
@@ -43,11 +47,34 @@ object TestSwappableModule {
     fun provideLocationProvider(): LocationProvider = FakeLocationProvider()
 
     @Provides @Singleton
-    fun provideBioacousticModel(): BioacousticModel = FakeBioacousticModel()
+    fun provideBioacousticModels(): List<BioacousticModel> = listOf(FakeBioacousticModel())
+
+    @Provides @Singleton
+    fun provideModelDescriptors(): List<ModelDescriptor> =
+        // Mirror the fake model's id so ProductionInferenceJob can pair them
+        // up; everything else (urls, sha) is irrelevant because FakeModelManager
+        // overrides stateFor() to always report Ready.
+        listOf(BirdNetV24.descriptor.copy(id = "fake_birdnet"))
 
     @Provides @Singleton
     fun provideModelManager(http: OkHttpClient): ModelManager =
         FakeModelManager(File("/dev/null"), http)
+
+    /** Bypass YAMNet in e2e tests — InferenceRunner sees null and never calls the gate. */
+    @Provides @Singleton
+    fun provideYamNetGate(): YamNetGate? = null
+
+    /** Bypass BirdNET regional priors in e2e tests — ProductionInferenceJob skips rescaling. */
+    @Provides @Singleton
+    fun provideBirdNetMeta(): BirdNetMetaModel? = null
+
+    /**
+     * Disable live inference in instrumented tests so the recorder falls back
+     * to the offline pipeline (FakeBioacousticModel) that the e2e suite relies
+     * on for deterministic species rendering.
+     */
+    @Provides
+    fun provideLiveInferenceEngineFactory(): LiveInferenceEngineFactory? = null
 }
 
 /**
@@ -58,6 +85,8 @@ object TestSwappableModule {
 class FakeRecorder : Recorder {
     private val _rms = MutableStateFlow(0f)
     override val rmsLevel: StateFlow<Float> = _rms
+    private val _rmsHistory = MutableStateFlow(FloatArray(0))
+    override val rmsHistory: StateFlow<FloatArray> = _rmsHistory
 
     private var target: File? = null
     private var startMs: Long = 0L
@@ -144,6 +173,8 @@ class FakeLocationProvider : LocationProvider {
 class FakeBioacousticModel : BioacousticModel {
     override val modelId: String = "fake_birdnet"
     override val modelVersion: String = "0.0-test"
+    override val expectedSampleRateHz: Int = 48_000
+    override val windowMs: Long = 3_000L
 
     override suspend fun load(modelFile: File, labelsFile: File) = Unit
 
@@ -189,7 +220,7 @@ class FakeModelManager(filesDir: File, http: OkHttpClient) : ModelManager(filesD
     private val stubModel: File = File.createTempFile("fake_model", ".tflite").apply { deleteOnExit() }
     private val stubLabels: File = File.createTempFile("fake_labels", ".txt").apply { deleteOnExit() }
 
-    override fun stateFor(descriptor: ModelDescriptor): ModelInstallState =
+    override suspend fun stateFor(descriptor: ModelDescriptor): ModelInstallState =
         ModelInstallState.Ready(stubModel, stubLabels)
 
     override suspend fun install(

@@ -16,12 +16,15 @@ import java.io.File
 class SettingsViewModelTest {
     private val descriptor = BirdNetV24.descriptor
 
+    private fun firstSection(vm: SettingsViewModel): ModelSection =
+        vm.state.value.sections.first { it.modelId == descriptor.id }
+
     @Test
     fun `initial state reflects descriptor and current install state`() = runTest(UnconfinedTestDispatcher()) {
         val vm = build(initial = ModelInstallState.NotInstalled, scope = backgroundScope)
-        val s = vm.state.value
-        assertThat(s.modelLicense).isEqualTo(descriptor.license)
-        assertThat(s.modelInstall).isInstanceOf(ModelInstallState.NotInstalled::class.java)
+        val sec = firstSection(vm)
+        assertThat(sec.license).isEqualTo(descriptor.license)
+        assertThat(sec.install).isInstanceOf(ModelInstallState.NotInstalled::class.java)
     }
 
     @Test
@@ -38,52 +41,212 @@ class SettingsViewModelTest {
             install = { _, emit -> emissions.forEach(emit) },
             scope = backgroundScope,
         )
-        vm.confirmInstall()
-        assertThat(vm.state.value.modelInstall).isEqualTo(ready)
-        assertThat(vm.state.value.installProgress).isNull()
+        vm.confirmInstall(descriptor.id)
+        val sec = firstSection(vm)
+        assertThat(sec.install).isEqualTo(ready)
+        assertThat(sec.installProgress).isNull()
     }
 
     @Test
-    fun `setTopK propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
-        val captured = mutableListOf<Int>()
-        val topKFlow = MutableStateFlow(5)
+    fun `remove transitions section state to NotInstalled`() = runTest(UnconfinedTestDispatcher()) {
+        val ready = ModelInstallState.Ready(File("/m"), File("/l"))
+        val vm = build(initial = ready, scope = backgroundScope)
+        assertThat(firstSection(vm).install).isEqualTo(ready)
+        vm.remove(descriptor.id)
+        assertThat(firstSection(vm).install).isEqualTo(ModelInstallState.NotInstalled)
+    }
+
+    @Test
+    fun `multiple descriptors produce independent sections`() = runTest(UnconfinedTestDispatcher()) {
+        val second = descriptor.copy(id = "fake-2", displayName = "Fake 2")
+        val vm = SettingsViewModel(
+            descriptors = listOf(descriptor, second),
+            installModel = { _, _ -> },
+            removeModel = {},
+            resolveState = { d ->
+                if (d.id == descriptor.id) {
+                    ModelInstallState.NotInstalled
+                } else {
+                    ModelInstallState.Ready(File("/m"), File("/l"))
+                }
+            },
+            minConfFlow = MutableStateFlow(0.25f),
+            writeMinConf = {},
+            inatTokenFlow = MutableStateFlow<String?>(null),
+            inatLoginFlow = MutableStateFlow<String?>(null),
+            acceptInatToken = {},
+            signOutInat = {},
+            regionalFilterEnabledFlow = MutableStateFlow(true),
+            writeRegionalFilterEnabled = {},
+            regionRadiusKmFlow = MutableStateFlow(200),
+            writeRegionRadiusKm = {},
+            minWindowsFlow = MutableStateFlow(2),
+            writeMinWindows = {},
+            spectralSubtractionEnabledFlow = MutableStateFlow(true),
+            writeSpectralSubtractionEnabled = {},
+            yamNetGateEnabledFlow = MutableStateFlow(true),
+            writeYamNetGateEnabled = {},
+            birdNetMetaEnabledFlow = MutableStateFlow(true),
+            writeBirdNetMetaEnabled = {},
+            allowDeleteUploadedFlow = MutableStateFlow(false),
+            writeAllowDeleteUploaded = {},
+            externalScope = backgroundScope,
+        )
+        val sections = vm.state.value.sections.associateBy { it.modelId }
+        assertThat(sections.keys).containsExactly(descriptor.id, "fake-2")
+        assertThat(sections[descriptor.id]!!.install).isInstanceOf(ModelInstallState.NotInstalled::class.java)
+        assertThat(sections["fake-2"]!!.install).isInstanceOf(ModelInstallState.Ready::class.java)
+    }
+
+    @Test
+    fun `setRegionalFilterEnabled propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
+        val captured = mutableListOf<Boolean>()
+        val flow = MutableStateFlow(true)
         val vm = build(
             initial = ModelInstallState.NotInstalled,
-            topKFlow = topKFlow,
-            writeTopK = {
+            regionalFilterEnabledFlow = flow,
+            writeRegionalFilterEnabled = {
                 captured += it
-                topKFlow.value = it
+                flow.value = it
             },
             scope = backgroundScope,
         )
-        vm.setTopK(8)
-        assertThat(captured).containsExactly(8)
+        vm.setRegionalFilterEnabled(false)
+        assertThat(captured).containsExactly(false)
+        assertThat(vm.state.value.regionalFilterEnabled).isFalse()
     }
 
     @Test
-    fun `remove transitions state to NotInstalled`() = runTest(UnconfinedTestDispatcher()) {
-        val ready = ModelInstallState.Ready(File("/m"), File("/l"))
-        val vm = build(initial = ready, scope = backgroundScope)
-        assertThat(vm.state.value.modelInstall).isEqualTo(ready)
-        vm.remove()
-        assertThat(vm.state.value.modelInstall).isEqualTo(ModelInstallState.NotInstalled)
+    fun `setRegionRadiusKm propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
+        val captured = mutableListOf<Int>()
+        val flow = MutableStateFlow(200)
+        val vm = build(
+            initial = ModelInstallState.NotInstalled,
+            regionRadiusKmFlow = flow,
+            writeRegionRadiusKm = {
+                captured += it
+                flow.value = it
+            },
+            scope = backgroundScope,
+        )
+        vm.setRegionRadiusKm(350)
+        assertThat(captured).containsExactly(350)
+        assertThat(vm.state.value.regionRadiusKm).isEqualTo(350)
+    }
+
+    @Test
+    fun `setMinWindows propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
+        val captured = mutableListOf<Int>()
+        val flow = MutableStateFlow(2)
+        val vm = build(
+            initial = ModelInstallState.NotInstalled,
+            minWindowsFlow = flow,
+            writeMinWindows = {
+                captured += it
+                flow.value = it
+            },
+            scope = backgroundScope,
+        )
+        vm.setMinWindows(5)
+        assertThat(captured).containsExactly(5)
+        assertThat(vm.state.value.minWindows).isEqualTo(5)
+    }
+
+    @Test
+    fun `setSpectralSubtractionEnabled propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
+        val captured = mutableListOf<Boolean>()
+        val flow = MutableStateFlow(true)
+        val vm = build(
+            initial = ModelInstallState.NotInstalled,
+            spectralSubtractionEnabledFlow = flow,
+            writeSpectralSubtractionEnabled = {
+                captured += it
+                flow.value = it
+            },
+            scope = backgroundScope,
+        )
+        vm.setSpectralSubtractionEnabled(false)
+        assertThat(captured).containsExactly(false)
+        assertThat(vm.state.value.spectralSubtractionEnabled).isFalse()
+    }
+
+    @Test
+    fun `setYamNetGateEnabled propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
+        val captured = mutableListOf<Boolean>()
+        val flow = MutableStateFlow(true)
+        val vm = build(
+            initial = ModelInstallState.NotInstalled,
+            yamNetGateEnabledFlow = flow,
+            writeYamNetGateEnabled = {
+                captured += it
+                flow.value = it
+            },
+            scope = backgroundScope,
+        )
+        vm.setYamNetGateEnabled(false)
+        assertThat(captured).containsExactly(false)
+        assertThat(vm.state.value.yamNetGateEnabled).isFalse()
+    }
+
+    @Test
+    fun `setBirdNetMetaEnabled propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
+        val captured = mutableListOf<Boolean>()
+        val flow = MutableStateFlow(true)
+        val vm = build(
+            initial = ModelInstallState.NotInstalled,
+            birdNetMetaEnabledFlow = flow,
+            writeBirdNetMetaEnabled = {
+                captured += it
+                flow.value = it
+            },
+            scope = backgroundScope,
+        )
+        vm.setBirdNetMetaEnabled(false)
+        assertThat(captured).containsExactly(false)
+        assertThat(vm.state.value.birdNetMetaEnabled).isFalse()
     }
 
     private fun build(
         initial: ModelInstallState,
         install: suspend (ModelDescriptor, (ModelInstallState) -> Unit) -> Unit = { _, _ -> },
-        topKFlow: MutableStateFlow<Int> = MutableStateFlow(5),
-        writeTopK: suspend (Int) -> Unit = {},
+        regionalFilterEnabledFlow: MutableStateFlow<Boolean> = MutableStateFlow(true),
+        writeRegionalFilterEnabled: suspend (Boolean) -> Unit = {},
+        regionRadiusKmFlow: MutableStateFlow<Int> = MutableStateFlow(200),
+        writeRegionRadiusKm: suspend (Int) -> Unit = {},
+        minWindowsFlow: MutableStateFlow<Int> = MutableStateFlow(2),
+        writeMinWindows: suspend (Int) -> Unit = {},
+        spectralSubtractionEnabledFlow: MutableStateFlow<Boolean> = MutableStateFlow(true),
+        writeSpectralSubtractionEnabled: suspend (Boolean) -> Unit = {},
+        yamNetGateEnabledFlow: MutableStateFlow<Boolean> = MutableStateFlow(true),
+        writeYamNetGateEnabled: suspend (Boolean) -> Unit = {},
+        birdNetMetaEnabledFlow: MutableStateFlow<Boolean> = MutableStateFlow(true),
+        writeBirdNetMetaEnabled: suspend (Boolean) -> Unit = {},
         scope: CoroutineScope,
     ): SettingsViewModel = SettingsViewModel(
-        descriptor = descriptor,
+        descriptors = listOf(descriptor),
         installModel = install,
         removeModel = {},
-        initialState = { initial },
+        resolveState = { initial },
         minConfFlow = MutableStateFlow(0.25f),
-        topKFlow = topKFlow,
         writeMinConf = {},
-        writeTopK = writeTopK,
+        inatTokenFlow = MutableStateFlow<String?>(null),
+        inatLoginFlow = MutableStateFlow<String?>(null),
+        acceptInatToken = {},
+        signOutInat = {},
+        regionalFilterEnabledFlow = regionalFilterEnabledFlow,
+        writeRegionalFilterEnabled = writeRegionalFilterEnabled,
+        regionRadiusKmFlow = regionRadiusKmFlow,
+        writeRegionRadiusKm = writeRegionRadiusKm,
+        minWindowsFlow = minWindowsFlow,
+        writeMinWindows = writeMinWindows,
+        spectralSubtractionEnabledFlow = spectralSubtractionEnabledFlow,
+        writeSpectralSubtractionEnabled = writeSpectralSubtractionEnabled,
+        yamNetGateEnabledFlow = yamNetGateEnabledFlow,
+        writeYamNetGateEnabled = writeYamNetGateEnabled,
+        birdNetMetaEnabledFlow = birdNetMetaEnabledFlow,
+        writeBirdNetMetaEnabled = writeBirdNetMetaEnabled,
+        allowDeleteUploadedFlow = MutableStateFlow(false),
+        writeAllowDeleteUploaded = {},
         externalScope = scope,
     )
 }

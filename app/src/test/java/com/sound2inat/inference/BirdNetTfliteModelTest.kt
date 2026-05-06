@@ -6,6 +6,9 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import kotlin.math.exp
+
+private fun sigmoid(x: Float): Float = 1f / (1f + exp(-x))
 
 /**
  * Fake [InterpreterFactory] that returns an interpreter whose `run` always
@@ -20,6 +23,8 @@ private class FakeInterpreterFactory(
 
     override fun create(modelFile: File, threads: Int): InterpreterApi =
         object : InterpreterApi {
+            override val outputTensorCount: Int = 1
+            override fun getOutputShape(index: Int): IntArray = intArrayOf(1, output.size)
             override fun run(input: Any, outputArg: Any) {
                 @Suppress("UNCHECKED_CAST")
                 val inArr = input as Array<FloatArray>
@@ -27,6 +32,10 @@ private class FakeInterpreterFactory(
                 @Suppress("UNCHECKED_CAST")
                 val outArr = outputArg as Array<FloatArray>
                 System.arraycopy(output, 0, outArr[0], 0, output.size)
+            }
+
+            override fun runForMultipleOutputs(input: Any, outputs: Map<Int, Any>) {
+                error("BirdNet path uses single-output run")
             }
 
             override fun close() {
@@ -39,17 +48,17 @@ class BirdNetTfliteModelTest {
     @get:Rule val tmp = TemporaryFolder()
 
     @Test
-    fun `top-K predictions ordered by confidence`() = runTest {
+    fun `predictions above floor ordered by confidence`() = runTest {
         val labels = tmp.newFile("labels.txt").apply {
             writeText("Sylvia melanothorax_Cyprus Warbler\nPasser domesticus_House Sparrow\nNoise\n")
         }
         val model = tmp.newFile("model.tflite").apply { writeBytes(byteArrayOf(0)) }
         val fake = FakeInterpreterFactory(
             // labels file order: [Sylvia, Passer, Noise]
-            // probs:             [warbler high, sparrow mid, noise low]
-            output = floatArrayOf(0.7f, 0.2f, 0.05f),
+            // sigmoid(-5.0) ≈ 0.0067 < 0.01 floor — Noise excluded
+            output = floatArrayOf(0.7f, 0.2f, -5.0f),
         )
-        val m = BirdNetTfliteModel(fake, topK = 2)
+        val m = BirdNetTfliteModel(fake)
         m.load(model, labels)
 
         val pcm = FloatArray(48_000 * 3)
@@ -59,9 +68,10 @@ class BirdNetTfliteModelTest {
         assertThat(out.map { it.taxonScientificName })
             .containsExactly("Sylvia melanothorax", "Passer domesticus")
             .inOrder()
-        assertThat(out[0].confidence).isWithin(1e-6f).of(0.7f)
+        // Model output is raw logits — wrapper applies sigmoid per class.
+        assertThat(out[0].confidence).isWithin(1e-6f).of(sigmoid(0.7f))
         assertThat(out[0].taxonCommonName).isEqualTo("Cyprus Warbler")
-        assertThat(out[1].confidence).isWithin(1e-6f).of(0.2f)
+        assertThat(out[1].confidence).isWithin(1e-6f).of(sigmoid(0.2f))
         assertThat(out[1].taxonCommonName).isEqualTo("House Sparrow")
         assertThat(out[0].startMs).isEqualTo(0L)
         assertThat(out[0].endMs).isEqualTo(3_000L)

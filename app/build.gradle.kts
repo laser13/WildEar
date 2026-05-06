@@ -67,9 +67,12 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.extended)
+    implementation(libs.compose.ui.text.google.fonts)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.hilt.navigation.compose)
@@ -88,6 +91,10 @@ dependencies {
     implementation(libs.tflite)
     implementation(libs.tflite.support)
     implementation(libs.play.services.location)
+    implementation(libs.coil.compose)
+    implementation(libs.androidx.security.crypto)
+    implementation(libs.osmdroid.android)
+    implementation(libs.androidx.browser)
 
     debugImplementation(libs.compose.ui.tooling)
 
@@ -109,6 +116,8 @@ dependencies {
     androidTestImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.hilt.android.testing)
     kspAndroidTest(libs.hilt.compiler)
+    testImplementation(libs.hilt.android.testing)
+    kspTest(libs.hilt.compiler)
     debugImplementation(libs.compose.ui.test.manifest)
 
     detektPlugins("io.gitlab.arturbosch.detekt:detekt-formatting:1.23.7")

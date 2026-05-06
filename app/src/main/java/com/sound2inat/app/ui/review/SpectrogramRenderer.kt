@@ -8,10 +8,13 @@ import com.sound2inat.inference.MelSpectrogram
  * of ARGB ints from raw mono audio samples by:
  *
  *   1. Computing the mel-spectrogram via [MelSpectrogram] (Task 4).
- *   2. Normalising dB values across the matrix to `[0, 1]`.
- *   3. Downsampling along the time axis to at most [targetWidth] columns.
- *   4. Flipping the Y axis so high frequencies render at the top.
- *   5. Mapping each cell through the [Colormap.viridis] LUT.
+ *   2. Applying a top-dB clamp so the dynamic range is at most [TOP_DB] dB.
+ *   3. Normalising dB values per rendered window using percentile bounds
+ *      (p5 → 0, p95 → 1) to prevent loud low-frequency rumble from flattening
+ *      quiet calls.
+ *   4. Downsampling along the time axis to at most [targetWidth] columns.
+ *   5. Flipping the Y axis so high frequencies render at the top.
+ *   6. Mapping each cell through the [Colormap.viridis] LUT.
  *
  * The result has `height == melParams.melBins` and `width <= targetWidth`.
  *
@@ -34,18 +37,19 @@ class SpectrogramRenderer(
         val frames = mel[0].size
         if (frames == 0) return emptyArray()
 
-        // Find dB min / max across all (bin, frame) pairs for normalisation.
-        var minDb = Float.POSITIVE_INFINITY
-        var maxDb = Float.NEGATIVE_INFINITY
+        // Flatten mel matrix for global normalization operations.
+        val allValues = FloatArray(melBins * frames)
+        var idx = 0
         for (m in 0 until melBins) {
             val row = mel[m]
-            for (f in 0 until frames) {
-                val v = row[f]
-                if (v < minDb) minDb = v
-                if (v > maxDb) maxDb = v
-            }
+            for (f in 0 until frames) allValues[idx++] = row[f]
         }
-        val range = (maxDb - minDb).coerceAtLeast(MIN_RANGE)
+
+        // Apply top-dB clamp: restrict dynamic range to at most TOP_DB decibels.
+        val topDbClampedValues = applyTopDbClamp(allValues, TOP_DB)
+
+        // Percentile normalization: p5 → 0, p95 → 1.
+        val normalizedValues = percentileNormalize(topDbClampedValues)
 
         val width = minOf(targetWidth, frames)
         val out = Array(melBins) { IntArray(width) }
@@ -56,10 +60,10 @@ class SpectrogramRenderer(
             val span = (end - start).coerceAtLeast(1)
             for (m in 0 until melBins) {
                 var acc = 0f
-                val row = mel[m]
-                for (f in start until start + span) acc += row[f]
-                val avg = acc / span
-                val norm = ((avg - minDb) / range).coerceIn(0f, 1f)
+                for (f in start until start + span) {
+                    acc += normalizedValues[m * frames + f]
+                }
+                val norm = (acc / span).coerceIn(0f, 1f)
                 // Flip Y: highest mel bin (top of image) gets the largest m.
                 val y = melBins - 1 - m
                 out[y][x] = Colormap.viridis(norm)
@@ -70,6 +74,33 @@ class SpectrogramRenderer(
 
     companion object {
         const val DEFAULT_TARGET_WIDTH = 2048
-        private const val MIN_RANGE = 1e-6f
+
+        /** Maximum dynamic range in decibels. Values below (max - TOP_DB) are lifted to the floor. */
+        const val TOP_DB = 75f
+
+        /**
+         * Clamps [values] so the dynamic range is at most [topDb] dB.
+         * Any value below (max − topDb) is raised to that floor.
+         */
+        fun applyTopDbClamp(values: FloatArray, topDb: Float = TOP_DB): FloatArray {
+            if (values.isEmpty()) return values
+            val maxDb = values.max()
+            val floor = maxDb - topDb
+            return FloatArray(values.size) { values[it].coerceAtLeast(floor) }
+        }
+
+        /**
+         * Normalises [values] to [0, 1] using the 5th and 95th percentiles as
+         * floor and ceiling respectively. This prevents a single very loud event
+         * from compressing the dynamic range of quieter calls.
+         */
+        fun percentileNormalize(values: FloatArray): FloatArray {
+            if (values.isEmpty()) return values
+            val sorted = values.toMutableList().also { it.sort() }
+            val p5 = sorted[(sorted.size * 0.05f).toInt().coerceIn(0, sorted.size - 1)]
+            val p95 = sorted[(sorted.size * 0.95f).toInt().coerceIn(0, sorted.size - 1)]
+            val range = (p95 - p5).coerceAtLeast(1e-6f)
+            return FloatArray(values.size) { ((values[it] - p5) / range).coerceIn(0f, 1f) }
+        }
     }
 }

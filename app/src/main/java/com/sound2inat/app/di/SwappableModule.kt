@@ -2,11 +2,22 @@ package com.sound2inat.app.di
 
 import android.content.Context
 import com.sound2inat.inference.BioacousticModel
+import com.sound2inat.inference.BirdNetMetaModel
 import com.sound2inat.inference.BirdNetTfliteModel
 import com.sound2inat.inference.InterpreterFactory
+import com.sound2inat.inference.LiveInferenceEngine
+import com.sound2inat.inference.LiveInferenceEngineFactory
+import com.sound2inat.inference.PerchTfliteModel
+import com.sound2inat.inference.SpectralSubtractor
+import com.sound2inat.inference.YamNetGate
+import com.sound2inat.inference.YamNetTfliteGate
 import com.sound2inat.location.FusedLocationProvider
 import com.sound2inat.location.LocationProvider
+import com.sound2inat.modelmanager.BirdNetMetaV24
+import com.sound2inat.modelmanager.KnownModels
+import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelManager
+import com.sound2inat.modelmanager.YamNetV1
 import com.sound2inat.recorder.AndroidAudioRecordSource
 import com.sound2inat.recorder.AudioRecordSource
 import com.sound2inat.recorder.DefaultRecorder
@@ -31,7 +42,31 @@ object SwappableModule {
     fun provideModelManager(
         @ApplicationContext ctx: Context,
         http: OkHttpClient,
-    ): ModelManager = ModelManager(ctx.filesDir, http)
+    ): ModelManager = ModelManager(
+        ctx.filesDir,
+        http,
+        hiddenDescriptors = listOf(YamNetV1.descriptor, BirdNetMetaV24.descriptor),
+    )
+
+    /**
+     * YAMNet biological gate. Returned as nullable so [TestSwappableModule]
+     * can override with `null` to bypass YAMNet inference in instrumented tests.
+     */
+    @Provides @Singleton
+    fun provideYamNetGate(
+        factory: InterpreterFactory,
+        manager: ModelManager,
+    ): YamNetGate? = YamNetTfliteGate(factory, manager)
+
+    /**
+     * BirdNET location/time meta-model. Returned as nullable so test modules
+     * can replace with null to bypass regional rescaling in instrumented tests.
+     */
+    @Provides @Singleton
+    fun provideBirdNetMeta(
+        factory: InterpreterFactory,
+        manager: ModelManager,
+    ): BirdNetMetaModel? = BirdNetMetaModel(factory, manager)
 
     @Provides @Singleton
     fun provideAudioSource(): AudioRecordSource = AndroidAudioRecordSource()
@@ -43,7 +78,49 @@ object SwappableModule {
     fun provideLocation(@ApplicationContext ctx: Context): LocationProvider =
         FusedLocationProvider(ctx)
 
+    /**
+     * Models the inference layer can run for a draft. Order matters only for
+     * test-mode determinism — production callers pick an installed subset by
+     * [BioacousticModel.modelId]. Adding a new model = appending a new
+     * implementation here AND a matching [com.sound2inat.modelmanager.ModelDescriptor]
+     * in [com.sound2inat.modelmanager.KnownModels].
+     */
     @Provides @Singleton
-    fun provideBioacousticModel(factory: InterpreterFactory): BioacousticModel =
-        BirdNetTfliteModel(factory)
+    fun provideBioacousticModels(factory: InterpreterFactory): List<BioacousticModel> =
+        listOf(BirdNetTfliteModel(factory), PerchTfliteModel(factory))
+
+    /** Descriptors paired (by [BioacousticModel.modelId]) with installed models. */
+    @Provides @Singleton
+    fun provideModelDescriptors(): List<ModelDescriptor> = KnownModels
+
+    /**
+     * Factory that builds a [LiveInferenceEngine] bound to the recorder's sample
+     * rate. Returned as nullable so test modules can override with `null` and
+     * fall back to the offline pipeline. The factory's `create` is suspend
+     * because it loads the BirdNET TFLite weights synchronously before the
+     * engine starts emitting predictions — without this load, predict() throws
+     * "Model not loaded". Returns null when the model is not installed; the
+     * recorder VM treats that as a signal to use the offline path.
+     */
+    @Provides
+    fun provideLiveInferenceEngineFactory(
+        bioModels: List<@JvmSuppressWildcards BioacousticModel>,
+        yamGate: YamNetGate?,
+        modelManager: ModelManager,
+    ): LiveInferenceEngineFactory? = LiveInferenceEngineFactory { sampleRateHz ->
+        val birdnet = bioModels.firstOrNull { it.modelId == "birdnet_v2_4" }
+            ?: return@LiveInferenceEngineFactory null
+        val state = modelManager.stateFor(com.sound2inat.modelmanager.BirdNetV24.descriptor)
+        val ready = state as? com.sound2inat.modelmanager.ModelInstallState.Ready
+            ?: return@LiveInferenceEngineFactory null
+        runCatching { birdnet.load(ready.modelFile, ready.labelsFile) }
+            .getOrElse { return@LiveInferenceEngineFactory null }
+        LiveInferenceEngine(
+            model = birdnet,
+            yamNetGate = yamGate,
+            spectralSubtractor = SpectralSubtractor(),
+            sampleRateHz = sampleRateHz,
+            usePreprocessing = false,  // raw-first: preprocessing is an explicit opt-in for benchmarking
+        )
+    }
 }

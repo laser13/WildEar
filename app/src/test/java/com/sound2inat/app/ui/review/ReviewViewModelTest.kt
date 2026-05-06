@@ -2,6 +2,8 @@ package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.inference.AggregatedDetection
+import com.sound2inat.inference.SourceStat
+import com.sound2inat.inference.SourceStats
 import com.sound2inat.inference.WindowPrediction
 import com.sound2inat.storage.DetectionDao
 import com.sound2inat.storage.DetectionEntity
@@ -65,7 +67,9 @@ class ReviewViewModelTest {
             assertThat(vm.state.value.inferenceProgress).isNull()
             assertThat(vm.state.value.species).hasSize(1)
             assertThat(vm.state.value.species.first().taxonScientificName).isEqualTo("Turdus merula")
-            assertThat(vm.state.value.status).isEqualTo(DraftStatus.PENDING_REVIEW)
+            // VM auto-promotes to REVIEWED after a successful inference with
+            // non-empty detections so Submit is enabled by checkbox alone.
+            assertThat(vm.state.value.status).isEqualTo(DraftStatus.REVIEWED)
         }
 
     @Test
@@ -366,6 +370,196 @@ class ReviewViewModelTest {
             assertThat(vm.highlight.value).isNull()
         }
 
+    @Test
+    fun `isPerchInstalled true when probe returns true`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "p1"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 1L,
+                            draftId = draftId,
+                            taxonScientificName = "Turdus merula",
+                            taxonCommonName = "Common Blackbird",
+                            maxConfidence = 0.81f,
+                            detectedWindows = 3,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 3_000L,
+                            isSelectedByUser = false,
+                            sources = SourceStats.encode(mapOf("birdnet_v2_4" to SourceStat(0.81f, 3, 0L, 3_000L))),
+                        ),
+                    ),
+                )
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo(draftDao, detectionDao),
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                perchInstalledProbe = { true },
+                externalScope = backgroundScope,
+            )
+            assertThat(vm.state.value.isPerchInstalled).isTrue()
+        }
+
+    @Test
+    fun `isPerchInstalled stays true after a Perch run produced rows`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // Regression for the old "canAnalyzeWithPerch" gate that flipped
+            // off once the draft had any perch_v2 row. The model picker now
+            // gates on installation only — re-running Perch is allowed and
+            // merges into existing detections.
+            val draftId = "p2"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 1L,
+                            draftId = draftId,
+                            taxonScientificName = "Rana temporaria",
+                            taxonCommonName = "Common Frog",
+                            maxConfidence = 0.7f,
+                            detectedWindows = 2,
+                            firstSeenMs = 1_000L,
+                            lastSeenMs = 4_000L,
+                            isSelectedByUser = false,
+                            sources = SourceStats.encode(mapOf("perch_v2" to SourceStat(0.7f, 2, 1_000L, 4_000L))),
+                        ),
+                    ),
+                )
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo(draftDao, detectionDao),
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                perchInstalledProbe = { true },
+                externalScope = backgroundScope,
+            )
+            assertThat(vm.state.value.isPerchInstalled).isTrue()
+        }
+
+    @Test
+    fun `analyzeWithPerch merges new species with existing detections`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "p3"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 1L,
+                            draftId = draftId,
+                            taxonScientificName = "Turdus merula",
+                            taxonCommonName = "Common Blackbird",
+                            maxConfidence = 0.81f,
+                            detectedWindows = 3,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 3_000L,
+                            isSelectedByUser = false,
+                            sources = SourceStats.encode(mapOf("birdnet_v2_4" to SourceStat(0.81f, 3, 0L, 3_000L))),
+                        ),
+                    ),
+                )
+            }
+            val perchAgg = AggregatedDetection(
+                taxonScientificName = "Rana temporaria",
+                taxonCommonName = "Common Frog",
+                maxConfidence = 0.65f,
+                detectedWindows = 2,
+                firstSeenMs = 1_000L,
+                lastSeenMs = 4_000L,
+                confidenceBySource = mapOf("perch_v2" to 0.65f),
+            )
+            val perchJob = PerchAnalysisJob { _, _, _, _, onProgress ->
+                onProgress(0.5f)
+                onProgress(1f)
+                PerchAnalysisOutcome.Success(listOf(perchAgg))
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo(draftDao, detectionDao),
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                perchAnalysis = perchJob,
+                perchInstalledProbe = { true },
+                externalScope = backgroundScope,
+            )
+            assertThat(vm.state.value.isPerchInstalled).isTrue()
+
+            vm.analyzeWithPerch()
+
+            // Perch run finished → progress cleared, both species persisted.
+            assertThat(vm.state.value.perchProgress).isNull()
+            val names = vm.state.value.species.map { it.taxonScientificName }
+            assertThat(names).containsExactly("Turdus merula", "Rana temporaria")
+            // Installation flag stays true — re-running Perch is allowed.
+            assertThat(vm.state.value.isPerchInstalled).isTrue()
+            // The newly-attached row carries the perch source key.
+            val frog = vm.state.value.species.first { it.taxonScientificName == "Rana temporaria" }
+            assertThat(frog.confidenceBySource.keys).contains("perch_v2")
+        }
+
+    @Test
+    fun `minWindows filters species from DB path`() = runTest(UnconfinedTestDispatcher()) {
+        val draftId = "d11"
+        val draftDao = FakeDraftDao().apply {
+            insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+        }
+        val detectionDao = FakeDetectionDao().apply {
+            insertAll(
+                listOf(
+                    DetectionEntity(
+                        id = 10L,
+                        draftId = draftId,
+                        taxonScientificName = "Cuculus canorus",
+                        taxonCommonName = "Common Cuckoo",
+                        maxConfidence = 0.7f,
+                        detectedWindows = 1,
+                        firstSeenMs = 0L,
+                        lastSeenMs = 1_000L,
+                        isSelectedByUser = false,
+                    ),
+                    DetectionEntity(
+                        id = 11L,
+                        draftId = draftId,
+                        taxonScientificName = "Parus major",
+                        taxonCommonName = "Great Tit",
+                        maxConfidence = 0.9f,
+                        detectedWindows = 3,
+                        firstSeenMs = 0L,
+                        lastSeenMs = 3_000L,
+                        isSelectedByUser = false,
+                    ),
+                ),
+            )
+        }
+        val vm = ReviewViewModel(
+            draftId = draftId,
+            repo = repo(draftDao, detectionDao),
+            player = FakeAudioPlayer(),
+            inference = noopInference(),
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+            minWindowsProvider = { 2 },
+            externalScope = backgroundScope,
+        )
+        val names = vm.state.value.species.map { it.taxonScientificName }
+        assertThat(names).containsExactly("Parus major")
+        assertThat(names).doesNotContain("Cuculus canorus")
+    }
+
     private fun draftFor(id: String, status: DraftStatus): DraftEntity = DraftEntity(
         id = id,
         audioPath = "/tmp/$id.wav",
@@ -383,12 +577,246 @@ class ReviewViewModelTest {
 
     private fun repo(drafts: DraftDao, detections: DetectionDao): DraftRepository {
         val files = WavFileStore(tmp.root)
-        return DraftRepository(drafts, detections, files) { 0L }
+        return DraftRepository(
+            drafts = drafts,
+            detections = detections,
+            files = files,
+            nowMs = { 0L },
+            ioDispatcher = UnconfinedTestDispatcher(),
+        )
     }
 
     private fun noopInference(): InferenceJob = InferenceJob { _, _, _, _, _ ->
         InferenceOutcome.Success("birdnet_v2_4", "2.4", emptyList())
     }
+
+    @Test
+    fun `loadObservationDetail sets Loaded state on successful fetch`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "obs1"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 99L,
+                            draftId = draftId,
+                            taxonScientificName = "Parus major",
+                            taxonCommonName = null,
+                            maxConfidence = 0.9f,
+                            detectedWindows = 1,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 1_000L,
+                            isSelectedByUser = false,
+                        )
+                    )
+                )
+            }
+            val repo = repo(draftDao, detectionDao)
+            val expectedDetail = com.sound2inat.inat.ObservationDetail(
+                qualityGrade = "research",
+                agreeingIdCount = 3,
+                commentsCount = 1,
+                comments = listOf(com.sound2inat.inat.ObservationComment("alice", "Nice!")),
+            )
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = InferenceJob { _, _, _, _, _ -> InferenceOutcome.Failure("skip") },
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+                observationFetcher = { expectedDetail },
+            )
+            vm.loadObservationDetail(
+                detectionId = 99L,
+                observationUrl = "https://www.inaturalist.org/observations/12345",
+            )
+            val row = vm.state.value.species.firstOrNull { it.detectionId == 99L }
+            assertThat(row).isNotNull()
+            val detailState = row!!.observationDetailState
+            assertThat(detailState).isInstanceOf(ObservationDetailLoadState.Loaded::class.java)
+            assertThat((detailState as ObservationDetailLoadState.Loaded).detail.qualityGrade)
+                .isEqualTo("research")
+            assertThat(detailState.detail.agreeingIdCount).isEqualTo(3)
+        }
+
+    @Test
+    fun `loadObservationDetail sets Error when fetcher throws`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "obs2"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 77L,
+                            draftId = draftId,
+                            taxonScientificName = "Apus apus",
+                            taxonCommonName = null,
+                            maxConfidence = 0.8f,
+                            detectedWindows = 1,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 1_000L,
+                            isSelectedByUser = false,
+                        )
+                    )
+                )
+            }
+            val repo = repo(draftDao, detectionDao)
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = InferenceJob { _, _, _, _, _ -> InferenceOutcome.Failure("skip") },
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+                observationFetcher = { throw com.sound2inat.inat.INatException(500, "Server error") },
+            )
+            vm.loadObservationDetail(
+                detectionId = 77L,
+                observationUrl = "https://www.inaturalist.org/observations/99999",
+            )
+            val row = vm.state.value.species.firstOrNull { it.detectionId == 77L }
+            assertThat(row).isNotNull()
+            assertThat(row!!.observationDetailState)
+                .isInstanceOf(ObservationDetailLoadState.Error::class.java)
+        }
+
+    @Test
+    fun `loadObservationDetail returns cached result on second call`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "obs3"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 55L,
+                            draftId = draftId,
+                            taxonScientificName = "Turdus merula",
+                            taxonCommonName = null,
+                            maxConfidence = 0.85f,
+                            detectedWindows = 1,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 1_000L,
+                            isSelectedByUser = false,
+                        )
+                    )
+                )
+            }
+            val repo = repo(draftDao, detectionDao)
+            var fetchCount = 0
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = InferenceJob { _, _, _, _, _ -> InferenceOutcome.Failure("skip") },
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+                observationFetcher = {
+                    fetchCount++
+                    com.sound2inat.inat.ObservationDetail("research", 1, 0, emptyList())
+                },
+            )
+            vm.loadObservationDetail(55L, "https://www.inaturalist.org/observations/111")
+            vm.collapseObservationDetail(55L)
+            vm.loadObservationDetail(55L, "https://www.inaturalist.org/observations/111")
+            assertThat(fetchCount).isEqualTo(1)
+            val row = vm.state.value.species.first { it.detectionId == 55L }
+            assertThat(row.observationDetailState).isInstanceOf(ObservationDetailLoadState.Loaded::class.java)
+        }
+
+    @Test
+    fun `mergeBySpecies propagates per-source windows and time bounds`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val existing = listOf(
+                AggregatedDetection(
+                    taxonScientificName = "Parus major",
+                    taxonCommonName = null,
+                    maxConfidence = 0.85f,
+                    detectedWindows = 2,
+                    firstSeenMs = 0L,
+                    lastSeenMs = 6_000L,
+                    confidenceBySource  = mapOf("birdnet_v2_4" to 0.85f),
+                    windowsBySource     = mapOf("birdnet_v2_4" to 2),
+                    firstSeenBySource   = mapOf("birdnet_v2_4" to 0L),
+                    lastSeenBySource    = mapOf("birdnet_v2_4" to 6_000L),
+                ),
+            )
+            val incoming = listOf(
+                AggregatedDetection(
+                    taxonScientificName = "Parus major",
+                    taxonCommonName = null,
+                    maxConfidence = 0.62f,
+                    detectedWindows = 1,
+                    firstSeenMs = 3_000L,
+                    lastSeenMs = 8_000L,
+                    confidenceBySource  = mapOf("perch_v2" to 0.62f),
+                    windowsBySource     = mapOf("perch_v2" to 1),
+                    firstSeenBySource   = mapOf("perch_v2" to 3_000L),
+                    lastSeenBySource    = mapOf("perch_v2" to 8_000L),
+                ),
+            )
+            val result = mergeBySpecies(existing, incoming).first()
+
+            assertThat(result.windowsBySource).containsExactly("birdnet_v2_4", 2, "perch_v2", 1)
+            assertThat(result.firstSeenBySource).containsExactly("birdnet_v2_4", 0L, "perch_v2", 3_000L)
+            assertThat(result.lastSeenBySource).containsExactly("birdnet_v2_4", 6_000L, "perch_v2", 8_000L)
+        }
+
+    @Test
+    fun `collapseObservationDetail resets state to NotLoaded`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "obs4"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 33L,
+                            draftId = draftId,
+                            taxonScientificName = "Hirundo rustica",
+                            taxonCommonName = null,
+                            maxConfidence = 0.75f,
+                            detectedWindows = 1,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 1_000L,
+                            isSelectedByUser = false,
+                        )
+                    )
+                )
+            }
+            val repo = repo(draftDao, detectionDao)
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = InferenceJob { _, _, _, _, _ -> InferenceOutcome.Failure("skip") },
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+                observationFetcher = {
+                    com.sound2inat.inat.ObservationDetail("needs_id", 0, 0, emptyList())
+                },
+            )
+            vm.loadObservationDetail(33L, "https://www.inaturalist.org/observations/222")
+            val rowAfterLoad = vm.state.value.species.first { it.detectionId == 33L }
+            assertThat(rowAfterLoad.observationDetailState)
+                .isInstanceOf(ObservationDetailLoadState.Loaded::class.java)
+
+            vm.collapseObservationDetail(33L)
+            val rowAfterCollapse = vm.state.value.species.first { it.detectionId == 33L }
+            assertThat(rowAfterCollapse.observationDetailState)
+                .isEqualTo(ObservationDetailLoadState.NotLoaded)
+        }
 }
 
 private class FakeAudioPlayer : AudioPlayer {
@@ -489,4 +917,6 @@ private class FakeDetectionDao : DetectionDao {
         emitter.value = rows.toList()
         return before - rows.size
     }
+    override fun observeCountsByDraft(): kotlinx.coroutines.flow.Flow<List<com.sound2inat.storage.DraftDetectionCount>> =
+        kotlinx.coroutines.flow.flowOf(emptyList())
 }

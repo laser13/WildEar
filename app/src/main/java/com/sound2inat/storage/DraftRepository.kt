@@ -1,8 +1,14 @@
 package com.sound2inat.storage
 
 import com.sound2inat.inference.AggregatedDetection
+import com.sound2inat.inference.FragmentRanges
+import com.sound2inat.inference.SourceStat
+import com.sound2inat.inference.SourceStats
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.mapNotNull
 
 data class DraftWithDetections(
     val draft: DraftEntity,
@@ -14,19 +20,26 @@ class DraftRepository(
     private val detections: DetectionDao,
     private val files: WavFileStore,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /**
+     * Wraps multi-step writes (draft + detections) in a single SQLite
+     * transaction. Production passes [Sound2iNatDb.runInTransaction];
+     * tests with fake DAOs default to inline execution.
+     */
+    private val runInTransaction: (block: () -> Unit) -> Unit = { it() },
 ) {
     fun observeAll(): Flow<List<DraftEntity>> = drafts.observeAll()
 
     /**
      * Emits the latest [DraftWithDetections] each time the draft row OR its detections change.
-     * The draft row is loaded synchronously inside the flow (no separate observable for the
-     * single row in v1). Returns null inside the flow if the draft no longer exists (deleted).
+     * Skips emissions where the draft row no longer exists — that race is normal during
+     * delete (the detections-flow lingers until the VM scope is cancelled).
      */
     fun observeWithDetections(id: String): Flow<DraftWithDetections> =
-        detections.observeForDraft(id).map { ds ->
-            val d = drafts.getById(id) ?: error("draft $id missing")
+        detections.observeForDraft(id).mapNotNull { ds ->
+            val d = drafts.getById(id) ?: return@mapNotNull null
             DraftWithDetections(d, ds)
-        }
+        }.flowOn(ioDispatcher)
 
     @Suppress("LongParameterList")
     fun create(
@@ -57,6 +70,74 @@ class DraftRepository(
         )
     }
 
+    /**
+     * Atomic equivalent of [create] + [attachDetections] for the live recording
+     * path. Inserts a draft that is already in [DraftStatus.PENDING_REVIEW]
+     * with the given live detections, so the offline [ProductionInferenceJob]
+     * never picks it up. Use this only when detections were produced inline
+     * (RecordingViewModel + LiveInferenceEngine); offline flows still call
+     * [create] then [attachDetections].
+     */
+    @Suppress("LongParameterList")
+    fun createWithDetections(
+        id: String,
+        audioPath: String,
+        recordedAtUtcMs: Long,
+        durationMs: Long,
+        latitude: Double?,
+        longitude: Double?,
+        accuracyMeters: Float?,
+        modelId: String,
+        modelVersion: String,
+        detections: List<AggregatedDetection>,
+    ) {
+        val now = nowMs()
+        runInTransaction {
+            drafts.insert(
+                DraftEntity(
+                    id = id,
+                    audioPath = audioPath,
+                    recordedAtUtcMs = recordedAtUtcMs,
+                    durationMs = durationMs,
+                    latitude = latitude,
+                    longitude = longitude,
+                    locationAccuracyMeters = accuracyMeters,
+                    status = DraftStatus.PENDING_REVIEW,
+                    modelId = modelId,
+                    modelVersion = modelVersion,
+                    createdAtUtcMs = now,
+                    updatedAtUtcMs = now,
+                ),
+            )
+            this.detections.insertAll(
+                detections.map {
+                    DetectionEntity(
+                        draftId = id,
+                        taxonScientificName = it.taxonScientificName,
+                        taxonCommonName = it.taxonCommonName,
+                        maxConfidence = it.maxConfidence,
+                        detectedWindows = it.detectedWindows,
+                        firstSeenMs = it.firstSeenMs,
+                        lastSeenMs = it.lastSeenMs,
+                        isSelectedByUser = false,
+                        sources = SourceStats.encode(
+                            it.confidenceBySource.mapValues { (src, conf) ->
+                                SourceStat(
+                                    maxConf     = conf,
+                                    windows     = it.windowsBySource[src]   ?: 0,
+                                    firstSeenMs = it.firstSeenBySource[src] ?: it.firstSeenMs,
+                                    lastSeenMs  = it.lastSeenBySource[src]  ?: it.lastSeenMs,
+                                )
+                            }
+                        ),
+                        fragmentRanges = FragmentRanges.encode(it.fragmentRanges),
+                        aggregatedConfidence = it.aggregatedConfidence,
+                    )
+                },
+            )
+        }
+    }
+
     fun attachDetections(
         draftId: String,
         modelId: String,
@@ -64,30 +145,44 @@ class DraftRepository(
         items: List<AggregatedDetection>,
     ) {
         val now = nowMs()
-        val current = drafts.getById(draftId) ?: error("draft $draftId missing")
-        drafts.update(
-            current.copy(
-                status = DraftStatus.PENDING_REVIEW,
-                modelId = modelId,
-                modelVersion = modelVersion,
-                updatedAtUtcMs = now,
-            ),
-        )
-        detections.deleteForDraft(draftId)
-        detections.insertAll(
-            items.map {
-                DetectionEntity(
-                    draftId = draftId,
-                    taxonScientificName = it.taxonScientificName,
-                    taxonCommonName = it.taxonCommonName,
-                    maxConfidence = it.maxConfidence,
-                    detectedWindows = it.detectedWindows,
-                    firstSeenMs = it.firstSeenMs,
-                    lastSeenMs = it.lastSeenMs,
-                    isSelectedByUser = false,
-                )
-            },
-        )
+        runInTransaction {
+            val current = drafts.getById(draftId) ?: error("draft $draftId missing")
+            drafts.update(
+                current.copy(
+                    status = DraftStatus.PENDING_REVIEW,
+                    modelId = modelId,
+                    modelVersion = modelVersion,
+                    updatedAtUtcMs = now,
+                ),
+            )
+            detections.deleteForDraft(draftId)
+            detections.insertAll(
+                items.map {
+                    DetectionEntity(
+                        draftId = draftId,
+                        taxonScientificName = it.taxonScientificName,
+                        taxonCommonName = it.taxonCommonName,
+                        maxConfidence = it.maxConfidence,
+                        detectedWindows = it.detectedWindows,
+                        firstSeenMs = it.firstSeenMs,
+                        lastSeenMs = it.lastSeenMs,
+                        isSelectedByUser = false,
+                        sources = SourceStats.encode(
+                            it.confidenceBySource.mapValues { (src, conf) ->
+                                SourceStat(
+                                    maxConf     = conf,
+                                    windows     = it.windowsBySource[src]   ?: 0,
+                                    firstSeenMs = it.firstSeenBySource[src] ?: it.firstSeenMs,
+                                    lastSeenMs  = it.lastSeenBySource[src]  ?: it.lastSeenMs,
+                                )
+                            }
+                        ),
+                        fragmentRanges = FragmentRanges.encode(it.fragmentRanges),
+                        aggregatedConfidence = it.aggregatedConfidence,
+                    )
+                },
+            )
+        }
     }
 
     fun setSelection(detectionId: Long, selected: Boolean) {

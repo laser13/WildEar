@@ -14,6 +14,12 @@ interface BioacousticModel {
     val modelId: String
     val modelVersion: String
 
+    /** Sample rate the model expects on its raw-audio input tensor (Hz). */
+    val expectedSampleRateHz: Int
+
+    /** Window length the model consumes per [predict] call (milliseconds). */
+    val windowMs: Long
+
     suspend fun load(modelFile: File, labelsFile: File)
 
     // Signature is locked by the plan (Step 1) and by the spike's metadata

@@ -36,7 +36,7 @@ fun DetectionOverlays(
     onTap: (WindowPrediction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (durationMs <= 0L || windowPreds.isEmpty() || species.isEmpty()) return
+    if (durationMs <= 0L || species.isEmpty()) return
     // Sorted-by-confidence index drives the palette mapping; taxon name is a
     // tiebreaker so equal-confidence species don't shuffle colours between
     // recompositions.
@@ -49,9 +49,26 @@ fun DetectionOverlays(
         .toMap()
     // Predictions whose species is in the list, sorted by descending confidence
     // so a tap on overlapping rectangles picks the strongest detection first.
-    val matched = windowPreds
-        .mapNotNull { p -> rowByTaxon[p.taxonScientificName]?.let { Match(p, it) } }
-        .sortedByDescending { it.prediction.confidence }
+    // Falls back to one synthetic rectangle per species row using
+    // [SpeciesRow.firstSeenMs]/[SpeciesRow.lastSeenMs] when no per-window data
+    // is available — that's the case for drafts opened after their inference
+    // run finished (windows are not persisted in the DB).
+    val matched: List<Match> = if (windowPreds.isNotEmpty()) {
+        windowPreds
+            .mapNotNull { p -> rowByTaxon[p.taxonScientificName]?.let { Match(p, it) } }
+            .sortedByDescending { it.prediction.confidence }
+    } else {
+        sortedRows.map { row ->
+            val synthetic = WindowPrediction(
+                startMs = row.firstSeenMs,
+                endMs = row.lastSeenMs,
+                taxonScientificName = row.taxonScientificName,
+                taxonCommonName = row.taxonCommonName,
+                confidence = row.maxConfidence,
+            )
+            Match(synthetic, rowByTaxon.getValue(row.taxonScientificName))
+        }
+    }
     if (matched.isEmpty()) return
 
     Canvas(
@@ -100,8 +117,12 @@ fun DetectionOverlays(
 private data class IndexedRow(val row: SpeciesRow, val index: Int)
 private data class Match(val prediction: WindowPrediction, val indexed: IndexedRow)
 
-private const val BASE_ALPHA = 0.35f
-private const val HIGHLIGHT_ALPHA = 0.7f
+// 0.35 was visually overwhelming when detections covered most of the clip:
+// viridis spectrogram (cool blues/greens) + a translucent species-colored
+// rectangle reads as a fully-opaque red/pink band. Drop the base alpha so the
+// spectrogram stays the dominant visual; highlights still pop above it.
+private const val BASE_ALPHA = 0.15f
+private const val HIGHLIGHT_ALPHA = 0.55f
 private const val HIGHLIGHT_STROKE_ALPHA = 0.9f
 private const val HIGHLIGHT_STROKE_WIDTH_PX = 3f
 private const val MIN_RECT_WIDTH_PX = 2f

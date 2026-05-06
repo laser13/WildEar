@@ -1,6 +1,7 @@
 package com.sound2inat.inference
 
 import java.io.File
+import kotlin.math.exp
 
 /**
  * BirdNET v2.4 raw-audio TFLite wrapper.
@@ -8,19 +9,22 @@ import java.io.File
  * Input contract (frozen in `MODEL_SPIKE.md`):
  *   shape `[1, 144000]`, FLOAT32, mono PCM at 48 kHz, normalised to `[-1, 1]`.
  * Output contract:
- *   shape `[1, 6522]`, FLOAT32 softmax over [Labels].
+ *   shape `[1, 6522]`, FLOAT32 raw logits (NOT softmax — confirmed against the
+ *   whoBIRD reference; `MODEL_SPIKE.md` was wrong about this). We apply a
+ *   sigmoid per class so [WindowPrediction.confidence] is in `[0, 1]`.
  *
  * NOT thread-safe — callers (e.g. [InferenceRunner]) must serialise calls
  * for a given instance.
  */
 class BirdNetTfliteModel(
     private val factory: InterpreterFactory,
-    private val topK: Int = 5,
     private val threads: Int = 2,
 ) : BioacousticModel {
 
     override val modelId: String = "birdnet_v2_4"
     override val modelVersion: String = "2.4"
+    override val expectedSampleRateHz: Int = 48_000
+    override val windowMs: Long = 3_000L
 
     private var interp: InterpreterApi? = null
     private var labels: List<Label> = emptyList()
@@ -48,9 +52,11 @@ class BirdNetTfliteModel(
         val output = arrayOf(FloatArray(labels.size))
         i.run(input, output)
 
-        val probs = output[0]
-        val k = topK.coerceAtMost(probs.size)
-        val idx = probs.indices.sortedByDescending { probs[it] }.take(k)
+        val logits = output[0]
+        // Sigmoid is monotonic — sort on raw logits, apply sigmoid only for included entries.
+        val idx = logits.indices
+            .filter { sigmoid(logits[it]) >= PREDICTION_FLOOR }
+            .sortedByDescending { logits[it] }
         return idx.map { ki ->
             val l = labels[ki]
             WindowPrediction(
@@ -58,9 +64,16 @@ class BirdNetTfliteModel(
                 endMs = windowEndMs,
                 taxonScientificName = l.scientificName,
                 taxonCommonName = l.commonName,
-                confidence = probs[ki],
+                confidence = sigmoid(logits[ki]),
+                source = modelId,
             )
         }
+    }
+
+    private fun sigmoid(x: Float): Float = 1f / (1f + exp(-x))
+
+    private companion object {
+        const val PREDICTION_FLOOR = 0.01f
     }
 
     override fun close() {

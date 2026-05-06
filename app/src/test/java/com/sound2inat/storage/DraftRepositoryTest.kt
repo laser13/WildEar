@@ -34,7 +34,13 @@ class DraftRepositoryTest {
             ApplicationProvider.getApplicationContext(),
             Sound2iNatDb::class.java,
         ).allowMainThreadQueries().build()
-        repo = DraftRepository(db.drafts(), db.detections(), WavFileStore(tmp.root)) { 0L }
+        repo = DraftRepository(
+            drafts = db.drafts(),
+            detections = db.detections(),
+            files = WavFileStore(tmp.root),
+            nowMs = { 0L },
+            runInTransaction = { block -> db.runInTransaction(block) },
+        )
     }
 
     @After
@@ -81,6 +87,38 @@ class DraftRepositoryTest {
         repo.create("b", "/tmp/b.wav", 200L, 1000L, null, null, null)
         val list = repo.observeAll().first()
         assertThat(list.map { it.id }).containsExactly("b", "a").inOrder()
+    }
+
+    @Test
+    fun `createWithDetections inserts draft and detections in PENDING_REVIEW`() = runTest {
+        val det = AggregatedDetection(
+            taxonScientificName = "Turdus merula",
+            taxonCommonName = "Blackbird",
+            maxConfidence = 0.8f,
+            detectedWindows = 2,
+            firstSeenMs = 0L,
+            lastSeenMs = 4500L,
+        )
+        repo.createWithDetections(
+            id = "d1",
+            audioPath = "/x.wav",
+            recordedAtUtcMs = 1L,
+            durationMs = 5_000L,
+            latitude = 50.0,
+            longitude = 14.0,
+            accuracyMeters = 5f,
+            modelId = "birdnet_v2_4",
+            modelVersion = "2.4",
+            detections = listOf(det),
+        )
+        val saved = db.drafts().getById("d1")!!
+        assertThat(saved.status).isEqualTo(DraftStatus.PENDING_REVIEW)
+        assertThat(saved.modelId).isEqualTo("birdnet_v2_4")
+        assertThat(saved.modelVersion).isEqualTo("2.4")
+        val detections = db.detections().listForDraft("d1")
+        assertThat(detections).hasSize(1)
+        assertThat(detections[0].taxonScientificName).isEqualTo("Turdus merula")
+        assertThat(detections[0].detectedWindows).isEqualTo(2)
     }
 
     @Test

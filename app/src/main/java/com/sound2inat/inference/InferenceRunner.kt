@@ -6,17 +6,32 @@ import java.io.File
 import java.io.RandomAccessFile
 
 /**
- * Slices a mono 16-bit WAV into fixed `windowSeconds`-second windows hopped by
- * `hopSeconds`, calls [model] per window, and aggregates predictions.
+ * Slices a mono 16-bit WAV into fixed windows hopped by [hopSeconds], optionally
+ * applies spectral subtraction and a YAMNet biological gate, and calls [model]
+ * per window that passes the gate.
  *
- * Progress is reported in [progress] as a fraction in `[0, 1]`. The runner is
- * NOT designed to be invoked concurrently for the same instance — there is one
- * progress flow per runner.
+ * Pipeline per run:
+ *   1. Read + resample to model rate (ShortArray).
+ *   2. Normalize to [-1, 1] (FloatArray). When [usePreprocessing] is true, also
+ *      apply a high-pass filter to the full signal before window slicing so the
+ *      IIR filter has no edge effects at window boundaries.
+ *   3. Per window: when [usePreprocessing] is true apply SpectralSubtractor →
+ *      YamNetGate check → model.predict().
+ *
+ * **Default is raw-first**: [usePreprocessing] defaults to `false` so the model
+ * receives unprocessed (normalized-only) samples. Set to `true` for the
+ * experimental benchmark path that applies high-pass + spectral subtraction.
+ *
+ * Pass null for [spectralSubtractor] or [yamNetGate] to skip those steps.
+ * Fail-open: the gate's own error handling returns true on any exception.
  */
 class InferenceRunner(
     private val model: BioacousticModel,
-    private val windowSeconds: Float = 3f,
     private val hopSeconds: Float = 1f,
+    private val spectralSubtractor: SpectralSubtractor? = null,
+    private val yamNetGate: YamNetGate? = null,
+    /** When true, apply high-pass filter + spectral subtraction before inference. Defaults to false (raw-first). */
+    val usePreprocessing: Boolean = false,
 ) {
     private val _progress = MutableStateFlow(0f)
     val progress: StateFlow<Float> = _progress
@@ -28,11 +43,24 @@ class InferenceRunner(
         observedAtMillis: Long,
     ): List<WindowPrediction> {
         _progress.value = 0f
-        val (samples, sampleRate) = WavReader.readMono16(wavFile)
-        val win = (windowSeconds * sampleRate).toInt()
-        val hop = (hopSeconds * sampleRate).toInt()
+        val (rawSamples, nativeRate) = WavReader.readMono16(wavFile)
+        val targetRate = model.expectedSampleRateHz
+        val resampled = if (nativeRate == targetRate) {
+            rawSamples
+        } else {
+            Resampler.resample(rawSamples, nativeRate, targetRate)
+        }
+
+        // Normalize to [-1, 1]. High-pass filter is applied only in preprocessing mode
+        // so the IIR filter has no edge effects at window boundaries.
+        val normalized = FloatArray(resampled.size) { i -> resampled[i] / Short.MAX_VALUE.toFloat() }
+        val prepared = if (usePreprocessing) highPassFilter(normalized, targetRate) else normalized
+
+        val windowSeconds = model.windowMs / MS_PER_SECOND
+        val win = (windowSeconds * targetRate).toInt()
+        val hop = (hopSeconds * targetRate).toInt()
         require(win > 0 && hop > 0) { "Invalid window/hop: win=$win hop=$hop" }
-        val frames = if (samples.size < win) 0 else 1 + (samples.size - win) / hop
+        val frames = if (prepared.size < win) 0 else 1 + (prepared.size - win) / hop
         if (frames == 0) {
             _progress.value = 1f
             return emptyList()
@@ -40,21 +68,38 @@ class InferenceRunner(
         val out = ArrayList<WindowPrediction>(frames * 5)
         for (f in 0 until frames) {
             val s = f * hop
-            val window = FloatArray(win) { idx -> samples[s + idx] / Short.MAX_VALUE.toFloat() }
-            val startMs = (s.toLong() * 1000L) / sampleRate
-            val endMs = ((s + win).toLong() * 1000L) / sampleRate
-            out += model.predict(
+            var window = prepared.copyOfRange(s, s + win)
+            window = if (usePreprocessing) spectralSubtractor?.process(window) ?: window else window
+            _progress.value = (f + 1).toFloat() / frames
+            val gateResult = yamNetGate?.classify(window, targetRate)  // null = fail-open → PASS
+            val startMs = (s.toLong() * MS_PER_SECOND_LONG) / targetRate
+            val endMs = ((s + win).toLong() * MS_PER_SECOND_LONG) / targetRate
+            val predictions = model.predict(
                 pcmFloat32 = window,
-                sampleRateHz = sampleRate,
+                sampleRateHz = targetRate,
                 latitude = latitude,
                 longitude = longitude,
                 observedAtMillis = observedAtMillis,
                 windowStartMs = startMs,
                 windowEndMs = endMs,
             )
-            _progress.value = (f + 1).toFloat() / frames
+            // Gate is soft: DOWNRANK only filters when no species has high confidence.
+            // null (fail-open) or PASS always includes results; DOWNRANK is overridden
+            // when at least one prediction has confidence >= HIGH_CONFIDENCE_OVERRIDE.
+            if (gateResult?.recommendation == GateRecommendation.DOWNRANK) {
+                val hasHighConfidence = predictions.any { it.confidence >= HIGH_CONFIDENCE_OVERRIDE }
+                if (!hasHighConfidence) continue
+            }
+            out += predictions
         }
         return out
+    }
+
+    private companion object {
+        const val MS_PER_SECOND = 1_000f
+        const val MS_PER_SECOND_LONG = 1_000L
+        /** If any prediction has confidence >= this, override a DOWNRANK gate decision. */
+        const val HIGH_CONFIDENCE_OVERRIDE = 0.7f
     }
 }
 

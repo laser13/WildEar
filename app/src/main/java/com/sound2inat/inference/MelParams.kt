@@ -13,5 +13,5 @@ data class MelParams(
     val hop: Int = 512,
     val melBins: Int = 128,
     val fMin: Float = 0f,
-    val fMax: Float = 24_000f, // Nyquist
+    val fMax: Float = 10_000f, // default display range: 0–10 kHz (wildlife calls)
 )
