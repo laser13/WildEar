@@ -166,8 +166,12 @@ open class LiveInferenceEngine(
      * accepted the window, `false` otherwise (closed channel or — under a
      * non-default overflow policy — buffer rejection). Override in tests to
      * exercise the failure path; production code must not override this.
+     *
+     * `internal` (not `protected`) on purpose: the only legitimate consumer is
+     * a test-source subclass in the same module, and we don't want [Window] to
+     * leak into a public inheritance contract for external subclasses.
      */
-    protected open fun trySendWindow(window: Window): Boolean =
+    internal open fun trySendWindow(window: Window): Boolean =
         queue.trySend(window).isSuccess
 
     /**
@@ -233,7 +237,7 @@ open class LiveInferenceEngine(
         workerJob = null
     }
 
-    protected data class Window(val samples: FloatArray, val startMs: Long, val endMs: Long)
+    internal data class Window(val samples: FloatArray, val startMs: Long, val endMs: Long)
 
     companion object {
         private const val TAG = "LiveInferenceEngine"

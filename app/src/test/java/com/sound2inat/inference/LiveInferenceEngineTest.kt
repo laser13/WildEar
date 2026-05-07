@@ -350,13 +350,12 @@ class LiveInferenceEngineTest {
         UnconfinedTestDispatcher()
     ) {
         // Default BUFFERED+DROP_OLDEST channel: trySend never fails on an open
-        // queue, so droppedOnFull stays at 0. Every window the engine emits
-        // either reaches the consumer or is silently evicted by the channel —
-        // either way, droppedOnFull is not the right counter for that, and we
-        // assert the invariant `emitted_to_channel == consumed + droppedOnFull`
-        // as observable through the worker's accepted-window count via a
-        // hand-rolled slow model.
+        // queue, so droppedOnFull stays at 0. The worker runs on Dispatchers.Default
+        // (real wallclock), not the test scheduler, so we coordinate with a latch
+        // to wait until the slow consumer has actually processed at least one
+        // window before tearing the engine down.
         val processed = java.util.concurrent.atomic.AtomicInteger(0)
+        val firstWindowProcessed = java.util.concurrent.CountDownLatch(1)
         val slowModel = object : BioacousticModel {
             override val modelId = "slow"
             override val modelVersion = "0"
@@ -372,8 +371,10 @@ class LiveInferenceEngineTest {
                 windowStartMs: Long,
                 windowEndMs: Long,
             ): List<WindowPrediction> {
-                kotlinx.coroutines.delay(50)
+                // Real-time delay (worker is on Dispatchers.Default).
+                Thread.sleep(50)
                 processed.incrementAndGet()
+                firstWindowProcessed.countDown()
                 return emptyList()
             }
             override fun close() {}
@@ -396,13 +397,19 @@ class LiveInferenceEngineTest {
         val windowsToProduce = 12
         val totalSamples = windowSamples + (windowsToProduce - 1) * hopSamples
         engine.feed(FloatArray(totalSamples) { 0.05f })
-        runCurrent()
+        // Wait for at least one window to flow end-to-end through the queue
+        // and the slow consumer (real-time, not virtual). 5 s is generous.
+        val firstSeen = firstWindowProcessed.await(5_000L, java.util.concurrent.TimeUnit.MILLISECONDS)
         engine.stop()
-        runCurrent()
 
         // Invariant under default BUFFERED+DROP_OLDEST: trySend never reports
         // failure for an open channel, so the safety-net counter is zero.
         assertThat(engine.droppedOnFull.value).isEqualTo(0)
+        // Sanity check: the slow consumer must actually have processed at
+        // least one window. Without this, a zero-windows run would pass the
+        // droppedOnFull assertion vacuously.
+        assertThat(firstSeen).isTrue()
+        assertThat(processed.get()).isGreaterThan(0)
     }
 
     @Test
