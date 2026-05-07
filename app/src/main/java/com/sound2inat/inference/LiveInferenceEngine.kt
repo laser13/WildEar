@@ -29,9 +29,17 @@ import kotlinx.coroutines.withTimeoutOrNull
  * experimental benchmark path that applies high-pass + spectral subtraction.
  *
  * Backpressure: a [Channel] with capacity [queueCapacity] and DROP_OLDEST
- * overflow buffers windows for the worker. If inference falls behind real
- * time, oldest queued windows are dropped — recording is never stalled.
- * [backlog] reports current queue depth (consumers can show a UI hint).
+ * overflow buffers windows for the worker. With this configuration `trySend`
+ * always succeeds for an open channel — when the buffer is full, the channel
+ * silently evicts the oldest queued window (so consumer-side drops surface as
+ * holes in the prediction stream rather than as `trySend` failures).
+ * [backlog] reports the approximate queue depth (consumers can show a UI hint).
+ * The only path on which `trySend` can return failure is a closed channel
+ * (post-[stop]); if that ever fires, [droppedOnFull] is incremented to keep
+ * the producer/consumer accounting consistent. In `assertions enabled` builds
+ * (e.g. unit tests), this also trips a Kotlin `assert` to surface architectural
+ * drift if the channel configuration is ever changed away from
+ * `BUFFERED + DROP_OLDEST`.
  *
  * Lifecycle: [start] launches the worker on the supplied scope. [feed]
  * appends audio blocks (non-blocking). [stop] closes the queue, waits up to
@@ -67,6 +75,19 @@ open class LiveInferenceEngine(
      * suitable for "analysis catching up…" UI hints; don't use for precise math.
      */
     open val backlog: StateFlow<Int> = _backlog.asStateFlow()
+
+    private val _droppedOnFull = MutableStateFlow(0)
+
+    /**
+     * Number of windows the engine produced but failed to enqueue because
+     * [trySendWindow] reported failure. With the default
+     * `BUFFERED + DROP_OLDEST` channel this counter should remain `0` for an
+     * open channel — see class KDoc. It is incremented as a safety net so UI
+     * accounting (`emitted == consumed + dropped`) holds even if the failure
+     * branch ever fires (e.g. a closed channel race, or a future change to
+     * the buffer-overflow policy).
+     */
+    open val droppedOnFull: StateFlow<Int> = _droppedOnFull.asStateFlow()
 
     private val queue = Channel<Window>(capacity = queueCapacity, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private var workerJob: Job? = null
@@ -115,8 +136,17 @@ open class LiveInferenceEngine(
             System.arraycopy(ring, startInRing, window, 0, windowSamples)
             val startMs = nextEmitAt * 1_000L / sampleRateHz
             val endMs = (nextEmitAt + windowSamples) * 1_000L / sampleRateHz
-            val sent = queue.trySend(Window(window, startMs, endMs)).isSuccess
-            if (sent) _backlog.update { (it + 1).coerceAtMost(queueCapacity) }
+            val sent = trySendWindow(Window(window, startMs, endMs))
+            if (sent) {
+                _backlog.update { (it + 1).coerceAtMost(queueCapacity) }
+            } else {
+                // Should be unreachable while channel is open: BUFFERED+DROP_OLDEST
+                // makes trySend infallible. If it fires we either raced with stop()
+                // (channel closed) or the channel policy was changed — track the
+                // drop so UI accounting (emitted = consumed + droppedOnFull) holds.
+                _droppedOnFull.update { it + 1 }
+                onSendRejected()
+            }
             nextEmitAt += hopSamples
 
             // Slide the ring so future audio can fit. Keep only samples >= nextEmitAt.
@@ -128,6 +158,33 @@ open class LiveInferenceEngine(
             }
             consumed += keepFromRing
             ringFilled = remaining
+        }
+    }
+
+    /**
+     * Test seam: enqueue [window] for the worker. Returns `true` if the channel
+     * accepted the window, `false` otherwise (closed channel or — under a
+     * non-default overflow policy — buffer rejection). Override in tests to
+     * exercise the failure path; production code must not override this.
+     */
+    protected open fun trySendWindow(window: Window): Boolean =
+        queue.trySend(window).isSuccess
+
+    /**
+     * Invoked when [trySendWindow] reports failure on what should be a working
+     * channel. Default implementation fires a Kotlin `assert` (no-op when JVM
+     * assertions are disabled, e.g. release builds; throws under `-ea` in tests
+     * and developer builds) when the engine is not [stopped] — surfacing
+     * architectural drift if the `BUFFERED + DROP_OLDEST` channel config is
+     * ever changed away from a configuration where `trySend` is infallible on
+     * an open queue. A closed channel (post-[stop]) is an expected race and
+     * does not trip the assertion. Tests override to silence the assertion
+     * while exercising the failure-accounting path.
+     */
+    protected open fun onSendRejected() {
+        assert(stopped) {
+            "BUFFERED+DROP_OLDEST channel rejected trySend on an open queue — " +
+                "channel configuration drift?"
         }
     }
 
@@ -176,7 +233,7 @@ open class LiveInferenceEngine(
         workerJob = null
     }
 
-    private data class Window(val samples: FloatArray, val startMs: Long, val endMs: Long)
+    protected data class Window(val samples: FloatArray, val startMs: Long, val endMs: Long)
 
     companion object {
         private const val TAG = "LiveInferenceEngine"
