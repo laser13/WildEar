@@ -176,6 +176,7 @@ class INatAuthRepository @Inject constructor(
     private companion object {
         /** iNat api_tokens are JWTs with a 24h `exp`; refresh just before. */
         const val TOKEN_TTL_MS = 23L * 60 * 60 * 1000
+
         /** Hard ceiling for one silent-refresh attempt. */
         const val SILENT_REFRESH_TIMEOUT_MS = 15_000L
     }

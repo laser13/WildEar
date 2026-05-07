@@ -39,6 +39,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * NOT thread-safe wrt [feed] — call from a single producer (the recorder pump).
  */
+@Suppress("VariableNaming") // backing property pattern: _predictions / _backlog
 open class LiveInferenceEngine(
     private val model: BioacousticModel,
     private val yamNetGate: YamNetGate?,
@@ -72,9 +73,10 @@ open class LiveInferenceEngine(
 
     // Ring large enough to hold one full window plus one full hop without overrun.
     private val ring = FloatArray(windowSamples + hopSamples)
-    private var ringFilled = 0       // valid samples in [0, ringFilled)
-    private var consumed = 0L        // total samples that have left the head of the ring
-    private var nextEmitAt = 0L      // sample index of next window's start
+    private var ringFilled = 0 // valid samples in [0, ringFilled)
+    private var consumed = 0L // total samples that have left the head of the ring
+    private var nextEmitAt = 0L // sample index of next window's start
+
     @Volatile private var stopped = false
 
     open fun start(scope: CoroutineScope) {
@@ -145,12 +147,15 @@ open class LiveInferenceEngine(
             samples = highPassFilter(samples, sampleRateHz)
             spectralSubtractor?.let { samples = it.process(samples) }
         }
-        val gateResult = yamNetGate?.classify(samples, sampleRateHz)  // null = fail-open → PASS
+        val gateResult = yamNetGate?.classify(samples, sampleRateHz) // null = fail-open → PASS
         val preds = model.predict(
             pcmFloat32 = samples,
             sampleRateHz = sampleRateHz,
-            latitude = null, longitude = null, observedAtMillis = 0L,
-            windowStartMs = w.startMs, windowEndMs = w.endMs,
+            latitude = null,
+            longitude = null,
+            observedAtMillis = 0L,
+            windowStartMs = w.startMs,
+            windowEndMs = w.endMs,
         )
         // Gate is soft: DOWNRANK only suppresses when no species has high confidence.
         // null (fail-open) or PASS always emits; DOWNRANK is overridden when at least
@@ -177,6 +182,7 @@ open class LiveInferenceEngine(
         private const val TAG = "LiveInferenceEngine"
         private const val BACKLOG_WARN = 3
         private const val DRAIN_TIMEOUT_MS = 5_000L
+
         /** If any prediction has confidence >= this, override a DOWNRANK gate decision. */
         private const val HIGH_CONFIDENCE_OVERRIDE = 0.7f
     }

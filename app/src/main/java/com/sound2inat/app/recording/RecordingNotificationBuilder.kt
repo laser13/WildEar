@@ -23,12 +23,14 @@ class RecordingNotificationBuilder @Inject constructor(
 
     private fun buildNotification(contentText: String): Notification {
         val stopIntent = PendingIntent.getService(
-            ctx, 0,
+            ctx,
+            0,
             Intent(ctx, RecordingService::class.java).setAction(RecordingService.ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val openIntent = PendingIntent.getActivity(
-            ctx, 0,
+            ctx,
+            0,
             Intent(ctx, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
@@ -57,8 +59,11 @@ class RecordingNotificationBuilder @Inject constructor(
             val hours = totalSeconds / 3600L
             val minutes = (totalSeconds % 3600L) / 60L
             val seconds = totalSeconds % 60L
-            return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, seconds)
-                   else "%d:%02d".format(minutes, seconds)
+            return if (hours > 0) {
+                "%d:%02d:%02d".format(hours, minutes, seconds)
+            } else {
+                "%d:%02d".format(minutes, seconds)
+            }
         }
     }
 }

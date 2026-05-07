@@ -130,6 +130,16 @@ class RecordingViewModelTest {
     fun `state mirrors controller Done state`() = runTest {
         val vm = buildVm()
 
+        // The VM guards against stale Done from a previous session by requiring at
+        // least one Recording state before it transitions to Done (hasSeenRecording).
+        fakeController.setState(
+            RecordingSessionState.Recording(
+                draftId = "d2", recordingStartMs = 0L, elapsedMs = 0L,
+                rms = 0f, gps = GpsStatus.NoFix, warningSoftLimit = false,
+                backlogWindows = 0, liveCards = emptyList(), lastDetection = null,
+            ),
+        )
+        runCurrent()
         fakeController.setState(RecordingSessionState.Done("d2"))
         runCurrent()
 

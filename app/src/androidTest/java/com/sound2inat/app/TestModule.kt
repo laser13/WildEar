@@ -20,7 +20,9 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.components.SingletonComponent
 import dagger.hilt.testing.TestInstallIn
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import okhttp3.OkHttpClient
 import java.io.File
@@ -87,6 +89,8 @@ class FakeRecorder : Recorder {
     override val rmsLevel: StateFlow<Float> = _rms
     private val _rmsHistory = MutableStateFlow(FloatArray(0))
     override val rmsHistory: StateFlow<FloatArray> = _rmsHistory
+    override val audioBlocks: SharedFlow<FloatArray> = MutableSharedFlow()
+    override val sampleRate: Int = SAMPLE_RATE
 
     private var target: File? = null
     private var startMs: Long = 0L

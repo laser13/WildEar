@@ -7,7 +7,6 @@ import io.mockk.mockk
 import io.mockk.verify
 import org.junit.After
 import org.junit.Assert.assertNotNull
-import org.junit.Before
 import org.junit.Test
 
 class AndroidAudioRecordSourceTest {

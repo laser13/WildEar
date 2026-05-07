@@ -71,7 +71,7 @@ class InferenceRunner(
             var window = prepared.copyOfRange(s, s + win)
             window = if (usePreprocessing) spectralSubtractor?.process(window) ?: window else window
             _progress.value = (f + 1).toFloat() / frames
-            val gateResult = yamNetGate?.classify(window, targetRate)  // null = fail-open → PASS
+            val gateResult = yamNetGate?.classify(window, targetRate) // null = fail-open → PASS
             val startMs = (s.toLong() * MS_PER_SECOND_LONG) / targetRate
             val endMs = ((s + win).toLong() * MS_PER_SECOND_LONG) / targetRate
             val predictions = model.predict(
@@ -98,6 +98,7 @@ class InferenceRunner(
     private companion object {
         const val MS_PER_SECOND = 1_000f
         const val MS_PER_SECOND_LONG = 1_000L
+
         /** If any prediction has confidence >= this, override a DOWNRANK gate decision. */
         const val HIGH_CONFIDENCE_OVERRIDE = 0.7f
     }

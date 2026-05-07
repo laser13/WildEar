@@ -630,10 +630,7 @@ class ReviewViewModelTest {
                 externalScope = backgroundScope,
                 observationFetcher = { expectedDetail },
             )
-            vm.loadObservationDetail(
-                detectionId = 99L,
-                observationUrl = "https://www.inaturalist.org/observations/12345",
-            )
+            vm.loadObservationDetail(detectionId = 99L, observationId = 12345L)
             val row = vm.state.value.species.firstOrNull { it.detectionId == 99L }
             assertThat(row).isNotNull()
             val detailState = row!!.observationDetailState
@@ -677,10 +674,7 @@ class ReviewViewModelTest {
                 externalScope = backgroundScope,
                 observationFetcher = { throw com.sound2inat.inat.INatException(500, "Server error") },
             )
-            vm.loadObservationDetail(
-                detectionId = 77L,
-                observationUrl = "https://www.inaturalist.org/observations/99999",
-            )
+            vm.loadObservationDetail(detectionId = 77L, observationId = 99999L)
             val row = vm.state.value.species.firstOrNull { it.detectionId == 77L }
             assertThat(row).isNotNull()
             assertThat(row!!.observationDetailState)
@@ -725,9 +719,9 @@ class ReviewViewModelTest {
                     com.sound2inat.inat.ObservationDetail("research", 1, 0, emptyList())
                 },
             )
-            vm.loadObservationDetail(55L, "https://www.inaturalist.org/observations/111")
+            vm.loadObservationDetail(55L, 111L)
             vm.collapseObservationDetail(55L)
-            vm.loadObservationDetail(55L, "https://www.inaturalist.org/observations/111")
+            vm.loadObservationDetail(55L, 111L)
             assertThat(fetchCount).isEqualTo(1)
             val row = vm.state.value.species.first { it.detectionId == 55L }
             assertThat(row.observationDetailState).isInstanceOf(ObservationDetailLoadState.Loaded::class.java)
@@ -807,7 +801,7 @@ class ReviewViewModelTest {
                     com.sound2inat.inat.ObservationDetail("needs_id", 0, 0, emptyList())
                 },
             )
-            vm.loadObservationDetail(33L, "https://www.inaturalist.org/observations/222")
+            vm.loadObservationDetail(33L, 222L)
             val rowAfterLoad = vm.state.value.species.first { it.detectionId == 33L }
             assertThat(rowAfterLoad.observationDetailState)
                 .isInstanceOf(ObservationDetailLoadState.Loaded::class.java)

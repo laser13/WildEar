@@ -2,6 +2,7 @@ package com.sound2inat.app.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sound2inat.app.data.Settings
 import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.modelmanager.BirdNetV24
 import com.sound2inat.modelmanager.ModelInstallState
@@ -9,6 +10,7 @@ import com.sound2inat.modelmanager.ModelManager
 import com.sound2inat.storage.DetectionDao
 import com.sound2inat.storage.DraftEntity
 import com.sound2inat.storage.DraftRepository
+import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.InatObservationDao
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -48,7 +50,7 @@ class HomeViewModel(
                     recordedAtUtcMs = d.recordedAtUtcMs,
                     durationMs = d.durationMs,
                     status = d.status,
-                    topLabel = null, // resolved in the screen via per-row Flow
+                    topLabel = null,
                 )
             },
         )
@@ -57,11 +59,6 @@ class HomeViewModel(
     private companion object { const val STOP_TIMEOUT_MS = 5_000L }
 }
 
-/**
- * Lightweight projection of a Room [com.sound2inat.storage.DetectionEntity] for
- * the Home recording-card preview row. Keeps just the fields the UI needs and
- * spares the screen from depending on the storage entity directly.
- */
 data class TopSpeciesItem(
     val scientificName: String,
     val commonName: String?,
@@ -74,23 +71,86 @@ class HomeViewModelHilt @Inject constructor(
     private val inatObservationDao: InatObservationDao,
     private val modelManager: ModelManager,
     private val inatClient: INaturalistClient,
+    private val settings: Settings,
 ) : ViewModel() {
 
     val delegate = HomeViewModel(
         observeDrafts = { repo.observeAll() },
-        topLabelFor = { _ ->
-            // first detection (sorted by maxConfidence desc); commonName preferred over scientific
-            null // computed per-row in the screen using detectionDao.observeForDraft(id)
-        },
+        topLabelFor = { _ -> null },
         isModelReady = { modelManager.stateFor(BirdNetV24.descriptor) is ModelInstallState.Ready },
     )
 
-    /**
-     * Lazy in-memory cache of taxon photo URLs keyed by scientific name. Shared
-     * across all recording cards so opening the Home screen doesn't fan out
-     * one network call per card per species. Lives for the VM lifetime, which
-     * is long enough to cover routine list-scrolling.
-     */
+    val filterMode = MutableStateFlow(FilterMode.ALL)
+
+    val allowDeleteUploaded: StateFlow<Boolean> = settings.allowDeleteUploaded
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), false)
+
+    // Enriched state: draft list + per-draft counts joined into DraftSummary.
+    // Used for filtering and bulk delete decisions.
+    val enrichedDrafts: StateFlow<List<DraftSummary>> = combine(
+        delegate.state,
+        inatObservationDao.observeCountsByDraft(),
+        detectionDao.observeCountsByDraft(),
+    ) { homeState, inatCounts, detectionCounts ->
+        val inatMap = inatCounts.associate { it.draftId to it.count }
+        val detMap = detectionCounts.associate { it.draftId to it.count }
+        homeState.drafts.map { d ->
+            d.copy(
+                inatCount = inatMap[d.id] ?: 0,
+                detectionCount = detMap[d.id] ?: 0,
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
+
+    val filteredDrafts: StateFlow<List<DraftSummary>> = combine(
+        enrichedDrafts, filterMode,
+    ) { drafts, mode ->
+        when (mode) {
+            FilterMode.ALL -> drafts
+            FilterMode.UPLOADED -> drafts.filter { it.inatCount > 0 || it.status == DraftStatus.UPLOADED }
+            FilterMode.NOTHING_DETECTED -> drafts.filter {
+                it.detectionCount == 0 &&
+                    (it.status == DraftStatus.PENDING_REVIEW || it.status == DraftStatus.REVIEWED)
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
+
+    fun setFilterMode(mode: FilterMode) {
+        filterMode.value = mode
+        selectedIds.value = emptySet()
+    }
+
+    val selectedIds = MutableStateFlow<Set<String>>(emptySet())
+
+    fun toggleSelection(id: String) {
+        val cur = selectedIds.value
+        selectedIds.value = if (id in cur) cur - id else cur + id
+    }
+
+    fun selectAllVisible() {
+        selectedIds.value = filteredDrafts.value.map { it.id }.toSet()
+    }
+
+    fun clearSelection() { selectedIds.value = emptySet() }
+
+    fun previewSelectedDelete(): BulkDeletePreview {
+        val ids = selectedIds.value
+        val drafts = filteredDrafts.value.filter { it.id in ids }
+        val allowUploaded = allowDeleteUploaded.value
+        val toDelete = drafts.filter { allowUploaded || (it.inatCount == 0 && it.status != DraftStatus.UPLOADED) }
+        val skipped = drafts.size - toDelete.size
+        return BulkDeletePreview(toDelete, skipped)
+    }
+
+    fun bulkDelete(ids: List<String>) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                ids.forEach { repo.delete(it) }
+            }
+            selectedIds.value = emptySet()
+        }
+    }
+
     private val photoFlows = ConcurrentHashMap<String, MutableStateFlow<String?>>()
 
     fun observeTopLabel(draftId: String): Flow<String?> =
@@ -98,11 +158,6 @@ class HomeViewModelHilt @Inject constructor(
             list.firstOrNull()?.let { it.taxonCommonName ?: it.taxonScientificName }
         }.flowOn(Dispatchers.IO)
 
-    /**
-     * Top [limit] detected species for a draft, ordered by confidence (the
-     * underlying DAO query already sorts that way). Used by the recording
-     * card to show a small avatar row of what the analysis found.
-     */
     fun observeTopSpecies(draftId: String, limit: Int = TOP_SPECIES_LIMIT): Flow<List<TopSpeciesItem>> =
         detectionDao.observeForDraft(draftId)
             .map { list ->
@@ -110,13 +165,11 @@ class HomeViewModelHilt @Inject constructor(
             }
             .flowOn(Dispatchers.IO)
 
-    /**
-     * Cached resolution of an iNaturalist taxon photo URL. First call for a
-     * given name kicks off a fetch; subsequent calls return the same flow,
-     * which emits null until the network round-trip completes (or stays null
-     * if the taxon has no default photo). Errors are swallowed — a missing
-     * thumbnail is not a UX-blocking problem.
-     */
+    fun observeDetectionCount(draftId: String): Flow<Int> =
+        detectionDao.observeForDraft(draftId)
+            .map { it.size }
+            .flowOn(Dispatchers.IO)
+
     fun observeTaxonPhoto(name: String): StateFlow<String?> {
         photoFlows[name]?.let { return it }
         val flow = MutableStateFlow<String?>(null)
@@ -131,12 +184,6 @@ class HomeViewModelHilt @Inject constructor(
         return flow
     }
 
-    /**
-     * Number of iNaturalist observations already uploaded for this draft.
-     * Surface a "✓ N on iNaturalist" hint per card on the Home screen — the
-     * user can tell at a glance which recordings have been pushed and how
-     * many species ended up published.
-     */
     fun observeInatObservationCount(draftId: String): Flow<Int> =
         inatObservationDao.observeForDraft(draftId)
             .map { it.size }
@@ -146,5 +193,6 @@ class HomeViewModelHilt @Inject constructor(
 
     private companion object {
         const val TOP_SPECIES_LIMIT = 3
+        const val STOP_TIMEOUT_MS = 5_000L
     }
 }

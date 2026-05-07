@@ -22,8 +22,8 @@ import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.sqrt
 
-private const val BITMAP_WIDTH_COLS = 940     // ~10 sec at 48k / hop 512
-private const val BITMAP_HEIGHT_BINS = 256    // log-binned from 1025 to 256
+private const val BITMAP_WIDTH_COLS = 940 // ~10 sec at 48k / hop 512
+private const val BITMAP_HEIGHT_BINS = 256 // log-binned from 1025 to 256
 private const val FFT_SIZE = 2048
 private const val HOP_SIZE = 512
 
@@ -31,13 +31,15 @@ private const val HOP_SIZE = 512
 private const val DISPLAY_MAX_HZ = 10_000
 
 /**
- * Fixed dB window for the colour lookup. We can't do offline-style dynamic
- * min/max rescale (it'd flicker the whole image), so we apply gamma to lift
- * quiet content out of the floor. Per-pixel mapping never depends on
- * neighbours, so no flicker.
+ * Display window in **dB above the per-column noise floor** (set by
+ * [whitenInPlace]). Independent of recording gain / mic sensitivity:
+ * 0 = at noise floor → white, [DB_DISPLAY_MAX] dB above floor → black.
+ * Needed because UNPROCESSED audio source produces much lower absolute
+ * dBFS than gain-controlled sources, so a fixed-dBFS window can't hit
+ * both quiet whistles and clean background simultaneously.
  */
-private const val DB_DISPLAY_MIN = -75f
-private const val DB_DISPLAY_MAX = -5f
+private const val DB_DISPLAY_MIN = 0f
+private const val DB_DISPLAY_MAX = 35f
 
 /**
  * Pre-computed Merlin-style ink LUT: white background, increasing darkness as
@@ -47,7 +49,8 @@ private const val DB_DISPLAY_MAX = -5f
 private const val LUT_SIZE = 256
 private val inkLut: IntArray = IntArray(LUT_SIZE) { i ->
     val t = i / (LUT_SIZE - 1f)
-    // Apply gamma 0.5 here so the lookup itself encodes the curve.
+    // Whitening already lifts mid-range out of the floor; sqrt gamma is
+    // gentle enough to keep contrast between background and tones.
     val tGamma = sqrt(t)
     // White → black; alpha stays opaque.
     val grey = ((1f - tGamma) * 255).toInt().coerceIn(0, 255)
@@ -78,6 +81,7 @@ fun LiveSpectrogramView(
     val spectrogram = remember(sampleRateHz) {
         Spectrogram(fftSize = FFT_SIZE, hopSize = HOP_SIZE, sampleRateHz = sampleRateHz)
     }
+    val sortBuf = remember { FloatArray(FFT_SIZE / 2 + 1) }
     var revision by remember { mutableStateOf(0) }
 
     LaunchedEffect(audioBlocks) {
@@ -85,6 +89,7 @@ fun LiveSpectrogramView(
             val drew = withContext(Dispatchers.Default) {
                 val columns = spectrogram.process(block)
                 for (col in columns) {
+                    whitenInPlace(col, sortBuf)
                     ring.append(logBinDown(col, BITMAP_HEIGHT_BINS, sampleRateHz))
                 }
                 if (columns.isNotEmpty()) {
@@ -101,7 +106,8 @@ fun LiveSpectrogramView(
         }
     }
 
-    @Suppress("UNUSED_EXPRESSION") revision  // force recomposition on bitmap mutation
+    @Suppress("UNUSED_EXPRESSION")
+    revision // force recomposition on bitmap mutation
     Image(
         bitmap = bitmap.asImageBitmap(),
         contentDescription = null,
@@ -115,26 +121,55 @@ fun LiveSpectrogramView(
  * [outBins] log-spaced rows covering 0–[DISPLAY_MAX_HZ] Hz. Low frequencies
  * (where bird calls live) get more vertical space than high frequencies.
  *
+ * Uses **MAX-pooling** over each row's source-bin range — sampling a single
+ * bin (nearest-neighbour) silently dropped narrow tones at high frequencies,
+ * because adjacent log rows skip over 5–10 source bins each. Whistles
+ * landing on a skipped bin would disappear; speech survived only because
+ * its energy spreads across many bins.
+ *
  * The frequency ceiling is determined by [sampleRateHz] and [DISPLAY_MAX_HZ]:
  * bins above the [DISPLAY_MAX_HZ] cut-off are excluded so the display focuses
  * on wildlife call frequencies (default 0–10 kHz).
  */
 private fun logBinDown(src: FloatArray, outBins: Int, sampleRateHz: Int): FloatArray {
     val out = FloatArray(outBins)
-    val nyquistBins = src.size  // fftSize/2 + 1
+    val nyquistBins = src.size // fftSize/2 + 1
     // FFT bin index corresponding to DISPLAY_MAX_HZ.
     val displayMaxBin = (DISPLAY_MAX_HZ.toLong() * (nyquistBins - 1) * 2 / sampleRateHz)
         .toInt()
         .coerceIn(1, nyquistBins - 1)
-    val logMin = 0.0  // covers DC at the bottom row
+    val logMin = 0.0 // covers DC at the bottom row
     val logMax = ln(displayMaxBin.toDouble())
+    val outScale = (outBins - 1).toDouble()
     for (j in 0 until outBins) {
-        val frac = j.toDouble() / (outBins - 1)
-        val srcIdxLog = logMin + frac * (logMax - logMin)
-        val srcIdx = exp(srcIdxLog).toInt().coerceIn(0, displayMaxBin)
-        out[j] = src[srcIdx]
+        val fracLo = ((j - 0.5).coerceAtLeast(0.0)) / outScale
+        val fracHi = ((j + 0.5).coerceAtMost(outScale)) / outScale
+        val lo = exp(logMin + fracLo * (logMax - logMin)).toInt().coerceIn(0, displayMaxBin)
+        val hi = exp(logMin + fracHi * (logMax - logMin)).toInt().coerceIn(lo, displayMaxBin)
+        var maxVal = src[lo]
+        for (k in (lo + 1)..hi) {
+            if (src[k] > maxVal) maxVal = src[k]
+        }
+        out[j] = maxVal
     }
     return out
+}
+
+/**
+ * Subtract the per-column median dB ("noise floor") from every bin in place.
+ * After this, [col] holds dB **relative to the noise floor**: 0 = at floor,
+ * positive = above floor (signal). Lets the display work the same regardless
+ * of input gain. [sortBuf] is a scratch buffer of size `col.size` reused
+ * across calls to avoid allocations.
+ *
+ * Median is robust because in typical recordings most bins sit at the noise
+ * floor with only a few peaks; the 50th percentile reliably picks the floor.
+ */
+private fun whitenInPlace(col: FloatArray, sortBuf: FloatArray) {
+    System.arraycopy(col, 0, sortBuf, 0, col.size)
+    sortBuf.sort()
+    val median = sortBuf[sortBuf.size / 2]
+    for (i in col.indices) col[i] = col[i] - median
 }
 
 private fun fillPixels(out: IntArray, ring: SpectrogramRingBuffer, w: Int, h: Int) {

@@ -142,7 +142,7 @@ class INatSubmitter(
         cropDir: File,
         det: DetectionEntity,
     ): InatObservationEntity? {
-        val taxonId = client.resolveTaxon(det.taxonScientificName, token) ?: return null
+        val genusId = client.resolveGenus(det.taxonScientificName, token) ?: return null
         val cropFile = File(cropDir, cropFileName(draft.draft.id, det))
         cropPerSpecies(srcAudio, det, draft.draft.durationMs, cropFile)
         val obsBody = ObservationBody(
@@ -150,7 +150,7 @@ class INatSubmitter(
             latitude = draft.draft.latitude,
             longitude = draft.draft.longitude,
             positionalAccuracy = draft.draft.locationAccuracyMeters,
-            taxonId = taxonId,
+            taxonId = null,
             description = baseDescription(det),
             licenseCode = "cc-by-nc",
         )
@@ -183,10 +183,15 @@ class INatSubmitter(
                     )
                 }
         }
+        runCatching {
+            client.addIdentification(token, created.id, genusId, identificationComment(det))
+        }.onFailure {
+            android.util.Log.w(LOG_TAG, "addIdentification on ${created.id} failed", it)
+        }
         val row = InatObservationEntity(
             draftId = draft.draft.id,
             taxonScientificName = det.taxonScientificName,
-            taxonInatId = taxonId,
+            taxonInatId = genusId,
             observationId = created.id,
             observationUrl = created.url,
             createdAtUtcMs = nowMs(),
@@ -234,6 +239,17 @@ class INatSubmitter(
 
     private fun sourceDisplayName(id: String): String =
         KnownModels.firstOrNull { it.id == id }?.displayName ?: id
+
+    private fun identificationComment(det: DetectionEntity): String {
+        val stats = SourceStats.decodeConfidenceOnly(det.sources)
+        return if (stats.isEmpty()) {
+            "Detected ${det.taxonScientificName} (${"%.0f".format(det.maxConfidence * PCT)}% confidence)"
+        } else {
+            stats.entries.sortedBy { it.key }.joinToString("; ") { (src, conf) ->
+                "${sourceDisplayName(src)}: ${det.taxonScientificName} (${"%.0f".format(conf * PCT)}%)"
+            }
+        }
+    }
 
     private suspend fun crossLink(
         token: String,

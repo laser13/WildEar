@@ -29,11 +29,19 @@ class RecordingViewModel(
 
     private val permissionError = MutableStateFlow<String?>(null)
 
+    // True once this VM instance has observed at least one Recording state, meaning
+    // the controller is running a session we started. Without this guard, a stale
+    // Done(prevId) left in the singleton controller would fire onDone immediately
+    // on the next navigation to RecordingScreen, sending the user to the wrong draft.
+    private var hasSeenRecording = false
+
     val state: StateFlow<RecordingUiState> = combine(
         controller.state,
         permissionError,
     ) { session, error ->
-        error?.let { RecordingUiState.Error(it) } ?: session.toUiState()
+        if (session is RecordingSessionState.Recording) hasSeenRecording = true
+        val uiState = error?.let { RecordingUiState.Error(it) } ?: session.toUiState()
+        if (!hasSeenRecording && uiState is RecordingUiState.Done) RecordingUiState.Idle else uiState
     }.stateIn(viewModelScope, SharingStarted.Eagerly, RecordingUiState.Idle)
 
     val rmsHistory: StateFlow<FloatArray> = controller.rmsHistory

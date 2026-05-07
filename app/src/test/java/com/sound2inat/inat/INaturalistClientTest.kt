@@ -94,7 +94,7 @@ class INaturalistClientTest {
             ),
         )
         assertThat(res.id).isEqualTo(98765L)
-        assertThat(res.url).isEqualTo("https://www.inaturalist.org/observations/abc-uuid")
+        assertThat(res.url).isEqualTo("https://www.inaturalist.org/observations/98765")
         val req = server.takeRequest()
         assertThat(req.method).isEqualTo("POST")
         assertThat(req.path).isEqualTo("/v1/observations")

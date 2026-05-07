@@ -1194,7 +1194,7 @@ The `DefaultRecordingController` contains all logic currently in `RecordingViewM
 Note: `RecordingService` is `@AndroidEntryPoint`. Hilt 2.52 + `@HiltAndroidApp` on `Sound2iNatApp` already satisfies this prerequisite.
 Robolectric tests in `src/test` with Hilt require `kspTest(libs.hilt.compiler)` (added in Task 1) and `testImplementation(libs.hilt.android.testing)` (added in Task 1).
 
-- [ ] **Step 1: Write RecordingServiceTest.kt (failing)**
+- [x] **Step 1: Write RecordingServiceTest.kt (failing)**
 
   Create `app/src/test/java/com/sound2inat/app/recording/RecordingServiceTest.kt`:
 
@@ -1283,7 +1283,7 @@ Robolectric tests in `src/test` with Hilt require `kspTest(libs.hilt.compiler)` 
   }
   ```
 
-- [ ] **Step 2: Run — verify FAILED (RecordingService not found)**
+- [x] **Step 2: Run — verify FAILED (RecordingService not found)**
 
   ```bash
   JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home \
@@ -1293,7 +1293,7 @@ Robolectric tests in `src/test` with Hilt require `kspTest(libs.hilt.compiler)` 
 
   Expected: `FAILED`
 
-- [ ] **Step 3: Create RecordingService.kt**
+- [x] **Step 3: Create RecordingService.kt**
 
   Create `app/src/main/java/com/sound2inat/app/recording/RecordingService.kt`:
 
@@ -1383,7 +1383,7 @@ Robolectric tests in `src/test` with Hilt require `kspTest(libs.hilt.compiler)` 
   }
   ```
 
-- [ ] **Step 4: Run tests — verify they pass**
+- [x] **Step 4: Run tests — verify they pass**
 
   ```bash
   JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home \
@@ -1397,7 +1397,7 @@ Robolectric tests in `src/test` with Hilt require `kspTest(libs.hilt.compiler)` 
   @Config(sdk = [Build.VERSION_CODES.S], application = dagger.hilt.android.testing.HiltTestApplication::class)
   ```
 
-- [ ] **Step 5: Run all unit tests — no regressions**
+- [x] **Step 5: Run all unit tests — no regressions**
 
   ```bash
   JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home \
@@ -1426,7 +1426,7 @@ The ViewModel becomes a thin wrapper: maps `RecordingSessionState` → `Recordin
 
 Before writing tests, read `RecordingUiState.kt` — the shape is unchanged.
 
-- [ ] **Step 1: Write new RecordingViewModelTest.kt (failing)**
+- [x] **Step 1: Write new RecordingViewModelTest.kt (failing)**
 
   Replace the entire content of `app/src/test/java/com/sound2inat/app/ui/recording/RecordingViewModelTest.kt`:
 
@@ -1580,7 +1580,7 @@ Before writing tests, read `RecordingUiState.kt` — the shape is unchanged.
 
   Use the Robolectric approach — no new dependency needed.
 
-- [ ] **Step 2: Run tests — verify they fail (classes not refactored yet)**
+- [x] **Step 2: Run tests — verify they fail (classes not refactored yet)**
 
   ```bash
   JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home \
@@ -1590,7 +1590,7 @@ Before writing tests, read `RecordingUiState.kt` — the shape is unchanged.
 
   Expected: `FAILED` — `RecordingViewModel` still has old constructor signature.
 
-- [ ] **Step 3: Replace RecordingViewModel.kt**
+- [x] **Step 3: Replace RecordingViewModel.kt**
 
   Replace the full content of `app/src/main/java/com/sound2inat/app/ui/recording/RecordingViewModel.kt`:
 
@@ -1685,7 +1685,7 @@ Before writing tests, read `RecordingUiState.kt` — the shape is unchanged.
   }
   ```
 
-- [ ] **Step 4: Run tests — verify they pass**
+- [x] **Step 4: Run tests — verify they pass**
 
   ```bash
   JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home \
@@ -1695,7 +1695,7 @@ Before writing tests, read `RecordingUiState.kt` — the shape is unchanged.
 
   Expected: `BUILD SUCCESSFUL` — all 6 tests PASS.
 
-- [ ] **Step 5: Run all unit tests — no regressions**
+- [x] **Step 5: Run all unit tests — no regressions**
 
   ```bash
   JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home \
@@ -1706,7 +1706,7 @@ Before writing tests, read `RecordingUiState.kt` — the shape is unchanged.
 
   If compile errors appear: check that `RecordingScreen.kt` still calls `vm.rmsHistory`, `vm.audioBlocks`, `vm.sampleRateHz` — these are still present on the new ViewModel. If `RecordingScreen.kt` used to create `RecordingViewModel` via `vm.factory { perms -> ... }`, that factory pattern is preserved in `RecordingViewModelHilt.factory`.
 
-- [ ] **Step 6: Full build check**
+- [x] **Step 6: Full build check**
 
   ```bash
   JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home \

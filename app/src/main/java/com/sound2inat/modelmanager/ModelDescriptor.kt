@@ -121,8 +121,8 @@ object BirdNetMetaV24 {
         labelsSha256 = BirdNetV24.descriptor.labelsSha256,
         license = "CC BY-NC-SA 4.0 (weights); MIT (BirdNET-Analyzer code)",
         sizeBytes = 7_071_440L,
-        sampleRateHz = 0,        // unused — meta input is [lat, lon, weekMeta]
-        windowMs = 0L,           // unused — single inference per recording
+        sampleRateHz = 0, // unused — meta input is [lat, lon, weekMeta]
+        windowMs = 0L, // unused — single inference per recording
         labelsFormat = LabelsFormat.BirdNetUnderscore,
         hidden = true,
     )
@@ -157,7 +157,7 @@ object YamNetV1 {
         sizeBytes = 4_126_810L,
         sampleRateHz = 16_000,
         windowMs = 975L,
-        labelsFormat = LabelsFormat.BirdNetUnderscore,  // unused — gate parses CSV directly
+        labelsFormat = LabelsFormat.BirdNetUnderscore, // unused — gate parses CSV directly
         hidden = true,
     )
 }

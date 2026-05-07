@@ -89,8 +89,8 @@ class RegionFilter(
     }
 
     companion object {
-        private const val PLACE_TTL_MS = 24L * 60 * 60 * 1000      // places don't change daily
-        private const val STATUS_TTL_MS = 6L * 60 * 60 * 1000       // new observations could land
-        private const val FAILURE_TTL_MS = 5L * 60 * 1000           // transient errors recover fast
+        private const val PLACE_TTL_MS = 24L * 60 * 60 * 1000 // places don't change daily
+        private const val STATUS_TTL_MS = 6L * 60 * 60 * 1000 // new observations could land
+        private const val FAILURE_TTL_MS = 5L * 60 * 1000 // transient errors recover fast
     }
 }

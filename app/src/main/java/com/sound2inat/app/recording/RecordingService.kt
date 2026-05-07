@@ -19,6 +19,7 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class RecordingService : Service() {
     @Inject lateinit var controller: RecordingController
+
     @Inject lateinit var notificationBuilder: RecordingNotificationBuilder
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

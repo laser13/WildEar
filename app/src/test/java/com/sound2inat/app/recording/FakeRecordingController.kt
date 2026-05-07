@@ -17,7 +17,10 @@ class FakeRecordingController : RecordingController {
     override val audioBlocks: SharedFlow<FloatArray> = MutableSharedFlow()
     override val sampleRateHz: Int = 48_000
 
-    override suspend fun start() { startCalled = true; startCount++ }
+    override suspend fun start() {
+        startCalled = true
+        startCount++
+    }
     override suspend fun stop() { stopCalled = true }
     override fun cancel() { cancelCalled = true }
 

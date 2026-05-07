@@ -11,7 +11,7 @@ class SpectrogramRingBuffer(
     val bins: Int,
 ) {
     private val data = Array(capacity) { FloatArray(bins) }
-    private var head = 0   // index of next slot to write
+    private var head = 0 // index of next slot to write
     var size: Int = 0
         private set
 

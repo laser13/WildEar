@@ -15,6 +15,8 @@ import com.sound2inat.location.FusedLocationProvider
 import com.sound2inat.location.LocationProvider
 import com.sound2inat.modelmanager.BirdNetMetaV24
 import com.sound2inat.modelmanager.KnownModels
+import com.sound2inat.app.data.Settings
+import kotlinx.coroutines.flow.first
 import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelManager
 import com.sound2inat.modelmanager.YamNetV1
@@ -107,6 +109,7 @@ object SwappableModule {
         bioModels: List<@JvmSuppressWildcards BioacousticModel>,
         yamGate: YamNetGate?,
         modelManager: ModelManager,
+        settings: Settings,
     ): LiveInferenceEngineFactory? = LiveInferenceEngineFactory { sampleRateHz ->
         val birdnet = bioModels.firstOrNull { it.modelId == "birdnet_v2_4" }
             ?: return@LiveInferenceEngineFactory null
@@ -115,12 +118,14 @@ object SwappableModule {
             ?: return@LiveInferenceEngineFactory null
         runCatching { birdnet.load(ready.modelFile, ready.labelsFile) }
             .getOrElse { return@LiveInferenceEngineFactory null }
+        val usePreprocessing = settings.spectralSubtractionEnabled.first()
+        val gate = if (settings.yamNetGateEnabled.first()) yamGate else null
         LiveInferenceEngine(
             model = birdnet,
-            yamNetGate = yamGate,
+            yamNetGate = gate,
             spectralSubtractor = SpectralSubtractor(),
             sampleRateHz = sampleRateHz,
-            usePreprocessing = false,  // raw-first: preprocessing is an explicit opt-in for benchmarking
+            usePreprocessing = usePreprocessing,
         )
     }
 }

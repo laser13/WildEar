@@ -107,9 +107,9 @@ class SpectrogramRendererTest {
         // 10 values at –70 dB (quiet bird call).
         val values = FloatArray(n) { i ->
             when {
-                i < 200 -> 0f     // loud rumble
-                i < 390 -> -500f  // extreme noise — creates huge unclamped range
-                else    -> -70f   // quiet bird call
+                i < 200 -> 0f // loud rumble
+                i < 390 -> -500f // extreme noise — creates huge unclamped range
+                else -> -70f // quiet bird call
             }
         }
 
@@ -145,8 +145,8 @@ class SpectrogramRendererTest {
         // Majority of the output should span [0, 1] — specifically the 5th and
         // 95th elements of the sorted output should be near 0 and 1.
         val sorted = result.toMutableList().also { it.sort() }
-        assertThat(sorted.first()).isEqualTo(0f)        // clamped below p5
-        assertThat(sorted.last()).isEqualTo(1f)        // clamped above p95
+        assertThat(sorted.first()).isEqualTo(0f) // clamped below p5
+        assertThat(sorted.last()).isEqualTo(1f) // clamped above p95
         // The median should be somewhere in the middle (not 0 or 1).
         val median = sorted[50]
         assertThat(median).isGreaterThan(0f)

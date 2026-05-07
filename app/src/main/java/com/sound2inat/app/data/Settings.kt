@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.map
 
 private val Context.dataStore by preferencesDataStore("sound2inat")
 
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
+
 class Settings(private val ctx: Context) {
     private object K {
         val MIN_CONF = floatPreferencesKey("min_conf")
@@ -29,6 +31,8 @@ class Settings(private val ctx: Context) {
         val RADAR_RADIUS_KM = intPreferencesKey("radar_radius_km")
         val RADAR_PERIOD_DAYS = intPreferencesKey("radar_period_days")
         val RADAR_TAXA = stringPreferencesKey("radar_taxa")
+        val ALLOW_DELETE_UPLOADED = booleanPreferencesKey("allow_delete_uploaded")
+        val THEME_MODE = stringPreferencesKey("theme_mode")
     }
 
     val minConfidenceDisplay: Flow<Float> = ctx.dataStore.data.map { it[K.MIN_CONF] ?: DEFAULT_MIN_CONF }
@@ -40,7 +44,7 @@ class Settings(private val ctx: Context) {
     val lastKnownLon: Flow<Double?> = ctx.dataStore.data.map { it[K.LAST_KNOWN_LON] }
     val minWindows: Flow<Int> = ctx.dataStore.data.map { it[K.MIN_WINDOWS] ?: DEFAULT_MIN_WINDOWS }
     val spectralSubtractionEnabled: Flow<Boolean> =
-        ctx.dataStore.data.map { it[K.SPECTRAL_SUBTRACTION_ENABLED] ?: true }
+        ctx.dataStore.data.map { it[K.SPECTRAL_SUBTRACTION_ENABLED] ?: false }
     val yamNetGateEnabled: Flow<Boolean> =
         ctx.dataStore.data.map { it[K.YAMNET_GATE_ENABLED] ?: true }
     val birdNetMetaEnabled: Flow<Boolean> =
@@ -49,6 +53,16 @@ class Settings(private val ctx: Context) {
         ctx.dataStore.data.map { it[K.RADAR_RADIUS_KM] ?: DEFAULT_RADAR_RADIUS_KM }
     val radarPeriodDays: Flow<Int> =
         ctx.dataStore.data.map { it[K.RADAR_PERIOD_DAYS] ?: DEFAULT_RADAR_PERIOD_DAYS }
+    val allowDeleteUploaded: Flow<Boolean> =
+        ctx.dataStore.data.map { it[K.ALLOW_DELETE_UPLOADED] ?: false }
+    val themeMode: Flow<ThemeMode> = ctx.dataStore.data.map {
+        when (it[K.THEME_MODE]) {
+            "light" -> ThemeMode.LIGHT
+            "dark" -> ThemeMode.DARK
+            else -> ThemeMode.SYSTEM
+        }
+    }
+
     val radarTaxa: Flow<Set<String>> = ctx.dataStore.data.map {
         it[K.RADAR_TAXA]?.takeIf(String::isNotEmpty)?.split(',')?.toSet() ?: emptySet()
     }
@@ -82,6 +96,13 @@ class Settings(private val ctx: Context) {
     suspend fun setRadarPeriodDays(v: Int) {
         ctx.dataStore.edit { it[K.RADAR_PERIOD_DAYS] = v }
     }
+    suspend fun setAllowDeleteUploaded(v: Boolean) {
+        ctx.dataStore.edit { it[K.ALLOW_DELETE_UPLOADED] = v }
+    }
+    suspend fun setThemeMode(v: ThemeMode) {
+        ctx.dataStore.edit { it[K.THEME_MODE] = v.name.lowercase() }
+    }
+
     suspend fun setRadarTaxa(v: Set<String>) {
         // Comma is the on-disk delimiter; reject any taxon id that contains
         // one so a future caller can't accidentally split a single value

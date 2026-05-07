@@ -4,8 +4,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.material3.Switch
-import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,15 +25,21 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sound2inat.app.data.ThemeMode
 import com.sound2inat.inat.INatWebLoginActivity
 import com.sound2inat.modelmanager.ModelInstallState
 
@@ -67,6 +71,9 @@ fun SettingsScreen(onBack: () -> Unit) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            SectionCard(title = "Appearance") {
+                AppearanceSection(state, vm)
+            }
             SectionCard(title = "Models") {
                 state.sections.forEachIndexed { idx, sec ->
                     if (idx > 0) HorizontalDivider()
@@ -314,6 +321,33 @@ private fun RegionalFilterSection(state: SettingsUiState, vm: SettingsViewModel)
             checked = state.birdNetMetaEnabled,
             onCheckedChange = { vm.setBirdNetMetaEnabled(it) },
         )
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Allow deleting recordings with observations")
+        Switch(
+            checked = state.allowDeleteUploaded,
+            onCheckedChange = { vm.setAllowDeleteUploaded(it) },
+        )
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun AppearanceSection(state: SettingsUiState, vm: SettingsViewModel) {
+    Text("Theme", style = MaterialTheme.typography.bodyMedium)
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        ThemeMode.entries.forEachIndexed { idx, mode ->
+            SegmentedButton(
+                selected = state.themeMode == mode,
+                onClick = { vm.setThemeMode(mode) },
+                shape = SegmentedButtonDefaults.itemShape(idx, ThemeMode.entries.size),
+                label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) },
+            )
+        }
     }
 }
 

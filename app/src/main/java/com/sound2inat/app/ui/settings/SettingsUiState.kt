@@ -1,5 +1,6 @@
 package com.sound2inat.app.ui.settings
 
+import com.sound2inat.app.data.ThemeMode
 import com.sound2inat.modelmanager.ModelInstallState
 
 /**
@@ -31,6 +32,8 @@ data class SettingsUiState(
     val spectralSubtractionEnabled: Boolean = true,
     val yamNetGateEnabled: Boolean = true,
     val birdNetMetaEnabled: Boolean = true,
+    val allowDeleteUploaded: Boolean = false,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
 )
 
 sealed interface InatTestStatus {

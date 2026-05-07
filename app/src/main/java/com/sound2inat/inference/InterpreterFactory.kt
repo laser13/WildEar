@@ -1,6 +1,8 @@
 package com.sound2inat.inference
 
+import android.util.Log
 import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.nnapi.NnApiDelegate
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.MappedByteBuffer
@@ -42,8 +44,29 @@ class TfliteInterpreterFactory : InterpreterFactory {
         val channel = raf.channel
         val buffer: MappedByteBuffer =
             channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size())
-        val opts = Interpreter.Options().apply { numThreads = threads }
-        val interpreter = Interpreter(buffer, opts)
+
+        // Try NNAPI delegate first — on Snapdragon devices this routes to the
+        // Hexagon DSP / NPU and is typically 2–5× faster than CPU on TFLite
+        // models like BirdNET. If NNAPI fails (unsupported ops, driver bug,
+        // older Android), fall back to CPU-only with XNNPACK kernels (enabled
+        // by default in TFLite 2.16). XNNPACK + N threads is still a strong
+        // baseline.
+        var nnapi: NnApiDelegate? = null
+        val interpreter = try {
+            val delegate = NnApiDelegate()
+            val opts = Interpreter.Options().apply {
+                numThreads = threads
+                addDelegate(delegate)
+            }
+            val i = Interpreter(buffer, opts)
+            nnapi = delegate
+            Log.i(TAG, "TFLite using NNAPI delegate (threads=$threads)")
+            i
+        } catch (e: Throwable) {
+            Log.w(TAG, "NNAPI unavailable; falling back to CPU+XNNPACK (threads=$threads)", e)
+            Interpreter(buffer, Interpreter.Options().apply { numThreads = threads })
+        }
+
         return object : InterpreterApi {
             override val outputTensorCount: Int get() = interpreter.outputTensorCount
             override fun getOutputShape(index: Int): IntArray =
@@ -57,9 +80,14 @@ class TfliteInterpreterFactory : InterpreterFactory {
 
             override fun close() {
                 interpreter.close()
+                nnapi?.close()
                 channel.close()
                 raf.close()
             }
         }
+    }
+
+    private companion object {
+        const val TAG = "TfliteInterpreterFactory"
     }
 }

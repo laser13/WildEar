@@ -2,22 +2,26 @@ package com.sound2inat.app.ui.review
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 
@@ -34,6 +38,8 @@ internal fun SpeciesDetailsSheet(
     row: SpeciesRow,
     onDismiss: () -> Unit,
     onSeekTo: (Long) -> Unit,
+    uploadedUrl: String? = null,
+    onLoadDetail: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
@@ -162,13 +168,87 @@ internal fun SpeciesDetailsSheet(
                 )
             }
 
+            if (uploadedUrl != null) {
+                item {
+                    Spacer(Modifier.height(12.dp))
+                    HorizontalDivider()
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "iNaturalist",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+                when (val detailState = row.observationDetailState) {
+                    is ObservationDetailLoadState.NotLoaded -> {}
+                    is ObservationDetailLoadState.Loading -> item {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                    is ObservationDetailLoadState.Loaded -> {
+                        val d = detailState.detail
+                        item {
+                            val idText = when (d.agreeingIdCount) {
+                                0 -> "Awaiting IDs"
+                                1 -> "1 ID · ${sheetQualityGradeLabel(d.qualityGrade)}"
+                                else -> "${d.agreeingIdCount} IDs · ${sheetQualityGradeLabel(d.qualityGrade)}"
+                            }
+                            DetailRow(
+                                label = "Status",
+                                value = idText,
+                                valueColor = if (d.qualityGrade == "research") SHEET_INAT_GREEN
+                                    else MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                        if (d.taxonCommonName != null && d.qualityGrade == "research") {
+                            item {
+                                DetailRow(label = "Confirmed as", value = d.taxonCommonName)
+                            }
+                        }
+                        if (d.commentsCount > 0) {
+                            item {
+                                DetailRow(
+                                    label = "Comments",
+                                    value = "${d.commentsCount}",
+                                )
+                            }
+                        }
+                    }
+                    is ObservationDetailLoadState.Error -> item {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                "Could not load iNat data",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (onLoadDetail != null) {
+                                TextButton(onClick = onLoadDetail) {
+                                    Text("Retry", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             item { Spacer(Modifier.height(8.dp)) }
         }
     }
 }
 
 @Composable
-private fun DetailRow(label: String, value: String) {
+private fun DetailRow(
+    label: String,
+    value: String,
+    valueColor: Color = Color.Unspecified,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -183,6 +263,7 @@ private fun DetailRow(label: String, value: String) {
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
+            color = valueColor,
         )
     }
 }
@@ -193,6 +274,14 @@ private fun DetailRow(label: String, value: String) {
  * may replace this with per-window ranges from the data layer.
  */
 internal data class SpeciesTimeRange(val startMs: Long, val endMs: Long)
+
+private val SHEET_INAT_GREEN = Color(0xFF74AC00)
+
+private fun sheetQualityGradeLabel(grade: String): String = when (grade) {
+    "research" -> "Research Grade"
+    "needs_id"  -> "Needs ID"
+    else        -> grade
+}
 
 internal fun formatSheetMs(ms: Long): String {
     val totalSeconds = (ms / SHEET_MS_PER_SECOND).coerceAtLeast(0L)

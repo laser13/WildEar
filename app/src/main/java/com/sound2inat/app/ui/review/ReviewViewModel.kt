@@ -49,6 +49,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Calendar
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -186,7 +187,7 @@ class ReviewViewModel(
         InatSubmissionOutcome.Failure("No iNaturalist submitter configured")
     },
     private val tokenProvider: suspend () -> String? = { null },
-    private val inatObservationsFlow: kotlinx.coroutines.flow.Flow<List<Pair<String, String>>> =
+    private val inatObservationsFlow: kotlinx.coroutines.flow.Flow<List<InatObsEntry>> =
         kotlinx.coroutines.flow.flowOf(emptyList()),
     /** Returns the iNaturalist default photo medium_url for a scientific name, or null. */
     private val photoFetcher: suspend (String) -> String? = { null },
@@ -214,6 +215,13 @@ class ReviewViewModel(
     private val observationFetcher: suspend (idOrUuid: String) -> ObservationDetail = {
         throw com.sound2inat.inat.INatException(-1, "No observation fetcher configured")
     },
+    /**
+     * Shared across all [ReviewViewModel] instances created by the same
+     * [ReviewViewModelFactory]. Pre-populated entries skip the annotation
+     * round-trip so the Review screen opens without the green→red flicker.
+     * Defaults to an empty private map so unit tests remain self-contained.
+     */
+    private val regionalStatusCache: MutableMap<String, RegionalStatus?> = mutableMapOf(),
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -228,14 +236,6 @@ class ReviewViewModel(
 
     private val _waveformPeaks = MutableStateFlow<FloatArray?>(null)
     val waveformPeaks: StateFlow<FloatArray?> = _waveformPeaks
-
-    /** Cached denoise-preview WAV; null until the user enables the toggle and the build finishes. */
-    private val _denoisedAudioFile = MutableStateFlow<File?>(null)
-    val denoisedAudioFile: StateFlow<File?> = _denoisedAudioFile
-
-    /** Cached denoise-preview spectrogram PNG; null until built. */
-    private val _denoisedSpectrogramFile = MutableStateFlow<File?>(null)
-    val denoisedSpectrogramFile: StateFlow<File?> = _denoisedSpectrogramFile
 
     /**
      * Raw per-window predictions surfaced from the latest inference run, kept in
@@ -262,12 +262,6 @@ class ReviewViewModel(
      */
     private val photoUrlCache: MutableMap<String, String?> = mutableMapOf()
 
-    /**
-     * Long-lived cache `taxonScientificName → RegionalStatus`. Populated by
-     * [launchAnnotation] so re-emissions from Room preserve already-fetched
-     * statuses rather than resetting them to null.
-     */
-    private val regionalStatusCache: MutableMap<String, RegionalStatus?> = mutableMapOf()
     private val observationDetailCache = mutableMapOf<String, ObservationDetail?>()
     private var annotationJob: Job? = null
 
@@ -484,12 +478,11 @@ class ReviewViewModel(
         scope.launch(ioDispatcher) { repo.setSelection(detectionId, selected) }
     }
 
-    fun loadObservationDetail(detectionId: Long, observationUrl: String) {
-        val idOrUuid = observationUrl.trimEnd('/').substringAfterLast('/')
-            .takeIf { it.isNotBlank() } ?: return
+    fun loadObservationDetail(detectionId: Long, observationId: Long) {
+        val key = observationId.toString()
 
-        if (observationDetailCache.containsKey(idOrUuid)) {
-            val cached = observationDetailCache[idOrUuid]
+        if (observationDetailCache.containsKey(key)) {
+            val cached = observationDetailCache[key]
             _state.update { s ->
                 s.copy(
                     species = s.species.map { row ->
@@ -525,8 +518,8 @@ class ReviewViewModel(
         }
 
         scope.launch {
-            val detail = runCatching { observationFetcher(idOrUuid) }.getOrNull()
-            if (detail != null) observationDetailCache[idOrUuid] = detail
+            val detail = runCatching { observationFetcher(key) }.getOrNull()
+            if (detail != null) observationDetailCache[key] = detail
             _state.update { s ->
                 s.copy(
                     species = s.species.map { row ->
@@ -831,53 +824,7 @@ class ReviewViewModel(
     fun pause() { player.pause() }
     fun seekTo(ms: Long) { player.seekTo(ms) }
 
-    /**
-     * Selects the audio source that the player should use right now: the
-     * denoise-preview WAV when the toggle is on AND the artifact has been
-     * built, otherwise the original recording.
-     */
-    private fun effectivePlaybackPath(): String? = if (
-        _state.value.denoisePreviewEnabled && _denoisedAudioFile.value != null
-    ) {
-        _denoisedAudioFile.value?.absolutePath
-    } else {
-        _state.value.audioPath
-    }
-
-    /**
-     * Toggles the Review screen's noise-reduction preview. Pauses any current
-     * playback so the next Play uses the new source. On first activation, the
-     * denoise pipeline runs in the background and writes a WAV + PNG under
-     * [filesDir]; subsequent toggles reuse the cached files.
-     */
-    fun setDenoisePreviewEnabled(enabled: Boolean, filesDir: File) {
-        if (_state.value.denoisePreviewEnabled == enabled) return
-        player.pause()
-        _state.value = _state.value.copy(denoisePreviewEnabled = enabled)
-        if (enabled && _denoisedAudioFile.value == null && !_state.value.denoisingInProgress) {
-            buildDenoiseArtifacts(filesDir)
-        }
-    }
-
-    @Suppress("TooGenericExceptionCaught")
-    private fun buildDenoiseArtifacts(filesDir: File) {
-        val src = _state.value.audioPath ?: return
-        _state.value = _state.value.copy(denoisingInProgress = true)
-        scope.launch {
-            try {
-                val artifacts = withContext(ioDispatcher) {
-                    DenoisedArtifactsBuilder.build(File(src), draftId, filesDir)
-                }
-                _denoisedAudioFile.value = artifacts.audioFile
-                _denoisedSpectrogramFile.value = artifacts.spectrogramFile
-            } catch (t: Throwable) {
-                android.util.Log.w("ReviewViewModel", "Denoise preview build failed", t)
-                _state.value = _state.value.copy(denoisePreviewEnabled = false)
-            } finally {
-                _state.value = _state.value.copy(denoisingInProgress = false)
-            }
-        }
-    }
+    private fun effectivePlaybackPath(): String? = _state.value.audioPath
 
     /**
      * Sets [_highlight] to [id] and auto-clears it after [HighlightDurationMs] ms.
@@ -1032,6 +979,14 @@ class ReviewViewModelFactory @Inject constructor(
     /** Cache root used by the screen's `ensureVisuals` call. */
     val filesDir: File get() = context.filesDir
 
+    /**
+     * Shared regional-status cache across all [ReviewViewModel] instances.
+     * Because the factory is @Singleton, this map survives for the entire
+     * app session — opening Review for a draft that was already annotated
+     * costs zero network/disk work and shows no green→red flicker.
+     */
+    private val sharedRegionalStatusCache: MutableMap<String, RegionalStatus?> = ConcurrentHashMap()
+
     fun create(draftId: String): ReviewViewModel = ReviewViewModel(
         draftId = draftId,
         repo = repo,
@@ -1057,7 +1012,7 @@ class ReviewViewModelFactory @Inject constructor(
         },
         tokenProvider = { inatAuth.getValidToken() },
         inatObservationsFlow = inatObservationsDao.observeForDraft(draftId)
-            .map { rows -> rows.map { it.taxonScientificName to it.observationUrl } },
+            .map { rows -> rows.map { InatObsEntry(it.taxonScientificName, it.observationId, it.observationUrl) } },
         photoFetcher = { name -> inatClient.fetchTaxonPhotoUrl(name) },
         perchAnalysis = ProductionPerchAnalysisJob(models, modelManager, settings, yamNetGate),
         perchInstalledProbe = {
@@ -1068,6 +1023,7 @@ class ReviewViewModelFactory @Inject constructor(
         minWindowsProvider = { settings.minWindows.first() },
         regionRadiusKmProvider = { settings.regionRadiusKm.first() },
         observationFetcher = { id -> inatClient.getObservation(id) },
+        regionalStatusCache = sharedRegionalStatusCache,
     )
 }
 

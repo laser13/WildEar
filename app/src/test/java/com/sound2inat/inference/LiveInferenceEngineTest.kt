@@ -13,8 +13,8 @@ import org.junit.Test
 class LiveInferenceEngineTest {
 
     private val sampleRateHz = 48_000
-    private val windowSamples = sampleRateHz * 3       // 144_000
-    private val hopSamples = sampleRateHz * 3 / 2      // 72_000
+    private val windowSamples = sampleRateHz * 3 // 144_000
+    private val hopSamples = sampleRateHz * 3 / 2 // 72_000
 
     private fun fakeModel(label: String, confidence: Float) = object : BioacousticModel {
         override val modelId = "fake"
@@ -23,14 +23,21 @@ class LiveInferenceEngineTest {
         override val windowMs = 3_000L
         override suspend fun load(modelFile: java.io.File, labelsFile: java.io.File) {}
         override suspend fun predict(
-            pcmFloat32: FloatArray, sampleRateHz: Int,
-            latitude: Double?, longitude: Double?, observedAtMillis: Long,
-            windowStartMs: Long, windowEndMs: Long,
+            pcmFloat32: FloatArray,
+            sampleRateHz: Int,
+            latitude: Double?,
+            longitude: Double?,
+            observedAtMillis: Long,
+            windowStartMs: Long,
+            windowEndMs: Long,
         ): List<WindowPrediction> = listOf(
             WindowPrediction(
-                startMs = windowStartMs, endMs = windowEndMs,
-                taxonScientificName = label, taxonCommonName = null,
-                confidence = confidence, source = modelId,
+                startMs = windowStartMs,
+                endMs = windowEndMs,
+                taxonScientificName = label,
+                taxonCommonName = null,
+                confidence = confidence,
+                source = modelId,
             ),
         )
         override fun close() {}
@@ -42,8 +49,8 @@ class LiveInferenceEngineTest {
         val engine = LiveInferenceEngine(
             model = model,
             yamNetGate = null,
-            spectralSubtractor = null,            // disable to isolate timing
-            usePreprocessing = false,                 // disable for predictability
+            spectralSubtractor = null, // disable to isolate timing
+            usePreprocessing = false, // disable for predictability
             sampleRateHz = sampleRateHz,
             windowSamples = windowSamples,
             hopSamples = hopSamples,
@@ -66,8 +73,13 @@ class LiveInferenceEngineTest {
     fun `subsequent windows hop by 1500ms`() = runTest(UnconfinedTestDispatcher()) {
         val model = fakeModel("X x", 0.5f)
         val engine = LiveInferenceEngine(
-            model = model, yamNetGate = null, spectralSubtractor = null, usePreprocessing = false,
-            sampleRateHz = sampleRateHz, windowSamples = windowSamples, hopSamples = hopSamples,
+            model = model,
+            yamNetGate = null,
+            spectralSubtractor = null,
+            usePreprocessing = false,
+            sampleRateHz = sampleRateHz,
+            windowSamples = windowSamples,
+            hopSamples = hopSamples,
         )
         val collected = mutableListOf<WindowPrediction>()
         val collector = backgroundScope.launch { engine.predictions.toList(collected) }
@@ -93,14 +105,20 @@ class LiveInferenceEngineTest {
             override val windowMs = 3_000L
             override suspend fun load(modelFile: java.io.File, labelsFile: java.io.File) {}
             override suspend fun predict(
-                pcmFloat32: FloatArray, sampleRateHz: Int,
-                latitude: Double?, longitude: Double?, observedAtMillis: Long,
-                windowStartMs: Long, windowEndMs: Long,
+                pcmFloat32: FloatArray,
+                sampleRateHz: Int,
+                latitude: Double?,
+                longitude: Double?,
+                observedAtMillis: Long,
+                windowStartMs: Long,
+                windowEndMs: Long,
             ): List<WindowPrediction> = listOf(
                 WindowPrediction(
-                    startMs = windowStartMs, endMs = windowEndMs,
-                    taxonScientificName = "Fakus testus", taxonCommonName = null,
-                    confidence = 0.30f,  // below 0.7 HIGH_CONFIDENCE_OVERRIDE
+                    startMs = windowStartMs,
+                    endMs = windowEndMs,
+                    taxonScientificName = "Fakus testus",
+                    taxonCommonName = null,
+                    confidence = 0.30f, // below 0.7 HIGH_CONFIDENCE_OVERRIDE
                 )
             )
             override fun close() {}
@@ -114,8 +132,13 @@ class LiveInferenceEngineTest {
             )
         }
         val engine = LiveInferenceEngine(
-            model = model, yamNetGate = downrankGate, spectralSubtractor = null, usePreprocessing = false,
-            sampleRateHz = sampleRateHz, windowSamples = windowSamples, hopSamples = hopSamples,
+            model = model,
+            yamNetGate = downrankGate,
+            spectralSubtractor = null,
+            usePreprocessing = false,
+            sampleRateHz = sampleRateHz,
+            windowSamples = windowSamples,
+            hopSamples = hopSamples,
         )
         engine.start(backgroundScope)
         val collector = backgroundScope.launch { engine.predictions.collect { emitted += it } }
@@ -132,23 +155,31 @@ class LiveInferenceEngineTest {
     fun `stop without feed completes cleanly`() = runTest(UnconfinedTestDispatcher()) {
         val engine = LiveInferenceEngine(
             model = fakeModel("x", 0f),
-            yamNetGate = null, spectralSubtractor = null, usePreprocessing = false,
-            sampleRateHz = sampleRateHz, windowSamples = windowSamples, hopSamples = hopSamples,
+            yamNetGate = null,
+            spectralSubtractor = null,
+            usePreprocessing = false,
+            sampleRateHz = sampleRateHz,
+            windowSamples = windowSamples,
+            hopSamples = hopSamples,
         )
         engine.start(backgroundScope)
-        engine.stop()  // no exception, no hang
+        engine.stop() // no exception, no hang
     }
 
     @Test
     fun `stop is idempotent`() = runTest(UnconfinedTestDispatcher()) {
         val engine = LiveInferenceEngine(
             model = fakeModel("x", 0f),
-            yamNetGate = null, spectralSubtractor = null, usePreprocessing = false,
-            sampleRateHz = sampleRateHz, windowSamples = windowSamples, hopSamples = hopSamples,
+            yamNetGate = null,
+            spectralSubtractor = null,
+            usePreprocessing = false,
+            sampleRateHz = sampleRateHz,
+            windowSamples = windowSamples,
+            hopSamples = hopSamples,
         )
         engine.start(backgroundScope)
         engine.stop()
-        engine.stop()  // second call is a no-op, must not throw
+        engine.stop() // second call is a no-op, must not throw
         engine.stop()
     }
 
@@ -156,13 +187,17 @@ class LiveInferenceEngineTest {
     fun `feed in tiny blocks still emits at correct cadence`() = runTest(UnconfinedTestDispatcher()) {
         val engine = LiveInferenceEngine(
             model = fakeModel("Y", 0.5f),
-            yamNetGate = null, spectralSubtractor = null, usePreprocessing = false,
-            sampleRateHz = sampleRateHz, windowSamples = windowSamples, hopSamples = hopSamples,
+            yamNetGate = null,
+            spectralSubtractor = null,
+            usePreprocessing = false,
+            sampleRateHz = sampleRateHz,
+            windowSamples = windowSamples,
+            hopSamples = hopSamples,
         )
         val collected = mutableListOf<WindowPrediction>()
         val collector = backgroundScope.launch { engine.predictions.toList(collected) }
         engine.start(backgroundScope)
-        val totalSamples = windowSamples + hopSamples  // expect 2 windows
+        val totalSamples = windowSamples + hopSamples // expect 2 windows
         val chunk = 1024
         var sent = 0
         while (sent < totalSamples) {
@@ -242,7 +277,9 @@ class LiveInferenceEngineTest {
     }
 
     @Test
-    fun `usePreprocessing=false skips spectral subtractor even when one is provided`() = runTest(UnconfinedTestDispatcher()) {
+    fun `usePreprocessing=false skips spectral subtractor even when one is provided`() = runTest(
+        UnconfinedTestDispatcher()
+    ) {
         val spy = SpySpectralSubtractor()
         val engine = LiveInferenceEngine(
             model = fakeModel("X", 0.5f),

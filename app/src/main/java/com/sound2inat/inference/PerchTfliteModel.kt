@@ -21,7 +21,7 @@ import kotlin.math.exp
  */
 class PerchTfliteModel(
     private val factory: InterpreterFactory,
-    private val threads: Int = 2,
+    private val threads: Int = 4,
 ) : BioacousticModel {
 
     override val modelId: String = "perch_v2"

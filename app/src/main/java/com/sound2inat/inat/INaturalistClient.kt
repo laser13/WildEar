@@ -92,6 +92,28 @@ class INaturalistClient(
             top.getLong("id")
         }
 
+    /** Resolves the genus of [scientificName] (first word) to an iNat taxon id. */
+    suspend fun resolveGenus(scientificName: String, token: String?): Long? =
+        withContext(ioDispatcher) {
+            val genus = scientificName.trim().substringBefore(' ')
+            if (genus.isBlank()) return@withContext null
+            val path = "/taxa?q=$genus&rank=genus&is_active=true&per_page=1"
+            val req = if (token != null) authedGet(token, path) else anonGet(path)
+            val results = executeJson(req).optJSONArray("results") ?: return@withContext null
+            if (results.length() == 0) return@withContext null
+            val top = results.getJSONObject(0)
+            val iconic = top.optString("iconic_taxon_name", "")
+            if (iconic !in ANIMAL_ICONIC_TAXA) {
+                android.util.Log.w(
+                    LOG_TAG,
+                    "resolveGenus($scientificName) -> iconic=$iconic — rejected (not an animal)",
+                )
+                return@withContext null
+            }
+            android.util.Log.d(LOG_TAG, "resolveGenus($scientificName) -> ${top.getLong("id")}")
+            top.getLong("id")
+        }
+
     /**
      * Creates an observation. Returns the new observation id and its public URL.
      */
@@ -122,7 +144,7 @@ class INaturalistClient(
             CreatedObservation(
                 id = id,
                 uuid = uuid,
-                url = "https://www.inaturalist.org/observations/${if (uuid.isNotEmpty()) uuid else id.toString()}",
+                url = "https://www.inaturalist.org/observations/$id",
             )
         }
 
@@ -280,12 +302,16 @@ class INaturalistClient(
         radiusKm: Int,
     ): Boolean = withContext(ioDispatcher) {
         val taxonParam = taxonQueryParam(scientificName)
-        val path = "/observations?$taxonParam&lat=$lat&lng=$lon&radius=$radiusKm&quality_grade=research,needs_id&per_page=1"
+        val path = "/observations?$taxonParam&lat=$lat&lng=$lon&radius=$radiusKm" +
+            "&quality_grade=research,needs_id&per_page=1"
         runCatching { executeJson(anonGet(path)) }
             .map { json ->
                 val total = json.optInt("total_results", 0)
                 val confirmed = total >= MIN_REGIONAL_OBSERVATIONS
-                android.util.Log.d(LOG_TAG, "hasObservationsNear $scientificName radius=${radiusKm}km → total=$total confirmed=$confirmed")
+                android.util.Log.d(
+                    LOG_TAG,
+                    "hasObservationsNear $scientificName radius=${radiusKm}km → total=$total confirmed=$confirmed"
+                )
                 confirmed
             }
             .onFailure { android.util.Log.w(LOG_TAG, "hasObservationsNear $scientificName failed → fail-open", it) }
@@ -309,7 +335,12 @@ class INaturalistClient(
                 val standard = results.getJSONArray("standard")
                 val places = (0 until standard.length()).map { standard.getJSONObject(it) }
                 places.forEach { p ->
-                    android.util.Log.d(LOG_TAG, "  place candidate: id=${p.optLong("id")} name=${p.optString("name")} admin_level=${p.optInt("admin_level", -99)}")
+                    android.util.Log.d(
+                        LOG_TAG,
+                        "  place candidate: id=${p.optLong(
+                            "id"
+                        )} name=${p.optString("name")} admin_level=${p.optInt("admin_level", -99)}"
+                    )
                 }
                 val countryPlaces = places
                     .filter { it.optInt("admin_level", -99) == 0 }
@@ -335,15 +366,28 @@ class INaturalistClient(
             val taxonParam = taxonQueryParam(scientificName)
             for (placeId in placeIds) {
                 val found = runCatching {
-                    executeJson(anonGet("/observations?$taxonParam&place_id=$placeId&quality_grade=research,needs_id&per_page=1"))
+                    executeJson(
+                        anonGet(
+                            "/observations?$taxonParam&place_id=$placeId&quality_grade=research,needs_id&per_page=1"
+                        )
+                    )
                 }
                     .map { json ->
                         val total = json.optInt("total_results", 0)
                         val confirmed = total >= MIN_REGIONAL_OBSERVATIONS
-                        android.util.Log.d(LOG_TAG, "hasObservationsInPlaces $scientificName place=$placeId → total=$total confirmed=$confirmed")
+                        android.util.Log.d(
+                            LOG_TAG,
+                            "hasObservationsInPlaces $scientificName place=$placeId → total=$total confirmed=$confirmed"
+                        )
                         confirmed
                     }
-                    .onFailure { android.util.Log.w(LOG_TAG, "hasObservationsInPlaces $scientificName place=$placeId failed → fail-open", it) }
+                    .onFailure {
+                        android.util.Log.w(
+                            LOG_TAG,
+                            "hasObservationsInPlaces $scientificName place=$placeId failed → fail-open",
+                            it
+                        )
+                    }
                     .getOrDefault(true)
                 if (found) return@withContext true
             }
@@ -495,8 +539,7 @@ class INaturalistClient(
         }
 
     /**
-     * Fetches details for a single observation. [idOrUuid] is either the numeric
-     * id or uuid — both are accepted by the iNat v1 API.
+     * Fetches details for a single observation by numeric [id].
      * Throws [INatException] on network or HTTP errors.
      */
     suspend fun getObservation(idOrUuid: String): ObservationDetail = withContext(ioDispatcher) {
@@ -514,7 +557,9 @@ class INaturalistClient(
             (0 until idsArray.length()).count {
                 idsArray.getJSONObject(it).optBoolean("current", false)
             }
-        } else 0
+        } else {
+            0
+        }
 
         val commentsArray = obs.optJSONArray("comments")
         val comments = if (commentsArray != null) {
@@ -525,13 +570,21 @@ class INaturalistClient(
                     body = c.optString("body", ""),
                 )
             }
-        } else emptyList()
+        } else {
+            emptyList()
+        }
+
+        val taxonObj = obs.optJSONObject("taxon")
+        val taxonName = taxonObj?.optString("name")?.takeIf { it.isNotEmpty() }
+        val taxonCommonName = taxonObj?.optString("preferred_common_name")?.takeIf { it.isNotEmpty() }
 
         ObservationDetail(
             qualityGrade = qualityGrade,
             agreeingIdCount = agreeingIdCount,
             commentsCount = commentsCount,
             comments = comments,
+            taxonName = taxonName,
+            taxonCommonName = taxonCommonName,
         )
     }
 
@@ -643,8 +696,8 @@ class INaturalistClient(
 
         const val MIN_REGIONAL_OBSERVATIONS = 1
         private const val NO_TAXON_ID = -1L
-        private const val TAXON_TTL_MS = 24L * 60 * 60 * 1000      // taxon ids are stable
-        private const val TAXON_FAILURE_TTL_MS = 5L * 60 * 1000    // retry transient failures
+        private const val TAXON_TTL_MS = 24L * 60 * 60 * 1000 // taxon ids are stable
+        private const val TAXON_FAILURE_TTL_MS = 5L * 60 * 1000 // retry transient failures
         private const val MAX_PREVIEW_COMMENTS = 3
 
         // iNaturalist's "iconic taxa" — the top-level groupings on a taxon's
@@ -679,6 +732,10 @@ data class ObservationDetail(
     val agreeingIdCount: Int,
     val commentsCount: Int,
     val comments: List<ObservationComment>,
+    /** iNat-confirmed taxon scientific name (from `taxon.name`). */
+    val taxonName: String? = null,
+    /** iNat-confirmed taxon common name (from `taxon.preferred_common_name`). */
+    val taxonCommonName: String? = null,
 )
 
 data class ObservationComment(

@@ -14,7 +14,7 @@ import kotlin.math.sqrt
 fun highPassFilter(samples: FloatArray, sampleRateHz: Int, cutoffHz: Int = 250): FloatArray {
     val w0 = 2.0 * PI * cutoffHz / sampleRateHz
     val cosW0 = cos(w0)
-    val alpha = sin(w0) * sqrt(0.5)   // sin(w0)/(2*Q), Q=1/sqrt(2) for Butterworth
+    val alpha = sin(w0) * sqrt(0.5) // sin(w0)/(2*Q), Q=1/sqrt(2) for Butterworth
     val a0 = 1.0 + alpha
     val nb0 = ((1.0 + cosW0) / 2.0 / a0).toFloat()
     val nb1 = (-(1.0 + cosW0) / a0).toFloat()
@@ -23,12 +23,18 @@ fun highPassFilter(samples: FloatArray, sampleRateHz: Int, cutoffHz: Int = 250):
     val na2 = ((1.0 - alpha) / a0).toFloat()
 
     val out = FloatArray(samples.size)
-    var x1 = 0f; var x2 = 0f; var y1 = 0f; var y2 = 0f
+    var x1 = 0f
+    var x2 = 0f
+    var y1 = 0f
+    var y2 = 0f
     for (i in samples.indices) {
         val x0 = samples[i]
         val y0 = nb0 * x0 + nb1 * x1 + nb2 * x2 - na1 * y1 - na2 * y2
         out[i] = y0
-        x2 = x1; x1 = x0; y2 = y1; y1 = y0
+        x2 = x1
+        x1 = x0
+        y2 = y1
+        y1 = y0
     }
     return out
 }
@@ -45,7 +51,7 @@ fun highPassFilter(samples: FloatArray, sampleRateHz: Int, cutoffHz: Int = 250):
 fun denoiseFull(samples: FloatArray, sampleRateHz: Int): FloatArray {
     if (samples.isEmpty()) return samples
     val filtered = highPassFilter(samples, sampleRateHz)
-    val chunkSize = sampleRateHz  // 1-second chunks, regardless of model window length
+    val chunkSize = sampleRateHz // 1-second chunks, regardless of model window length
     if (filtered.size <= chunkSize) return SpectralSubtractor().process(filtered)
     val sub = SpectralSubtractor()
     val out = FloatArray(filtered.size)
@@ -98,28 +104,34 @@ open class SpectralSubtractor {
         val profileSnapshot = noiseProfile
 
         val spectrum = FloatArray(fftSize * 2)
-        for (i in window.indices) spectrum[2 * i] = window[i]   // zero-pad imag parts stay 0
+        for (i in window.indices) spectrum[2 * i] = window[i] // zero-pad imag parts stay 0
         fftInPlace(spectrum, fftSize, inverse = false)
 
         if (rms < RMS_QUIET_THRESHOLD) {
             val power = FloatArray(fftSize / 2 + 1) { i ->
-                val re = spectrum[2 * i]; val im = spectrum[2 * i + 1]
+                val re = spectrum[2 * i]
+                val im = spectrum[2 * i + 1]
                 re * re + im * im
             }
             val existing = noiseProfile
-            noiseProfile = if (existing == null) power
-                           else FloatArray(power.size) { i -> ALPHA * power[i] + (1f - ALPHA) * existing[i] }
+            noiseProfile = if (existing == null) {
+                power
+            } else {
+                FloatArray(power.size) { i -> ALPHA * power[i] + (1f - ALPHA) * existing[i] }
+            }
         }
 
         val profile = profileSnapshot ?: return window
 
         val outSpec = FloatArray(spectrum.size)
         for (i in 0..fftSize / 2) {
-            val re = spectrum[2 * i]; val im = spectrum[2 * i + 1]
+            val re = spectrum[2 * i]
+            val im = spectrum[2 * i + 1]
             val powerIn = re * re + im * im
             val powerOut = max(powerIn - BETA * profile[i], GAMMA * powerIn)
             val scale = if (powerIn > POWER_FLOOR) sqrt(powerOut / powerIn) else 0f
-            outSpec[2 * i] = re * scale; outSpec[2 * i + 1] = im * scale
+            outSpec[2 * i] = re * scale
+            outSpec[2 * i + 1] = im * scale
         }
         // Conjugate symmetry so IFFT produces a real signal
         for (i in 1 until fftSize / 2) {
@@ -132,7 +144,9 @@ open class SpectralSubtractor {
     }
 
     private fun nextPow2(n: Int): Int {
-        var p = 1; while (p < n) p = p shl 1; return p
+        var p = 1
+        while (p < n) p = p shl 1
+        return p
     }
 
     private fun fftInPlace(data: FloatArray, n: Int, inverse: Boolean) =
@@ -143,6 +157,7 @@ open class SpectralSubtractor {
         private const val ALPHA = 0.1f
         private const val BETA = 1.5f
         private const val GAMMA = 0.002f
+
         // Numerical guard against divide-by-zero in spectral domain
         private const val POWER_FLOOR = 1e-20f
     }

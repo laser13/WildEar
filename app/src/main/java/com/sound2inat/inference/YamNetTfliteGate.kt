@@ -33,7 +33,7 @@ class YamNetTfliteGate(
     @Suppress("ReturnCount")
     private suspend fun classifyInternal(pcmFloat32: FloatArray, sampleRateHz: Int): YamNetGateResult? {
         ensureLoaded()
-        val interp = interpreter ?: return null  // model not installed yet — fail open
+        val interp = interpreter ?: return null // model not installed yet — fail open
         val resampled = resampleTo16k(pcmFloat32, sampleRateHz)
 
         var maxBioScore = 0f
@@ -41,7 +41,7 @@ class YamNetTfliteGate(
         var anyNoiseTopWithLowBio = false
         var frameStart = 0
         while (frameStart < resampled.size) {
-            val frame = FloatArray(YAMNET_FRAME_SIZE)  // zero-padded if last frame is short
+            val frame = FloatArray(YAMNET_FRAME_SIZE) // zero-padded if last frame is short
             val end = (frameStart + YAMNET_FRAME_SIZE).coerceAtMost(resampled.size)
             resampled.copyInto(frame, destinationOffset = 0, startIndex = frameStart, endIndex = end)
 
@@ -80,7 +80,7 @@ class YamNetTfliteGate(
     private fun parseClassMap(file: File): Map<String, Int> {
         val result = mutableMapOf<String, Int>()
         file.bufferedReader().useLines { lines ->
-            for (line in lines.drop(1)) {  // skip header: index,mid,display_name
+            for (line in lines.drop(1)) { // skip header: index,mid,display_name
                 val parts = line.split(",", limit = 3)
                 if (parts.size == 3) {
                     val idx = parts[0].trim().toIntOrNull() ?: continue
@@ -106,7 +106,7 @@ class YamNetTfliteGate(
 
     companion object {
         private const val YAMNET_SAMPLE_RATE = 16_000
-        private const val YAMNET_FRAME_SIZE = 15_600  // 0.975 s at 16 kHz
+        private const val YAMNET_FRAME_SIZE = 15_600 // 0.975 s at 16 kHz
         private const val CLASS_COUNT = 521
         private const val BIO_THRESHOLD = 0.15f
 

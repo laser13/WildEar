@@ -3,6 +3,7 @@ package com.sound2inat.app.di
 import com.sound2inat.app.data.Settings
 import com.sound2inat.app.recording.DefaultRecordingController
 import com.sound2inat.app.recording.RecordingController
+import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inference.LiveInferenceEngineFactory
 import com.sound2inat.location.LocationProvider
 import com.sound2inat.recorder.Recorder
@@ -24,6 +25,7 @@ object RecordingModule {
         files: WavFileStore,
         drafts: DraftRepository,
         engineFactory: LiveInferenceEngineFactory?,
+        regionFilter: RegionFilter,
         settings: Settings,
     ): RecordingController = DefaultRecordingController(
         recorder = recorder,
@@ -32,5 +34,8 @@ object RecordingModule {
         drafts = drafts,
         engineFactory = engineFactory,
         minConfidence = settings.minConfidenceDisplay,
+        regionFilter = regionFilter,
+        regionFilterEnabled = settings.regionalFilterEnabled,
+        regionRadiusKm = settings.regionRadiusKm,
     )
 }

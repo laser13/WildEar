@@ -18,7 +18,12 @@ import kotlin.math.exp
  */
 class BirdNetTfliteModel(
     private val factory: InterpreterFactory,
-    private val threads: Int = 2,
+    // 4 CPU threads is the practical sweet spot on modern phones (most have
+    // 6–8 cores; over-threading hurts due to cache contention). Combined
+    // with TFLite's XNNPACK CPU kernels (enabled by default in 2.16) and
+    // the optional NNAPI delegate in TfliteInterpreterFactory, this keeps
+    // BirdNET ahead of real time on mid-range devices.
+    private val threads: Int = 4,
 ) : BioacousticModel {
 
     override val modelId: String = "birdnet_v2_4"

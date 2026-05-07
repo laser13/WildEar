@@ -57,8 +57,8 @@ class YamNetGateTest {
     @Test
     fun `returns DOWNRANK when speech is top class and bio score below threshold`() = runTest {
         val probs = FloatArray(521)
-        probs[0] = 0.90f    // Speech (noise) is top class
-        probs[100] = 0.05f  // Bird bio score < 0.15
+        probs[0] = 0.90f // Speech (noise) is top class
+        probs[100] = 0.05f // Bird bio score < 0.15
         val result = buildGate(probs).classify(FloatArray(16_000), 16_000)
         assertThat(result).isNotNull()
         assertThat(result!!.recommendation).isEqualTo(GateRecommendation.DOWNRANK)
@@ -68,8 +68,8 @@ class YamNetGateTest {
     @Test
     fun `returns PASS when bird score is above threshold`() = runTest {
         val probs = FloatArray(521)
-        probs[100] = 0.80f  // Bird high bio score
-        probs[0] = 0.10f    // Speech low
+        probs[100] = 0.80f // Bird high bio score
+        probs[0] = 0.10f // Speech low
         val result = buildGate(probs).classify(FloatArray(16_000), 16_000)
         assertThat(result).isNotNull()
         assertThat(result!!.recommendation).isEqualTo(GateRecommendation.PASS)
@@ -79,8 +79,8 @@ class YamNetGateTest {
     @Test
     fun `returns PASS when top is noise but bio score is at or above threshold`() = runTest {
         val probs = FloatArray(521)
-        probs[0] = 0.70f    // Speech top
-        probs[100] = 0.20f  // Bird bio score >= 0.15 → still biological
+        probs[0] = 0.70f // Speech top
+        probs[100] = 0.20f // Bird bio score >= 0.15 → still biological
         val result = buildGate(probs).classify(FloatArray(16_000), 16_000)
         assertThat(result).isNotNull()
         assertThat(result!!.recommendation).isEqualTo(GateRecommendation.PASS)
@@ -89,9 +89,9 @@ class YamNetGateTest {
     @Test
     fun `backgroundScore reflects highest noise class probability`() = runTest {
         val probs = FloatArray(521)
-        probs[0] = 0.60f    // Speech (noise)
-        probs[1] = 0.30f    // Engine (noise)
-        probs[100] = 0.05f  // Bird bio score
+        probs[0] = 0.60f // Speech (noise)
+        probs[1] = 0.30f // Engine (noise)
+        probs[100] = 0.05f // Bird bio score
         val result = buildGate(probs).classify(FloatArray(16_000), 16_000)
         assertThat(result).isNotNull()
         assertThat(result!!.backgroundScore).isWithin(1e-5f).of(0.60f)
@@ -174,7 +174,7 @@ class YamNetGateTest {
                     endMs = windowEndMs,
                     taxonScientificName = "Parus major",
                     taxonCommonName = "Great Tit",
-                    confidence = 0.85f,  // well above HIGH_CONFIDENCE_OVERRIDE (0.7)
+                    confidence = 0.85f, // well above HIGH_CONFIDENCE_OVERRIDE (0.7)
                 )
             )
             override fun close() = Unit
@@ -225,7 +225,7 @@ class YamNetGateTest {
                     endMs = windowEndMs,
                     taxonScientificName = "Parus major",
                     taxonCommonName = "Great Tit",
-                    confidence = 0.30f,  // below HIGH_CONFIDENCE_OVERRIDE (0.7)
+                    confidence = 0.30f, // below HIGH_CONFIDENCE_OVERRIDE (0.7)
                 )
             )
             override fun close() = Unit
@@ -247,7 +247,7 @@ class YamNetGateTest {
 
     /** Builds a minimal 44-byte WAV header + silent PCM data that WavReader can parse. */
     private fun buildFakeWav(sampleRateHz: Int, durationSamples: Int): File {
-        val dataBytes = durationSamples * 2  // 16-bit mono
+        val dataBytes = durationSamples * 2 // 16-bit mono
         val file = tmp.newFile("fake.wav")
         file.outputStream().use { out ->
             fun writeInt32LE(v: Int) {
@@ -260,20 +260,20 @@ class YamNetGateTest {
                 out.write(v and 0xFF)
                 out.write((v shr 8) and 0xFF)
             }
-            out.write("RIFF".toByteArray())           // ChunkID
-            writeInt32LE(36 + dataBytes)              // ChunkSize
-            out.write("WAVE".toByteArray())           // Format
-            out.write("fmt ".toByteArray())           // Subchunk1ID
-            writeInt32LE(16)                          // Subchunk1Size (PCM)
-            writeInt16LE(1)                           // AudioFormat (PCM)
-            writeInt16LE(1)                           // NumChannels (mono)
-            writeInt32LE(sampleRateHz)                // SampleRate
-            writeInt32LE(sampleRateHz * 2)            // ByteRate
-            writeInt16LE(2)                           // BlockAlign
-            writeInt16LE(16)                          // BitsPerSample
-            out.write("data".toByteArray())           // Subchunk2ID
-            writeInt32LE(dataBytes)                   // Subchunk2Size
-            out.write(ByteArray(dataBytes))           // silent PCM samples
+            out.write("RIFF".toByteArray()) // ChunkID
+            writeInt32LE(36 + dataBytes) // ChunkSize
+            out.write("WAVE".toByteArray()) // Format
+            out.write("fmt ".toByteArray()) // Subchunk1ID
+            writeInt32LE(16) // Subchunk1Size (PCM)
+            writeInt16LE(1) // AudioFormat (PCM)
+            writeInt16LE(1) // NumChannels (mono)
+            writeInt32LE(sampleRateHz) // SampleRate
+            writeInt32LE(sampleRateHz * 2) // ByteRate
+            writeInt16LE(2) // BlockAlign
+            writeInt16LE(16) // BitsPerSample
+            out.write("data".toByteArray()) // Subchunk2ID
+            writeInt32LE(dataBytes) // Subchunk2Size
+            out.write(ByteArray(dataBytes)) // silent PCM samples
         }
         return file
     }

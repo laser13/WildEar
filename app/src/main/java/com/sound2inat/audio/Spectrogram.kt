@@ -61,7 +61,8 @@ class Spectrogram(
         // many equal bins instead of the spectral peak.
         val norm = 1f / fftSize
         for (i in out.indices) {
-            val re = scratch[2 * i]; val im = scratch[2 * i + 1]
+            val re = scratch[2 * i]
+            val im = scratch[2 * i + 1]
             val mag = sqrt((re * re + im * im).toDouble()).toFloat() * norm
             val db = 20f * (ln(mag + 1e-10f) / LN10).toFloat()
             out[i] = db.coerceIn(DB_FLOOR, 0f)

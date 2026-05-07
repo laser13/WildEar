@@ -25,6 +25,12 @@ data class SpeciesRow(
     val fragmentRanges: List<FragmentRange> = emptyList(),
 )
 
+data class InatObsEntry(
+    val scientificName: String,
+    val observationId: Long,
+    val url: String,
+)
+
 data class ReviewUiState(
     val draftId: String,
     val status: DraftStatus = DraftStatus.PENDING_INFERENCE,
@@ -37,16 +43,9 @@ data class ReviewUiState(
     val inferenceError: String? = null,
     val species: List<SpeciesRow> = emptyList(),
     val playback: PlaybackState = PlaybackState.Idle,
-    /**
-     * Persisted observations attached to this draft from prior submissions.
-     * Each entry is `(scientificName, observationUrl)`.
-     */
-    val inatObservations: List<Pair<String, String>> = emptyList(),
+    /** Persisted observations attached to this draft from prior submissions. */
+    val inatObservations: List<InatObsEntry> = emptyList(),
     val inatSubmission: InatSubmissionState = InatSubmissionState.Idle,
-    /** When true, the Review screen plays/displays the denoised version of the audio. */
-    val denoisePreviewEnabled: Boolean = false,
-    /** True while the denoise preview WAV/PNG are being computed in the background. */
-    val denoisingInProgress: Boolean = false,
     /**
      * True when the Perch model artifact is installed (Ready). Drives whether
      * the "Perch" option in the pull-to-refresh model picker is enabled —

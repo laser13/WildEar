@@ -3,6 +3,7 @@ package com.sound2inat.app.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sound2inat.app.data.Settings
+import com.sound2inat.app.data.ThemeMode
 import com.sound2inat.modelmanager.KnownModels
 import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelInstallState
@@ -40,6 +41,10 @@ class SettingsViewModel(
     private val writeYamNetGateEnabled: suspend (Boolean) -> Unit,
     private val birdNetMetaEnabledFlow: Flow<Boolean>,
     private val writeBirdNetMetaEnabled: suspend (Boolean) -> Unit,
+    private val allowDeleteUploadedFlow: Flow<Boolean>,
+    private val writeAllowDeleteUploaded: suspend (Boolean) -> Unit,
+    private val themeModeFlow: Flow<ThemeMode> = kotlinx.coroutines.flow.flowOf(ThemeMode.SYSTEM),
+    private val writeThemeMode: suspend (ThemeMode) -> Unit = {},
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -102,6 +107,14 @@ class SettingsViewModel(
             birdNetMetaEnabledFlow.collect { v ->
                 _state.value = _state.value.copy(birdNetMetaEnabled = v)
             }
+        }
+        scope.launch {
+            allowDeleteUploadedFlow.collect { v ->
+                _state.value = _state.value.copy(allowDeleteUploaded = v)
+            }
+        }
+        scope.launch {
+            themeModeFlow.collect { v -> _state.value = _state.value.copy(themeMode = v) }
         }
     }
 
@@ -181,6 +194,8 @@ class SettingsViewModel(
     }
     fun setYamNetGateEnabled(v: Boolean) { scope.launch { writeYamNetGateEnabled(v) } }
     fun setBirdNetMetaEnabled(v: Boolean) { scope.launch { writeBirdNetMetaEnabled(v) } }
+    fun setAllowDeleteUploaded(v: Boolean) { scope.launch { writeAllowDeleteUploaded(v) } }
+    fun setThemeMode(v: ThemeMode) { scope.launch { writeThemeMode(v) } }
 
     private fun updateSection(modelId: String, transform: (ModelSection) -> ModelSection) {
         _state.value = _state.value.copy(
@@ -220,5 +235,9 @@ class SettingsViewModelHilt @Inject constructor(
         writeYamNetGateEnabled = { settings.setYamNetGateEnabled(it) },
         birdNetMetaEnabledFlow = settings.birdNetMetaEnabled,
         writeBirdNetMetaEnabled = { settings.setBirdNetMetaEnabled(it) },
+        allowDeleteUploadedFlow = settings.allowDeleteUploaded,
+        writeAllowDeleteUploaded = { settings.setAllowDeleteUploaded(it) },
+        themeModeFlow = settings.themeMode,
+        writeThemeMode = { settings.setThemeMode(it) },
     )
 }

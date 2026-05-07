@@ -2,10 +2,12 @@ package com.sound2inat.app.recording
 
 import com.sound2inat.app.ui.recording.GpsStatus
 import com.sound2inat.app.ui.recording.LiveCard
+import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.DetectionAggregator
 import com.sound2inat.inference.LiveInferenceEngine
 import com.sound2inat.inference.LiveInferenceEngineFactory
+import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.location.Fix
 import com.sound2inat.location.LocationProvider
 import com.sound2inat.recorder.Recorder
@@ -29,6 +31,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 // --------------- State ---------------
 
@@ -71,6 +74,9 @@ class DefaultRecordingController(
     private val drafts: DraftRepository,
     private val engineFactory: LiveInferenceEngineFactory? = null,
     private val minConfidence: Flow<Float> = flowOf(DEFAULT_MIN_CONFIDENCE),
+    private val regionFilter: RegionFilter? = null,
+    private val regionFilterEnabled: Flow<Boolean> = flowOf(false),
+    private val regionRadiusKm: Flow<Int> = flowOf(DEFAULT_REGION_RADIUS_KM),
     private val nowMs: () -> Long = { System.currentTimeMillis() },
     private val locationTimeoutMs: Long = LOCATION_TIMEOUT_MS,
     private val tickIntervalMs: Long = TICK_INTERVAL_MS,
@@ -90,6 +96,7 @@ class DefaultRecordingController(
 
     private var draftId: String? = null
     private var recordingStartMs: Long = 0L
+
     @Volatile private var fix: Fix? = null
     private var tickJob: Job? = null
     private var rmsJob: Job? = null
@@ -100,6 +107,20 @@ class DefaultRecordingController(
 
     private var activeEngine: LiveInferenceEngine? = null
     private var activeAggregator: DetectionAggregator? = null
+
+    /**
+     * Per-session cache: scientific name → resolved RegionalStatus. Filled by
+     * [annotateNewSpecies] as it queries iNaturalist; consulted on every live
+     * cards update so already-resolved species don't lose their status when
+     * new windows arrive. Cleared on stop/cancel.
+     */
+    private val regionalStatusCache = ConcurrentHashMap<String, RegionalStatus>()
+    private val annotationInFlight = ConcurrentHashMap.newKeySet<String>()
+
+    // Species added here are hidden from liveCards until their regional annotation
+    // resolves. Populated when a new species appears and filter+GPS are active,
+    // cleared by annotateNewSpecies (or when filter is disabled/GPS unavailable).
+    private val pendingDisplay = ConcurrentHashMap.newKeySet<String>()
 
     override suspend fun start() {
         startMutex.withLock {
@@ -145,9 +166,21 @@ class DefaultRecordingController(
         predictionsJob = scope.launch {
             engine.predictions.collect { pred ->
                 val snap = aggregator.addWindow(pred)
-                val cards = snap.map { it.toLiveCard() }
+                // When filter+GPS are active, hide new (unannotated) species until
+                // their regional status is resolved. This prevents the brief
+                // "Possible matches → Unlikely" flicker on first detection.
+                if (regionFilter != null && fix != null) {
+                    snap.map { it.taxonScientificName }.distinct()
+                        .filter { !regionalStatusCache.containsKey(it) }
+                        .forEach { pendingDisplay.add(it) }
+                }
+                val cards = snap.mapNotNull { det ->
+                    if (det.taxonScientificName in pendingDisplay) null
+                    else det.toLiveCard(regionalStatusCache[det.taxonScientificName])
+                }
                 val last = cards.maxByOrNull { it.lastSeenMs }
                 updateRecording { copy(liveCards = cards, lastDetection = last) }
+                annotateNewSpecies(snap)
             }
         }
         backlogJob = scope.launch {
@@ -208,6 +241,9 @@ class DefaultRecordingController(
         }
         activeEngine = null
         activeAggregator = null
+        regionalStatusCache.clear()
+        annotationInFlight.clear()
+        pendingDisplay.clear()
         _state.value = RecordingSessionState.Done(id)
     }
 
@@ -220,36 +256,110 @@ class DefaultRecordingController(
             activeEngine = null
             activeAggregator = null
         }
+        regionalStatusCache.clear()
+        annotationInFlight.clear()
+        pendingDisplay.clear()
         _state.value = RecordingSessionState.Idle
     }
 
     private fun cancelJobs() {
-        tickJob?.cancel(); tickJob = null
-        rmsJob?.cancel(); rmsJob = null
-        locationJob?.cancel(); locationJob = null
-        feedJob?.cancel(); feedJob = null
-        predictionsJob?.cancel(); predictionsJob = null
-        backlogJob?.cancel(); backlogJob = null
+        tickJob?.cancel()
+        tickJob = null
+        rmsJob?.cancel()
+        rmsJob = null
+        locationJob?.cancel()
+        locationJob = null
+        feedJob?.cancel()
+        feedJob = null
+        predictionsJob?.cancel()
+        predictionsJob = null
+        backlogJob?.cancel()
+        backlogJob = null
     }
 
     private fun updateRecording(block: RecordingSessionState.Recording.() -> RecordingSessionState.Recording) {
         _state.update { s -> (s as? RecordingSessionState.Recording)?.block() ?: s }
     }
 
-    private fun AggregatedDetection.toLiveCard() = LiveCard(
+    private fun AggregatedDetection.toLiveCard(status: RegionalStatus?) = LiveCard(
         scientificName = taxonScientificName,
         commonName = taxonCommonName,
         count = detectedWindows,
         peakConfidence = maxConfidence,
         firstSeenMs = firstSeenMs,
         lastSeenMs = lastSeenMs,
+        regionalStatus = status,
     )
+
+    /**
+     * Kicks off iNaturalist regional checks for any species in [snap] that
+     * aren't already cached or in flight. Each species is queried
+     * independently — there are typically only a handful per session, so
+     * batching/debouncing isn't worth the complexity. RegionFilter has its
+     * own multi-level cache so repeated lookups (across sessions, same
+     * place) don't hit the network.
+     *
+     * No-ops when GPS isn't ready or the filter dependency is missing.
+     * When the filter setting is disabled, any species hidden in
+     * [pendingDisplay] are immediately revealed with null status.
+     */
+    private fun annotateNewSpecies(snap: List<AggregatedDetection>) {
+        val filter = regionFilter ?: return
+        val fix = this.fix ?: return
+        scope.launch {
+            val enabled = runCatching { regionFilterEnabled.first() }.getOrDefault(false)
+            if (!enabled) {
+                // Filter disabled: un-hide species that were waiting for annotation.
+                val unhidden = snap.map { it.taxonScientificName }.distinct()
+                    .filter { pendingDisplay.remove(it) }
+                if (unhidden.isNotEmpty()) refreshLiveCards()
+                return@launch
+            }
+            val radius = runCatching { regionRadiusKm.first() }.getOrDefault(DEFAULT_REGION_RADIUS_KM)
+            val pending = snap
+                .map { it.taxonScientificName }
+                .distinct()
+                .filter { !regionalStatusCache.containsKey(it) && annotationInFlight.add(it) }
+            if (pending.isEmpty()) return@launch
+            try {
+                val toAnnotate = snap.filter { it.taxonScientificName in pending }
+                val annotated = filter.annotate(toAnnotate, fix.latitude, fix.longitude, radius)
+                annotated.forEach { det ->
+                    det.regionalStatus?.let { regionalStatusCache[det.taxonScientificName] = it }
+                    pendingDisplay.remove(det.taxonScientificName)
+                }
+                refreshLiveCards()
+            } finally {
+                pending.forEach { annotationInFlight.remove(it) }
+                // Safety: if annotation threw before updating pendingDisplay, un-hide
+                // affected species so they're never permanently invisible.
+                val stillHidden = pending.filter { pendingDisplay.remove(it) }
+                if (stillHidden.isNotEmpty()) refreshLiveCards()
+            }
+        }
+    }
+
+    /**
+     * Rebuilds [liveCards] from the current aggregator snapshot, respecting
+     * [pendingDisplay] (hidden) and [regionalStatusCache] (known statuses).
+     * Called after annotation resolves to reveal newly-annotated species in
+     * the correct section without waiting for the next audio window.
+     */
+    private fun refreshLiveCards() {
+        val snap = activeAggregator?.snapshot() ?: return
+        val cards = snap.mapNotNull { det ->
+            if (det.taxonScientificName in pendingDisplay) null
+            else det.toLiveCard(regionalStatusCache[det.taxonScientificName])
+        }
+        updateRecording { copy(liveCards = cards, lastDetection = cards.maxByOrNull { it.lastSeenMs }) }
+    }
 
     companion object {
         const val SOFT_LIMIT_MS = 5L * 60_000L
         const val TICK_INTERVAL_MS = 100L
         const val LOCATION_TIMEOUT_MS = 15_000L
         const val DEFAULT_MIN_CONFIDENCE = 0.25f
+        const val DEFAULT_REGION_RADIUS_KM = 200
         const val LIVE_MODEL_ID = "birdnet_v2_4"
         const val LIVE_MODEL_VERSION = "2.4"
     }

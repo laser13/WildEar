@@ -12,7 +12,8 @@ class AudioPreprocessorTest {
     private val sampleRate = 8_000
 
     private fun powerAtFreq(samples: FloatArray, freqHz: Double): Double {
-        var re = 0.0; var im = 0.0
+        var re = 0.0
+        var im = 0.0
         val n = samples.size
         for (k in 0 until n) {
             val angle = 2 * PI * freqHz * k / sampleRate
@@ -24,7 +25,7 @@ class AudioPreprocessorTest {
 
     @Test
     fun `highPassFilter attenuates 100 Hz by more than 13 dB at 250 Hz cutoff`() {
-        val n = sampleRate  // 1 second of audio
+        val n = sampleRate // 1 second of audio
         val signal = FloatArray(n) { k ->
             val t = k.toDouble() / sampleRate
             (sin(2 * PI * 100 * t) * 0.5 + sin(2 * PI * 1000 * t) * 0.5).toFloat()
@@ -62,7 +63,7 @@ class AudioPreprocessorTest {
 
     @Test
     fun `denoiseFull preserves length and applies HPF on a multi-second signal`() {
-        val n = sampleRate * 3  // 3 seconds — exercises the multi-chunk path
+        val n = sampleRate * 3 // 3 seconds — exercises the multi-chunk path
         val signal = FloatArray(n) { k ->
             val t = k.toDouble() / sampleRate
             (sin(2 * PI * 100 * t) * 0.5 + sin(2 * PI * 1000 * t) * 0.5).toFloat()
@@ -77,7 +78,7 @@ class AudioPreprocessorTest {
 
     @Test
     fun `denoiseFull handles signal shorter than one second`() {
-        val short = FloatArray(sampleRate / 2) { 0.1f }  // 0.5 s
+        val short = FloatArray(sampleRate / 2) { 0.1f } // 0.5 s
         val out = denoiseFull(short, sampleRate)
         assertThat(out).hasLength(short.size)
     }
@@ -95,8 +96,8 @@ class AudioPreprocessorTest {
     @Test
     fun `SpectralSubtractor reduces RMS after noise profile is established`() {
         val sub = SpectralSubtractor()
-        sub.process(FloatArray(1024) { 0.008f })  // first quiet window — establishes profile
-        val loud = FloatArray(1024) { 0.015f }    // RMS 0.015 > 0.01 — not quiet, gets subtracted
+        sub.process(FloatArray(1024) { 0.008f }) // first quiet window — establishes profile
+        val loud = FloatArray(1024) { 0.015f } // RMS 0.015 > 0.01 — not quiet, gets subtracted
         val result = sub.process(loud)
 
         val rmsIn = sqrt(loud.fold(0.0) { a, s -> a + s.toDouble() * s } / loud.size)

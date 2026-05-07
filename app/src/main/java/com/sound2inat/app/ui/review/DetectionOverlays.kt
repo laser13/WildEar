@@ -47,28 +47,13 @@ fun DetectionOverlays(
     val rowByTaxon: Map<String, IndexedRow> = sortedRows
         .mapIndexed { idx, row -> row.taxonScientificName to IndexedRow(row, idx) }
         .toMap()
-    // Predictions whose species is in the list, sorted by descending confidence
-    // so a tap on overlapping rectangles picks the strongest detection first.
-    // Falls back to one synthetic rectangle per species row using
-    // [SpeciesRow.firstSeenMs]/[SpeciesRow.lastSeenMs] when no per-window data
-    // is available — that's the case for drafts opened after their inference
-    // run finished (windows are not persisted in the DB).
-    val matched: List<Match> = if (windowPreds.isNotEmpty()) {
-        windowPreds
-            .mapNotNull { p -> rowByTaxon[p.taxonScientificName]?.let { Match(p, it) } }
-            .sortedByDescending { it.prediction.confidence }
-    } else {
-        sortedRows.map { row ->
-            val synthetic = WindowPrediction(
-                startMs = row.firstSeenMs,
-                endMs = row.lastSeenMs,
-                taxonScientificName = row.taxonScientificName,
-                taxonCommonName = row.taxonCommonName,
-                confidence = row.maxConfidence,
-            )
-            Match(synthetic, rowByTaxon.getValue(row.taxonScientificName))
-        }
-    }
+    // Only draw overlays when real per-window predictions are available.
+    // Synthetic fallback rectangles (one giant box per species) were visually
+    // overwhelming and made the spectrogram unreadable.
+    if (windowPreds.isEmpty()) return
+    val matched: List<Match> = windowPreds
+        .mapNotNull { p -> rowByTaxon[p.taxonScientificName]?.let { Match(p, it) } }
+        .sortedByDescending { it.prediction.confidence }
     if (matched.isEmpty()) return
 
     Canvas(
