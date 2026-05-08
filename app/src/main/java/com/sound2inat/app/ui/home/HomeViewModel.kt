@@ -3,7 +3,7 @@ package com.sound2inat.app.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sound2inat.app.data.Settings
-import com.sound2inat.inat.INaturalistClient
+import com.sound2inat.inat.TaxonPhotoRepository
 import com.sound2inat.modelmanager.BirdNetV24
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
@@ -24,7 +24,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 class HomeViewModel(
@@ -70,7 +69,7 @@ class HomeViewModelHilt @Inject constructor(
     private val detectionDao: DetectionDao,
     private val inatObservationDao: InatObservationDao,
     private val modelManager: ModelManager,
-    private val inatClient: INaturalistClient,
+    private val taxonPhotoRepository: TaxonPhotoRepository,
     private val settings: Settings,
 ) : ViewModel() {
 
@@ -151,8 +150,6 @@ class HomeViewModelHilt @Inject constructor(
         }
     }
 
-    private val photoFlows = ConcurrentHashMap<String, MutableStateFlow<String?>>()
-
     fun observeTopLabel(draftId: String): Flow<String?> =
         detectionDao.observeForDraft(draftId).map { list ->
             list.firstOrNull()?.let { it.taxonCommonName ?: it.taxonScientificName }
@@ -170,19 +167,9 @@ class HomeViewModelHilt @Inject constructor(
             .map { it.size }
             .flowOn(Dispatchers.IO)
 
-    fun observeTaxonPhoto(name: String): StateFlow<String?> {
-        photoFlows[name]?.let { return it }
-        val flow = MutableStateFlow<String?>(null)
-        val prev = photoFlows.putIfAbsent(name, flow)
-        if (prev != null) return prev
-        viewModelScope.launch {
-            val url = runCatching {
-                withContext(Dispatchers.IO) { inatClient.fetchTaxonPhotoUrl(name) }
-            }.getOrNull()
-            flow.value = url
-        }
-        return flow
-    }
+    fun observeTaxonPhoto(name: String): StateFlow<String?> =
+        taxonPhotoRepository.observe(name)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), null)
 
     fun observeInatObservationCount(draftId: String): Flow<Int> =
         inatObservationDao.observeForDraft(draftId)
