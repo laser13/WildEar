@@ -5,7 +5,9 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 
-class AndroidAudioRecordSource : AudioRecordSource {
+class AndroidAudioRecordSource(
+    private val preferRaw: suspend () -> Boolean = { true },
+) : AudioRecordSource {
     override val sampleRate = 48_000
     override val channels = 1
     override val bitsPerSample = 16
@@ -18,9 +20,8 @@ class AndroidAudioRecordSource : AudioRecordSource {
     private var record: AudioRecord? = null
     private var stopped = false
 
-    @SuppressLint("MissingPermission")
     override suspend fun start() {
-        record = buildAudioRecord(sampleRate, bufBytes)
+        record = buildAudioRecord(sampleRate, bufBytes, preferRaw())
         record!!.startRecording()
         stopped = false
     }
@@ -54,17 +55,20 @@ class AndroidAudioRecordSource : AudioRecordSource {
          * Tries [MediaRecorder.AudioSource.UNPROCESSED] first (skips AGC, noise suppression,
          * echo cancellation) for cleaner raw audio. Falls back to [MediaRecorder.AudioSource.MIC]
          * if construction fails or the recorder ends up in an uninitialized state.
+         * When [useRaw] is false, skips UNPROCESSED and goes directly to MIC.
          */
         @SuppressLint("MissingPermission")
-        internal fun buildAudioRecord(sampleRate: Int, bufferSize: Int): AudioRecord {
-            runCatching {
-                val ar = audioRecordFactory(
-                    MediaRecorder.AudioSource.UNPROCESSED,
-                    sampleRate,
-                    bufferSize,
-                )
-                if (ar.state == AudioRecord.STATE_INITIALIZED) return ar
-                ar.release()
+        internal fun buildAudioRecord(sampleRate: Int, bufferSize: Int, useRaw: Boolean = true): AudioRecord {
+            if (useRaw) {
+                runCatching {
+                    val ar = audioRecordFactory(
+                        MediaRecorder.AudioSource.UNPROCESSED,
+                        sampleRate,
+                        bufferSize,
+                    )
+                    if (ar.state == AudioRecord.STATE_INITIALIZED) return ar
+                    ar.release()
+                }
             }
             return audioRecordFactory(
                 MediaRecorder.AudioSource.MIC,

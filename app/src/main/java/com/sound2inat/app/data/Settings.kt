@@ -32,6 +32,8 @@ class Settings(private val ctx: Context) {
         val RADAR_PERIOD_DAYS = intPreferencesKey("radar_period_days")
         val RADAR_TAXA = stringPreferencesKey("radar_taxa")
         val ALLOW_DELETE_UPLOADED = booleanPreferencesKey("allow_delete_uploaded")
+        val AUDIO_SOURCE_RAW = booleanPreferencesKey("audio_source_raw")
+        val NORMALIZE_AUDIO = booleanPreferencesKey("normalize_audio")
         val THEME_MODE = stringPreferencesKey("theme_mode")
     }
 
@@ -55,6 +57,10 @@ class Settings(private val ctx: Context) {
         ctx.dataStore.data.map { it[K.RADAR_PERIOD_DAYS] ?: DEFAULT_RADAR_PERIOD_DAYS }
     val allowDeleteUploaded: Flow<Boolean> =
         ctx.dataStore.data.map { it[K.ALLOW_DELETE_UPLOADED] ?: false }
+    val audioSourceRaw: Flow<Boolean> =
+        ctx.dataStore.data.map { it[K.AUDIO_SOURCE_RAW] ?: true }
+    val normalizeAudio: Flow<Boolean> =
+        ctx.dataStore.data.map { it[K.NORMALIZE_AUDIO] ?: true }
     val themeMode: Flow<ThemeMode> = ctx.dataStore.data.map {
         when (it[K.THEME_MODE]) {
             "light" -> ThemeMode.LIGHT
@@ -99,6 +105,8 @@ class Settings(private val ctx: Context) {
     suspend fun setAllowDeleteUploaded(v: Boolean) {
         ctx.dataStore.edit { it[K.ALLOW_DELETE_UPLOADED] = v }
     }
+    suspend fun setAudioSourceRaw(v: Boolean) { ctx.dataStore.edit { it[K.AUDIO_SOURCE_RAW] = v } }
+    suspend fun setNormalizeAudio(v: Boolean) { ctx.dataStore.edit { it[K.NORMALIZE_AUDIO] = v } }
     suspend fun setThemeMode(v: ThemeMode) {
         ctx.dataStore.edit { it[K.THEME_MODE] = v.name.lowercase() }
     }

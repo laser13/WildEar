@@ -74,7 +74,8 @@ object SwappableModule {
     ): BirdNetMetaModel? = BirdNetMetaModel(factory, manager)
 
     @Provides @Singleton
-    fun provideAudioSource(): AudioRecordSource = AndroidAudioRecordSource()
+    fun provideAudioSource(settings: Settings): AudioRecordSource =
+        AndroidAudioRecordSource(preferRaw = { settings.audioSourceRaw.first() })
 
     @Provides
     fun provideRecorder(source: AudioRecordSource): Recorder = DefaultRecorder(source)
