@@ -137,6 +137,16 @@ class DraftRepositoryMergeTest {
         assertThat(sources["birdnet_v2_4"]!!.maxConf).isEqualTo(0.7f)
         assertThat(sources["perch_v2"]!!.maxConf).isEqualTo(0.9f)
 
+        // Fragment ranges from both runs must be concatenated (1 from birdnet + 2 from perch = 3)
+        val decodedRanges = com.sound2inat.inference.FragmentRanges.decode(row.fragmentRanges)
+        assertThat(decodedRanges).hasSize(3)
+        assertThat(decodedRanges).contains(com.sound2inat.inference.FragmentRange(0L, 3_000L))
+        assertThat(decodedRanges).contains(com.sound2inat.inference.FragmentRange(1_000L, 2_000L))
+        assertThat(decodedRanges).contains(com.sound2inat.inference.FragmentRange(3_000L, 4_000L))
+
+        // Aggregated confidence must be max(0.65, 0.88) = 0.88
+        assertThat(row.aggregatedConfidence).isEqualTo(0.88f)
+
         // modelId on draft should be combined
         val draft = db.drafts().getById("d1")!!
         assertThat(draft.modelId).isEqualTo("birdnet_v2_4,perch_v2")

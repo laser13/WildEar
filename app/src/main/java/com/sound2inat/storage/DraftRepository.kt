@@ -326,6 +326,8 @@ class DraftRepository(
                 windowsBySource     = mergedWindows,
                 firstSeenBySource   = mergedFirstSeen,
                 lastSeenBySource    = mergedLastSeen,
+                fragmentRanges = prior.fragmentRanges + d.fragmentRanges,
+                aggregatedConfidence = maxOf(prior.aggregatedConfidence, d.aggregatedConfidence),
             )
         }
         return byName.values.sortedByDescending { it.maxConfidence }
