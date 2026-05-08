@@ -33,12 +33,14 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sound2inat.app.R
 import com.sound2inat.app.data.ThemeMode
 import com.sound2inat.inat.INatWebLoginActivity
 import com.sound2inat.modelmanager.ModelInstallState
@@ -49,15 +51,15 @@ import com.sound2inat.modelmanager.ModelInstallState
 fun SettingsScreen(onBack: () -> Unit) {
     val hilt: SettingsViewModelHilt = hiltViewModel()
     val vm = hilt.delegate
-    val state by vm.state.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(stringResource(R.string.title_settings)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
                 },
             )
@@ -71,28 +73,28 @@ fun SettingsScreen(onBack: () -> Unit) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            SectionCard(title = "Appearance") {
+            SectionCard(title = stringResource(R.string.section_appearance)) {
                 AppearanceSection(state, vm)
             }
-            SectionCard(title = "Models") {
+            SectionCard(title = stringResource(R.string.section_models)) {
                 state.sections.forEachIndexed { idx, sec ->
                     if (idx > 0) HorizontalDivider()
                     ModelSectionRow(sec, vm)
                 }
             }
-            SectionCard(title = "Inference") {
+            SectionCard(title = stringResource(R.string.section_inference)) {
                 InferenceSection(state, vm)
             }
-            SectionCard(title = "Noise reduction") {
+            SectionCard(title = stringResource(R.string.section_noise_reduction)) {
                 NoiseReductionSection(state, vm)
             }
-            SectionCard(title = "Regional filter") {
+            SectionCard(title = stringResource(R.string.section_regional_filter)) {
                 RegionalFilterSection(state, vm)
             }
-            SectionCard(title = "iNaturalist") {
+            SectionCard(title = stringResource(R.string.section_inat)) {
                 INaturalistSection(state, vm)
             }
-            SectionCard(title = "About") {
+            SectionCard(title = stringResource(R.string.section_about)) {
                 AboutSection()
             }
         }
@@ -101,24 +103,24 @@ fun SettingsScreen(onBack: () -> Unit) {
     state.sections.firstOrNull { it.showLicenseSheet }?.let { sec ->
         ModalBottomSheet(onDismissRequest = { vm.cancelLicenseSheet(sec.modelId) }) {
             Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Install ${sec.displayName}", style = MaterialTheme.typography.titleLarge)
+                Text(stringResource(R.string.settings_install_model_title, sec.displayName), style = MaterialTheme.typography.titleLarge)
                 Text(
-                    "License: ${sec.license}",
+                    stringResource(R.string.model_license, sec.license),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    "${"%,d".format(sec.sizeBytes)} bytes will be downloaded.",
+                    stringResource(R.string.model_size_download, "%,d".format(sec.sizeBytes)),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = { vm.confirmInstall(sec.modelId) },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Confirm and download") }
+                ) { Text(stringResource(R.string.btn_confirm_download)) }
                 OutlinedButton(
                     onClick = { vm.cancelLicenseSheet(sec.modelId) },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Cancel") }
+                ) { Text(stringResource(R.string.btn_cancel)) }
             }
         }
     }
@@ -150,38 +152,38 @@ private fun ModelSectionRow(sec: ModelSection, vm: SettingsViewModel) {
     when (val s = sec.install) {
         is ModelInstallState.Ready -> {
             Text(
-                "Status: Installed (${sec.sizeBytes / 1024 / 1024} MB)",
+                stringResource(R.string.model_status_installed, sec.sizeBytes / 1024 / 1024),
                 style = MaterialTheme.typography.bodyMedium,
             )
-            Text("License: ${sec.license}", style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.model_license, sec.license), style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = { vm.openLicenseSheet(sec.modelId) }) { Text("Reinstall") }
+            OutlinedButton(onClick = { vm.openLicenseSheet(sec.modelId) }) { Text(stringResource(R.string.btn_reinstall)) }
             Spacer(Modifier.height(4.dp))
-            OutlinedButton(onClick = { vm.remove(sec.modelId) }) { Text("Remove") }
+            OutlinedButton(onClick = { vm.remove(sec.modelId) }) { Text(stringResource(R.string.btn_remove)) }
         }
         is ModelInstallState.Downloading -> {
             val pct = (s.progress * 100).toInt()
-            Text("Status: Downloading… $pct%", style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.model_status_downloading, pct), style = MaterialTheme.typography.bodyMedium)
             LinearProgressIndicator(progress = { s.progress }, modifier = Modifier.fillMaxWidth().height(8.dp))
         }
         is ModelInstallState.Verifying -> {
-            Text("Status: Verifying SHA-256…", style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.model_status_verifying), style = MaterialTheme.typography.bodyMedium)
         }
         is ModelInstallState.Failed -> {
-            Text("Status: Failed — ${s.message}", color = MaterialTheme.colorScheme.error)
+            Text(stringResource(R.string.model_status_failed, s.message), color = MaterialTheme.colorScheme.error)
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = { vm.openLicenseSheet(sec.modelId) },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Try again") }
+            ) { Text(stringResource(R.string.btn_try_again)) }
         }
         is ModelInstallState.NotInstalled -> {
-            Text("Status: Not installed", style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.model_status_not_installed), style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = { vm.openLicenseSheet(sec.modelId) },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Install ${sec.displayName}") }
+            ) { Text(stringResource(R.string.settings_install_model_title, sec.displayName)) }
         }
     }
 }
@@ -189,13 +191,13 @@ private fun ModelSectionRow(sec: ModelSection, vm: SettingsViewModel) {
 @Suppress("FunctionNaming")
 @Composable
 private fun InferenceSection(state: SettingsUiState, vm: SettingsViewModel) {
-    Text("Min display confidence: ${"%.2f".format(state.minConfidenceDisplay)}")
+    Text(stringResource(R.string.label_min_confidence, "%.2f".format(state.minConfidenceDisplay)))
     Slider(
         value = state.minConfidenceDisplay,
         onValueChange = { vm.setMinConfidence(it) },
         valueRange = MIN_CONF..MAX_CONF,
     )
-    Text("Min detected windows: ${state.minWindows}")
+    Text(stringResource(R.string.label_min_windows, state.minWindows))
     Slider(
         value = state.minWindows.toFloat(),
         onValueChange = { vm.setMinWindows(it.toInt().coerceIn(MIN_MIN_WINDOWS, MAX_MIN_WINDOWS)) },
@@ -212,7 +214,7 @@ private fun NoiseReductionSection(state: SettingsUiState, vm: SettingsViewModel)
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Spectral noise reduction")
+        Text(stringResource(R.string.label_spectral_noise_reduction))
         Switch(
             checked = state.spectralSubtractionEnabled,
             onCheckedChange = { vm.setSpectralSubtractionEnabled(it) },
@@ -223,7 +225,7 @@ private fun NoiseReductionSection(state: SettingsUiState, vm: SettingsViewModel)
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("YAMNet biological gate")
+        Text(stringResource(R.string.label_yamnet_gate))
         Switch(
             checked = state.yamNetGateEnabled,
             onCheckedChange = { vm.setYamNetGateEnabled(it) },
@@ -240,30 +242,28 @@ private fun INaturalistSection(state: SettingsUiState, vm: SettingsViewModel) {
     )
     if (state.inatTokenPresent) {
         Text(
-            "Logged in as ${state.inatLogin ?: "@iNaturalist"}",
+            stringResource(R.string.inat_logged_in_as, state.inatLogin ?: "@iNaturalist"),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.primary,
         )
         Text(
-            "The app refreshes its API token automatically while your iNat " +
-                "session stays valid. Sign out to clear stored credentials.",
+            stringResource(R.string.inat_token_info),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (state.inatTestStatus is InatTestStatus.Failure) {
             Text(
-                "Last login attempt failed: ${state.inatTestStatus.message}",
+                stringResource(R.string.inat_login_failed, state.inatTestStatus.message),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
         }
         OutlinedButton(onClick = { vm.signOut() }, modifier = Modifier.fillMaxWidth()) {
-            Text("Sign out")
+            Text(stringResource(R.string.btn_sign_out))
         }
     } else {
         Text(
-            "Sign in to iNaturalist so the app can submit your observations. " +
-                "A web login screen opens once; the token refreshes itself afterwards.",
+            stringResource(R.string.inat_sign_in_prompt),
             style = MaterialTheme.typography.bodySmall,
         )
         if (state.inatTestStatus is InatTestStatus.Failure) {
@@ -280,8 +280,8 @@ private fun INaturalistSection(state: SettingsUiState, vm: SettingsViewModel) {
         ) {
             Text(
                 when (state.inatTestStatus) {
-                    is InatTestStatus.Loading -> "Verifying…"
-                    else -> "Log in to iNaturalist"
+                    is InatTestStatus.Loading -> stringResource(R.string.btn_verifying)
+                    else -> stringResource(R.string.btn_log_in_to_inat)
                 },
             )
         }
@@ -296,14 +296,14 @@ private fun RegionalFilterSection(state: SettingsUiState, vm: SettingsViewModel)
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("iNaturalist observations filter")
+        Text(stringResource(R.string.label_inat_filter))
         Switch(
             checked = state.regionalFilterEnabled,
             onCheckedChange = { vm.setRegionalFilterEnabled(it) },
         )
     }
     if (state.regionalFilterEnabled) {
-        Text("Search radius: ${state.regionRadiusKm} km")
+        Text(stringResource(R.string.label_search_radius, state.regionRadiusKm))
         Slider(
             value = state.regionRadiusKm.toFloat(),
             onValueChange = { vm.setRegionRadiusKm(it.toInt()) },
@@ -316,7 +316,7 @@ private fun RegionalFilterSection(state: SettingsUiState, vm: SettingsViewModel)
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("BirdNET regional model")
+        Text(stringResource(R.string.label_birdnet_regional))
         Switch(
             checked = state.birdNetMetaEnabled,
             onCheckedChange = { vm.setBirdNetMetaEnabled(it) },
@@ -327,7 +327,7 @@ private fun RegionalFilterSection(state: SettingsUiState, vm: SettingsViewModel)
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Allow deleting recordings with observations")
+        Text(stringResource(R.string.label_allow_delete_uploaded))
         Switch(
             checked = state.allowDeleteUploaded,
             onCheckedChange = { vm.setAllowDeleteUploaded(it) },
@@ -338,7 +338,7 @@ private fun RegionalFilterSection(state: SettingsUiState, vm: SettingsViewModel)
 @Suppress("FunctionNaming")
 @Composable
 private fun AppearanceSection(state: SettingsUiState, vm: SettingsViewModel) {
-    Text("Theme", style = MaterialTheme.typography.bodyMedium)
+    Text(stringResource(R.string.label_theme), style = MaterialTheme.typography.bodyMedium)
     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
         ThemeMode.entries.forEachIndexed { idx, mode ->
             SegmentedButton(
@@ -354,7 +354,7 @@ private fun AppearanceSection(state: SettingsUiState, vm: SettingsViewModel) {
 @Suppress("FunctionNaming")
 @Composable
 private fun AboutSection() {
-    Text("WildEar 0.1.0", style = MaterialTheme.typography.bodyMedium)
+    Text(stringResource(R.string.about_version), style = MaterialTheme.typography.bodyMedium)
 }
 
 private const val MIN_CONF = 0.05f

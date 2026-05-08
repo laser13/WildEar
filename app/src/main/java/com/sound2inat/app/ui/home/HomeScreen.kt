@@ -46,24 +46,28 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sound2inat.app.R
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.sound2inat.storage.DraftStatus
+import kotlinx.coroutines.flow.Flow
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -78,12 +82,12 @@ fun HomeScreen(
     onSettings: () -> Unit,
 ) {
     val vm: HomeViewModelHilt = hiltViewModel()
-    val state by vm.delegate.state.collectAsState()
-    val filterMode by vm.filterMode.collectAsState()
-    val enrichedDrafts by vm.enrichedDrafts.collectAsState()
-    val filteredDrafts by vm.filteredDrafts.collectAsState()
-    val selectedIds by vm.selectedIds.collectAsState()
-    val allowDeleteUploaded by vm.allowDeleteUploaded.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
+    val filterMode by vm.filterMode.collectAsStateWithLifecycle()
+    val enrichedDrafts by vm.enrichedDrafts.collectAsStateWithLifecycle()
+    val filteredDrafts by vm.filteredDrafts.collectAsStateWithLifecycle()
+    val selectedIds by vm.selectedIds.collectAsStateWithLifecycle()
+    val allowDeleteUploaded by vm.allowDeleteUploaded.collectAsStateWithLifecycle()
     val selectionMode = filterMode == FilterMode.NOTHING_DETECTED
     var bulkDeletePreview by remember { mutableStateOf<BulkDeletePreview?>(null) }
     var longPressedDraft by remember { mutableStateOf<DraftSummary?>(null) }
@@ -126,10 +130,10 @@ fun HomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("WildEar") },
+                title = { Text(stringResource(R.string.app_name)) },
                 actions = {
                     IconButton(onClick = onSettings) {
-                        Icon(Icons.Outlined.Settings, contentDescription = "Settings")
+                        Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.cd_settings))
                     }
                 },
             )
@@ -138,7 +142,7 @@ fun HomeScreen(
             ExtendedFloatingActionButton(
                 onClick = onRecord,
                 icon = { Icon(Icons.Filled.Mic, contentDescription = null) },
-                text = { Text("Record") },
+                text = { Text(stringResource(R.string.fab_record)) },
             )
         },
     ) { padding ->
@@ -156,7 +160,7 @@ fun HomeScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Text(
-                        "Model not installed — analysis will run after you install it in Settings.",
+                        stringResource(R.string.home_model_not_installed),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
                         modifier = Modifier.padding(12.dp),
@@ -189,7 +193,7 @@ fun HomeScreen(
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                "No recordings match this filter",
+                                stringResource(R.string.home_no_recordings_filter),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -214,7 +218,11 @@ fun HomeScreen(
                                 items(group.drafts, key = { it.id }) { d ->
                                     RecordingCard(
                                         summary = d,
-                                        vm = vm,
+                                        observeTopLabel = vm::observeTopLabel,
+                                        observeTopSpecies = vm::observeTopSpecies,
+                                        observeDetectionCount = vm::observeDetectionCount,
+                                        observeInatObservationCount = vm::observeInatObservationCount,
+                                        observeTaxonPhoto = vm::observeTaxonPhoto,
                                         selectionMode = selectionMode,
                                         selected = d.id in selectedIds,
                                         onToggleSelection = { vm.toggleSelection(d.id) },
@@ -246,12 +254,12 @@ private fun EmptyState(modifier: Modifier = Modifier) {
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "No recordings yet",
+                stringResource(R.string.home_empty_title),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "Tap Record to capture wildlife sounds.",
+                stringResource(R.string.home_empty_subtitle),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -264,23 +272,27 @@ private fun EmptyState(modifier: Modifier = Modifier) {
 @Composable
 private fun RecordingCard(
     summary: DraftSummary,
-    vm: HomeViewModelHilt,
+    observeTopLabel: (String) -> Flow<String?>,
+    observeTopSpecies: (String) -> Flow<List<TopSpeciesItem>>,
+    observeDetectionCount: (String) -> Flow<Int>,
+    observeInatObservationCount: (String) -> Flow<Int>,
+    observeTaxonPhoto: (String) -> Flow<String?>,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelection: () -> Unit = {},
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
 ) {
-    val topLabel by remember(summary.id) { vm.observeTopLabel(summary.id) }.collectAsState(initial = null)
+    val topLabel by remember(summary.id) { observeTopLabel(summary.id) }.collectAsStateWithLifecycle(initialValue = null)
     val topSpecies by remember(summary.id) {
-        vm.observeTopSpecies(summary.id)
-    }.collectAsState(initial = emptyList())
+        observeTopSpecies(summary.id)
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
     val detectionCount by remember(summary.id) {
-        vm.observeDetectionCount(summary.id)
-    }.collectAsState(initial = 0)
+        observeDetectionCount(summary.id)
+    }.collectAsStateWithLifecycle(initialValue = 0)
     val inatCount by remember(summary.id) {
-        vm.observeInatObservationCount(summary.id)
-    }.collectAsState(initial = 0)
+        observeInatObservationCount(summary.id)
+    }.collectAsStateWithLifecycle(initialValue = 0)
 
     val analysedButEmpty = topSpecies.isEmpty() &&
         (
@@ -312,7 +324,7 @@ private fun RecordingCard(
                         firstSpecies = topSpecies.firstOrNull(),
                         icon = icon,
                         iconBg = iconBg,
-                        vm = vm,
+                        observeTaxonPhoto = observeTaxonPhoto,
                     )
                 }
             },
@@ -359,14 +371,14 @@ private fun RecordingThumbnail(
     firstSpecies: TopSpeciesItem?,
     icon: ImageVector,
     iconBg: Color,
-    vm: HomeViewModelHilt,
+    observeTaxonPhoto: (String) -> Flow<String?>,
 ) {
     val shape = RoundedCornerShape(RECORDING_THUMB_CORNER_DP.dp)
     var photoUrl: String? = null
     if (firstSpecies != null) {
         val observedUrl by remember(firstSpecies.scientificName) {
-            vm.observeTaxonPhoto(firstSpecies.scientificName)
-        }.collectAsState()
+            observeTaxonPhoto(firstSpecies.scientificName)
+        }.collectAsStateWithLifecycle(initialValue = null)
         photoUrl = observedUrl
     }
     Box(
@@ -408,7 +420,7 @@ private fun uploadBadge(summary: DraftSummary, inatCount: Int): (@Composable () 
     return {
         Icon(
             Icons.Filled.Eco,
-            contentDescription = "Uploaded to iNaturalist",
+            contentDescription = stringResource(R.string.cd_uploaded_to_inat),
             tint = INAT_GREEN,
             modifier = Modifier.size(BADGE_ICON_SIZE_DP.dp),
         )
@@ -430,24 +442,26 @@ private fun statusVisuals(
     }
 }
 
+@Composable
 private fun statusHeadline(status: DraftStatus, analysedButEmpty: Boolean): String {
-    if (analysedButEmpty) return "Nothing detected"
-    return when (status) {
-        DraftStatus.PENDING_INFERENCE -> "Analyzing…"
-        DraftStatus.PENDING_REVIEW -> "Ready to review"
-        DraftStatus.REVIEWED -> "Ready to submit"
-        DraftStatus.UPLOADED -> "Submitted to iNaturalist"
-    }
+    if (analysedButEmpty) return stringResource(R.string.home_headline_nothing_detected)
+    return stringResource(when (status) {
+        DraftStatus.PENDING_INFERENCE -> R.string.home_headline_analyzing
+        DraftStatus.PENDING_REVIEW -> R.string.home_headline_ready_review
+        DraftStatus.REVIEWED -> R.string.home_headline_ready_submit
+        DraftStatus.UPLOADED -> R.string.home_headline_submitted
+    })
 }
 
-internal fun homeStatusLabel(status: DraftStatus, analysedButEmpty: Boolean): String {
-    if (analysedButEmpty) return "No detections"
-    return when (status) {
-        DraftStatus.PENDING_INFERENCE -> "Analyzing"
-        DraftStatus.PENDING_REVIEW -> "Needs review"
-        DraftStatus.REVIEWED -> "Not submitted"
-        DraftStatus.UPLOADED -> "Submitted"
-    }
+@Composable
+private fun homeStatusLabel(status: DraftStatus, analysedButEmpty: Boolean): String {
+    if (analysedButEmpty) return stringResource(R.string.home_label_no_detections)
+    return stringResource(when (status) {
+        DraftStatus.PENDING_INFERENCE -> R.string.home_label_analyzing
+        DraftStatus.PENDING_REVIEW -> R.string.home_label_needs_review
+        DraftStatus.REVIEWED -> R.string.home_label_not_submitted
+        DraftStatus.UPLOADED -> R.string.home_label_submitted
+    })
 }
 
 private fun formatTimestamp(ms: Long): String =
@@ -539,7 +553,7 @@ private fun RecordingFilterBar(
                     onFilterChange(if (filterMode == FilterMode.UPLOADED) FilterMode.ALL else FilterMode.UPLOADED)
                 },
                 label = {
-                    Icon(Icons.Filled.Eco, contentDescription = "Uploaded", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.Eco, contentDescription = stringResource(R.string.cd_filter_uploaded), modifier = Modifier.size(18.dp))
                 },
             )
             FilterChip(
@@ -550,7 +564,7 @@ private fun RecordingFilterBar(
                     )
                 },
                 label = {
-                    Icon(Icons.Filled.SearchOff, contentDescription = "Nothing detected", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.SearchOff, contentDescription = stringResource(R.string.cd_filter_nothing_detected), modifier = Modifier.size(18.dp))
                 },
             )
         }
@@ -563,7 +577,7 @@ private fun RecordingFilterBar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = if (allSelected) onClearSelection else onSelectAll) {
-                    Text(if (allSelected) "Deselect all" else "Select all")
+                    Text(if (allSelected) stringResource(R.string.filter_deselect_all) else stringResource(R.string.filter_select_all))
                 }
                 Spacer(modifier = Modifier.weight(1f))
                 if (selectedCount > 0) {
@@ -573,7 +587,7 @@ private fun RecordingFilterBar(
                             contentColor = MaterialTheme.colorScheme.error,
                         ),
                     ) {
-                        Text("Delete ($selectedCount)")
+                        Text(stringResource(R.string.filter_delete_selected, selectedCount))
                     }
                 }
             }
@@ -591,15 +605,13 @@ private fun BulkDeleteDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Delete ${preview.toDelete.size} recording${if (preview.toDelete.size > 1) "s" else ""}?") },
+        title = { Text(pluralStringResource(R.plurals.dialog_bulk_delete_title, preview.toDelete.size, preview.toDelete.size)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("This will permanently delete the selected recordings and their audio files.")
+                Text(stringResource(R.string.dialog_bulk_delete_body))
                 if (preview.skippedUploaded > 0) {
                     Text(
-                        "${preview.skippedUploaded} recording${if (preview.skippedUploaded > 1) "s" else ""} " +
-                            "with iNaturalist observations will be kept. " +
-                            "You can allow deleting them in Settings.",
+                        pluralStringResource(R.plurals.dialog_bulk_delete_skipped, preview.skippedUploaded, preview.skippedUploaded),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -612,10 +624,10 @@ private fun BulkDeleteDialog(
                 colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
                     contentColor = MaterialTheme.colorScheme.error,
                 ),
-            ) { Text("Delete") }
+            ) { Text(stringResource(R.string.btn_delete)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.btn_cancel)) }
         },
     )
 }
@@ -629,13 +641,11 @@ private fun SingleDeleteDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (blocked) "Cannot delete" else "Delete recording?") },
+        title = { Text(if (blocked) stringResource(R.string.dialog_delete_single_blocked_title) else stringResource(R.string.dialog_delete_single_title)) },
         text = {
             Text(
-                if (blocked)
-                    "This recording has an iNaturalist observation. To allow deleting it, enable \"Allow deleting recordings with observations\" in Settings."
-                else
-                    "This will permanently delete the recording and its audio file.",
+                if (blocked) stringResource(R.string.dialog_delete_single_blocked_body)
+                else stringResource(R.string.dialog_delete_single_body),
             )
         },
         confirmButton = {
@@ -645,11 +655,11 @@ private fun SingleDeleteDialog(
                     colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error,
                     ),
-                ) { Text("Delete") }
+                ) { Text(stringResource(R.string.btn_delete)) }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(if (blocked) "OK" else "Cancel") }
+            TextButton(onClick = onDismiss) { Text(if (blocked) stringResource(R.string.btn_ok) else stringResource(R.string.btn_cancel)) }
         },
     )
 }

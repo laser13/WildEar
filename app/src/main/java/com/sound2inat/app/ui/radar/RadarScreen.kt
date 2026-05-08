@@ -22,13 +22,15 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sound2inat.app.R
 import com.sound2inat.app.permissions.LocalPermissionsController
 import com.sound2inat.app.permissions.Permission
 import com.sound2inat.app.permissions.PermissionStatus
@@ -39,7 +41,7 @@ private const val MAP_HEIGHT_DP = 280
 @Composable
 fun RadarScreen(onOpenSettings: () -> Unit) {
     val vm: RadarViewModelHilt = hiltViewModel()
-    val state by vm.delegate.state.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
     val perms = LocalPermissionsController.current
 
@@ -47,7 +49,7 @@ fun RadarScreen(onOpenSettings: () -> Unit) {
         if (perms.statuses.value[Permission.ACCESS_FINE_LOCATION] != PermissionStatus.GRANTED) {
             val result = perms.request(setOf(Permission.ACCESS_FINE_LOCATION))
             if (result[Permission.ACCESS_FINE_LOCATION] == PermissionStatus.GRANTED) {
-                vm.delegate.pullRefresh()
+                vm.pullRefresh()
             }
         }
     }
@@ -55,10 +57,10 @@ fun RadarScreen(onOpenSettings: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Nearby") },
+                title = { Text(stringResource(R.string.title_radar)) },
                 actions = {
                     IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Outlined.Settings, contentDescription = "Settings")
+                        Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.cd_settings))
                     }
                 },
             )
@@ -79,7 +81,7 @@ fun RadarScreen(onOpenSettings: () -> Unit) {
             )
             PullToRefreshBox(
                 isRefreshing = state.loading && state.species.isNotEmpty(),
-                onRefresh = vm.delegate::pullRefresh,
+                onRefresh = vm::pullRefresh,
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
             ) {
                 RadarBody(
@@ -99,13 +101,12 @@ private fun RadarBody(
     when {
         state.locationStatus == LocationStatus.NoLocation && state.species.isEmpty() -> {
             EmptyState(
-                title = "Grant location to see what's around",
-                detail = "WildEar uses your phone's GPS to query iNaturalist for " +
-                    "observations within your chosen radius.",
+                title = stringResource(R.string.radar_location_title),
+                detail = stringResource(R.string.radar_location_detail),
             )
         }
         state.error != null -> {
-            EmptyState(title = "Something went wrong", detail = state.error)
+            EmptyState(title = stringResource(R.string.radar_error_title), detail = state.error)
         }
         state.species.isEmpty() && state.loading -> {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -114,8 +115,8 @@ private fun RadarBody(
         }
         state.species.isEmpty() -> {
             EmptyState(
-                title = "No observations found",
-                detail = "Try a wider radius or a longer period.",
+                title = stringResource(R.string.radar_no_obs_title),
+                detail = stringResource(R.string.radar_no_obs_detail),
             )
         }
         else -> {

@@ -37,13 +37,13 @@ class RecordingNotificationBuilder @Inject constructor(
         )
         return NotificationCompat.Builder(ctx, Sound2iNatApp.RECORDING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_mic_recording)
-            .setContentTitle("WildEar — recording")
+            .setContentTitle(ctx.getString(R.string.notification_recording_title))
             .setContentText(contentText)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setContentIntent(openIntent)
-            .addAction(R.drawable.ic_stop_white, "Stop", stopIntent)
+            .addAction(R.drawable.ic_stop_white, ctx.getString(R.string.notification_stop_action), stopIntent)
             .build()
     }
 

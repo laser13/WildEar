@@ -1,3 +1,188 @@
 <resources>
     <string name="app_name">WildEar</string>
+
+    <!-- Common buttons / content descriptions -->
+    <string name="btn_cancel">Cancel</string>
+    <string name="btn_delete">Delete</string>
+    <string name="btn_ok">OK</string>
+    <string name="btn_back">Back</string>
+    <string name="btn_retry">Retry</string>
+    <string name="btn_view">View</string>
+    <string name="btn_play">Play</string>
+    <string name="btn_pause">Pause</string>
+    <string name="btn_birdnet">BirdNET</string>
+    <string name="btn_perch">Perch</string>
+    <string name="cd_settings">Settings</string>
+    <string name="cd_back">Back</string>
+    <string name="cd_cancel">Cancel</string>
+    <string name="cd_delete">Delete</string>
+    <string name="cd_stop">Stop</string>
+    <string name="cd_uploaded_to_inat">Uploaded to iNaturalist</string>
+
+    <!-- Home screen -->
+    <string name="fab_record">Record</string>
+    <string name="home_model_not_installed">Model not installed — analysis will run after you install it in Settings.</string>
+    <string name="home_no_recordings_filter">No recordings match this filter</string>
+    <string name="home_empty_title">No recordings yet</string>
+    <string name="home_empty_subtitle">Tap Record to capture wildlife sounds.</string>
+    <string name="filter_select_all">Select all</string>
+    <string name="filter_deselect_all">Deselect all</string>
+    <!-- %1$d = selected count -->
+    <string name="filter_delete_selected">Delete (%1$d)</string>
+    <string name="cd_filter_uploaded">Uploaded</string>
+    <string name="cd_filter_nothing_detected">Nothing detected</string>
+    <string name="label_today">Today</string>
+    <string name="label_yesterday">Yesterday</string>
+    <!-- Recording card status headlines -->
+    <string name="home_headline_nothing_detected">Nothing detected</string>
+    <string name="home_headline_analyzing">Analyzing…</string>
+    <string name="home_headline_ready_review">Ready to review</string>
+    <string name="home_headline_ready_submit">Ready to submit</string>
+    <string name="home_headline_submitted">Submitted to iNaturalist</string>
+    <!-- Recording card supporting status labels -->
+    <string name="home_label_no_detections">No detections</string>
+    <string name="home_label_analyzing">Analyzing</string>
+    <string name="home_label_needs_review">Needs review</string>
+    <string name="home_label_not_submitted">Not submitted</string>
+    <string name="home_label_submitted">Submitted</string>
+    <!-- Single recording delete dialog -->
+    <string name="dialog_delete_single_title">Delete recording?</string>
+    <string name="dialog_delete_single_blocked_title">Cannot delete</string>
+    <string name="dialog_delete_single_body">This will permanently delete the recording and its audio file.</string>
+    <string name="dialog_delete_single_blocked_body">This recording has an iNaturalist observation. To allow deleting it, enable \"Allow deleting recordings with observations\" in Settings.</string>
+    <!-- Bulk delete dialog -->
+    <string name="dialog_bulk_delete_body">This will permanently delete the selected recordings and their audio files.</string>
+
+    <!-- Recording screen -->
+    <string name="title_recording">Recording</string>
+    <string name="recording_starting">Starting…</string>
+    <string name="recording_auto_stop">Long recording — auto-stop at 10:00</string>
+    <string name="label_gps">GPS</string>
+    <!-- %1$d = delay in seconds -->
+    <string name="recording_backlog_hint">Detections delayed ~%1$ds</string>
+    <string name="live_listening">Listening for wildlife...</string>
+    <string name="live_matches_title">Possible matches</string>
+    <string name="live_unlikely_title">Unlikely — not observed nearby</string>
+
+    <!-- Review screen -->
+    <string name="title_review">Review</string>
+    <string name="review_no_species">No species detected.</string>
+    <string name="review_unlikely_section">Unlikely — not observed nearby</string>
+    <string name="review_analyzing_audio">Analyzing audio…</string>
+    <string name="review_no_location">No location</string>
+    <string name="review_section_detected_wildlife">Detected wildlife</string>
+    <string name="review_submit_uploading">Uploading…</string>
+    <string name="review_submit_already_uploaded">Already uploaded</string>
+    <string name="review_submit_select_species">Select species</string>
+    <string name="dialog_reanalyze_title">Re-analyze recording</string>
+    <string name="dialog_reanalyze_body">Pick a model to run again. New detections are merged with existing ones — matching species pick up an extra source badge.</string>
+    <string name="dialog_perch_not_installed">Perch is not installed — install it from Settings to enable.</string>
+    <string name="cd_region_confirmed">Observed in region</string>
+    <string name="cd_region_not_confirmed">Not observed in region</string>
+    <string name="cd_region_unverified">Regional check unavailable</string>
+
+    <!-- Species details sheet -->
+    <string name="sheet_model_scores">Model scores</string>
+    <string name="sheet_label_birdnet">BirdNET</string>
+    <string name="sheet_label_perch">Perch</string>
+    <string name="sheet_label_confidence">Confidence</string>
+    <string name="sheet_label_yamnet_gate">YAMNet gate</string>
+    <string name="sheet_yamnet_na">N/A</string>
+    <string name="sheet_fragments_section">Fragments</string>
+    <string name="sheet_label_count">Count</string>
+    <string name="sheet_time_ranges_section">Time ranges</string>
+    <string name="sheet_inat_section">iNaturalist</string>
+    <string name="sheet_awaiting_ids">Awaiting IDs</string>
+    <string name="sheet_label_status">Status</string>
+    <string name="sheet_label_confirmed_as">Confirmed as</string>
+    <string name="sheet_label_comments">Comments</string>
+    <string name="sheet_error_load_inat">Could not load iNat data</string>
+    <string name="sheet_quality_research">Research Grade</string>
+    <string name="sheet_quality_needs_id">Needs ID</string>
+
+    <!-- Settings screen sections -->
+    <string name="title_settings">Settings</string>
+    <string name="section_appearance">Appearance</string>
+    <string name="section_models">Models</string>
+    <string name="section_inference">Inference</string>
+    <string name="section_noise_reduction">Noise reduction</string>
+    <string name="section_regional_filter">Regional filter</string>
+    <string name="section_inat">iNaturalist</string>
+    <string name="section_about">About</string>
+    <!-- Settings model rows. %1$s = model display name -->
+    <string name="settings_install_model_title">Install %1$s</string>
+    <!-- %1$s = license name -->
+    <string name="model_license">License: %1$s</string>
+    <!-- %1$s = pre-formatted byte count with comma grouping -->
+    <string name="model_size_download">%1$s bytes will be downloaded.</string>
+    <string name="btn_confirm_download">Confirm and download</string>
+    <!-- %1$d = size in MB -->
+    <string name="model_status_installed">Status: Installed (%1$d MB)</string>
+    <string name="btn_reinstall">Reinstall</string>
+    <string name="btn_remove">Remove</string>
+    <!-- %1$d = download percentage 0–100 -->
+    <string name="model_status_downloading">Status: Downloading… %1$d%%</string>
+    <string name="model_status_verifying">Status: Verifying SHA-256…</string>
+    <!-- %1$s = error message -->
+    <string name="model_status_failed">Status: Failed — %1$s</string>
+    <string name="btn_try_again">Try again</string>
+    <string name="model_status_not_installed">Status: Not installed</string>
+    <!-- Inference sliders. %1$s = pre-formatted confidence value -->
+    <string name="label_min_confidence">Min display confidence: %1$s</string>
+    <!-- %1$d = window count -->
+    <string name="label_min_windows">Min detected windows: %1$d</string>
+    <!-- Noise reduction / gate toggles -->
+    <string name="label_spectral_noise_reduction">Spectral noise reduction</string>
+    <string name="label_yamnet_gate">YAMNet biological gate</string>
+    <!-- iNaturalist section. %1$s = username -->
+    <string name="inat_logged_in_as">Logged in as %1$s</string>
+    <string name="inat_token_info">The app refreshes its API token automatically while your iNat session stays valid. Sign out to clear stored credentials.</string>
+    <!-- %1$s = error message -->
+    <string name="inat_login_failed">Last login attempt failed: %1$s</string>
+    <string name="btn_sign_out">Sign out</string>
+    <string name="inat_sign_in_prompt">Sign in to iNaturalist so the app can submit your observations. A web login screen opens once; the token refreshes itself afterwards.</string>
+    <string name="btn_verifying">Verifying…</string>
+    <string name="btn_log_in_to_inat">Log in to iNaturalist</string>
+    <!-- Regional filter. %1$d = radius in km -->
+    <string name="label_inat_filter">iNaturalist observations filter</string>
+    <string name="label_search_radius">Search radius: %1$d km</string>
+    <string name="label_birdnet_regional">BirdNET regional model</string>
+    <string name="label_allow_delete_uploaded">Allow deleting recordings with observations</string>
+    <!-- Appearance -->
+    <string name="label_theme">Theme</string>
+    <!-- About -->
+    <string name="about_version">WildEar 0.1.0</string>
+
+    <!-- Radar screen -->
+    <string name="title_radar">Nearby</string>
+    <string name="radar_location_title">Grant location to see what\'s around</string>
+    <string name="radar_location_detail">WildEar uses your phone\'s GPS to query iNaturalist for observations within your chosen radius.</string>
+    <string name="radar_error_title">Something went wrong</string>
+    <string name="radar_no_obs_title">No observations found</string>
+    <string name="radar_no_obs_detail">Try a wider radius or a longer period.</string>
+
+    <!-- Foreground recording notification -->
+    <string name="notification_recording_title">WildEar — recording</string>
+    <string name="notification_stop_action">Stop</string>
+
+    <!-- Plurals -->
+    <plurals name="dialog_bulk_delete_title">
+        <item quantity="one">Delete 1 recording?</item>
+        <item quantity="other">Delete %1$d recordings?</item>
+    </plurals>
+
+    <plurals name="dialog_bulk_delete_skipped">
+        <item quantity="one">%1$d recording with iNaturalist observations will be kept. You can allow deleting them in Settings.</item>
+        <item quantity="other">%1$d recordings with iNaturalist observations will be kept. You can allow deleting them in Settings.</item>
+    </plurals>
+
+    <plurals name="review_obs_uploaded">
+        <item quantity="one">1 observation already uploaded</item>
+        <item quantity="other">%1$d observations already uploaded</item>
+    </plurals>
+
+    <plurals name="review_submit_selected">
+        <item quantity="one">Submit 1 selected</item>
+        <item quantity="other">Submit %1$d selected</item>
+    </plurals>
 </resources>
