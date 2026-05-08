@@ -1,10 +1,6 @@
 package com.sound2inat.inference
 
 import com.sound2inat.app.data.Settings
-import com.sound2inat.app.ui.review.InferenceJob
-import com.sound2inat.app.ui.review.InferenceOutcome
-import com.sound2inat.app.ui.review.PerchAnalysisJob
-import com.sound2inat.app.ui.review.PerchAnalysisOutcome
 import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager

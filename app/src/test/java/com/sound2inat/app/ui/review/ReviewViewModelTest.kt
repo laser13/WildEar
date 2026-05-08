@@ -2,6 +2,10 @@ package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.inference.AggregatedDetection
+import com.sound2inat.inference.InferenceJob
+import com.sound2inat.inference.InferenceOutcome
+import com.sound2inat.inference.PerchAnalysisJob
+import com.sound2inat.inference.PerchAnalysisOutcome
 import com.sound2inat.inference.SourceStat
 import com.sound2inat.inference.SourceStats
 import com.sound2inat.inference.WindowPrediction

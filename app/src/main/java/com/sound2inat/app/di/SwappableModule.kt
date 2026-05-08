@@ -98,8 +98,8 @@ object SwappableModule {
     fun provideModelDescriptors(): List<ModelDescriptor> = KnownModels
 
     /**
-     * Bundle of production inference seams ([com.sound2inat.app.ui.review.InferenceJob]
-     * + [com.sound2inat.app.ui.review.PerchAnalysisJob]) consumed by the Review
+     * Bundle of production inference seams ([com.sound2inat.inference.InferenceJob]
+     * + [com.sound2inat.inference.PerchAnalysisJob]) consumed by the Review
      * screen. Test modules override this single binding to swap the whole
      * stack without touching VM construction.
      */
