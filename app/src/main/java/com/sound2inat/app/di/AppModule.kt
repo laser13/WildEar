@@ -23,6 +23,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
 @Module
@@ -83,7 +84,11 @@ object AppModule {
     fun provideSettings(@ApplicationContext ctx: Context): Settings = Settings(ctx)
 
     @Provides @Singleton
-    fun provideHttp(): OkHttpClient = OkHttpClient()
+    fun provideHttp(): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
 
     @Provides @Singleton
     fun provideInterpreterFactory(): InterpreterFactory = TfliteInterpreterFactory()
