@@ -16,6 +16,7 @@ import com.sound2inat.inference.FragmentRanges
 import com.sound2inat.inference.InferenceJob
 import com.sound2inat.inference.InferenceOutcome
 import com.sound2inat.inference.InferenceUseCase
+import com.sound2inat.inference.ModelIds
 import com.sound2inat.inference.PerchAnalysisJob
 import com.sound2inat.inference.PerchAnalysisOutcome
 import com.sound2inat.inference.RegionalStatus
@@ -535,7 +536,7 @@ class ReviewViewModel(
                     is PerchAnalysisOutcome.Success -> {
                         repo.mergeAndPersist(
                             draftId = draftId,
-                            newModelId = "perch_v2",
+                            newModelId = ModelIds.PERCH,
                             newModelVersion = "perch",
                             freshDetections = outcome.detections,
                         )

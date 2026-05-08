@@ -26,7 +26,7 @@ class BirdNetTfliteModel(
     private val threads: Int = 4,
 ) : BioacousticModel {
 
-    override val modelId: String = "birdnet_v2_4"
+    override val modelId: String = ModelIds.BIRDNET
     override val modelVersion: String = "2.4"
     override val expectedSampleRateHz: Int = 48_000
     override val windowMs: Long = 3_000L

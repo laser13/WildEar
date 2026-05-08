@@ -10,6 +10,7 @@ import com.sound2inat.inference.InferenceUseCase
 import com.sound2inat.inference.InterpreterFactory
 import com.sound2inat.inference.LiveInferenceEngine
 import com.sound2inat.inference.LiveInferenceEngineFactory
+import com.sound2inat.inference.ModelIds
 import com.sound2inat.inference.PerchTfliteModel
 import com.sound2inat.inference.SpectralSubtractor
 import com.sound2inat.inference.YamNetGate
@@ -137,7 +138,7 @@ object SwappableModule {
         modelManager: ModelManager,
         settings: Settings,
     ): LiveInferenceEngineFactory? = LiveInferenceEngineFactory { sampleRateHz ->
-        val birdnet = bioModels.firstOrNull { it.modelId == "birdnet_v2_4" }
+        val birdnet = bioModels.firstOrNull { it.modelId == ModelIds.BIRDNET }
             ?: return@LiveInferenceEngineFactory null
         val state = modelManager.stateFor(com.sound2inat.modelmanager.BirdNetV24.descriptor)
         val ready = state as? com.sound2inat.modelmanager.ModelInstallState.Ready

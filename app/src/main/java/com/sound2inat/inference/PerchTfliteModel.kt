@@ -24,7 +24,7 @@ class PerchTfliteModel(
     private val threads: Int = 4,
 ) : BioacousticModel {
 
-    override val modelId: String = "perch_v2"
+    override val modelId: String = ModelIds.PERCH
     override val modelVersion: String = "2"
     override val expectedSampleRateHz: Int = 32_000
     override val windowMs: Long = 5_000L

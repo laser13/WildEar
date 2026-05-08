@@ -230,7 +230,7 @@ internal class ProductionInferenceJob(
 
     private companion object {
         const val TAG = "ProductionInferenceJob"
-        const val BIRDNET_MODEL_ID = "birdnet_v2_4"
+        const val BIRDNET_MODEL_ID = ModelIds.BIRDNET
     }
 }
 
@@ -257,7 +257,7 @@ internal class ProductionPerchAnalysisJob(
         observedAtMillis: Long,
         onProgress: (Float) -> Unit,
     ): PerchAnalysisOutcome = withContext(Dispatchers.IO) {
-        val perch = models.firstOrNull { it.modelId == "perch_v2" }
+        val perch = models.firstOrNull { it.modelId == ModelIds.PERCH }
             ?: return@withContext PerchAnalysisOutcome.NotInstalled
         val state = modelManager.stateFor(com.sound2inat.modelmanager.PerchV2.descriptor)
             as? ModelInstallState.Ready
