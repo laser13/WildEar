@@ -361,13 +361,9 @@ private fun ReviewPage(
     if (pickerVisible) {
         ModelPickerDialog(
             isPerchInstalled = state.isPerchInstalled,
-            onPickBirdnet = {
+            onConfirm = { runBirdnet, runPerch ->
                 pickerVisible = false
-                vm.reanalyzeBirdnet()
-            },
-            onPickPerch = {
-                pickerVisible = false
-                vm.analyzeWithPerch()
+                vm.reanalyze(runBirdnet, runPerch)
             },
             onDismiss = { pickerVisible = false },
         )
@@ -398,35 +394,57 @@ private fun ReviewPage(
 @Composable
 private fun ModelPickerDialog(
     isPerchInstalled: Boolean,
-    onPickBirdnet: () -> Unit,
-    onPickPerch: () -> Unit,
+    onConfirm: (runBirdnet: Boolean, runPerch: Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var birdnetChecked by remember { mutableStateOf(true) }
+    var perchChecked by remember { mutableStateOf(isPerchInstalled) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.dialog_reanalyze_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     stringResource(R.string.dialog_reanalyze_body),
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Checkbox(
+                        checked = birdnetChecked,
+                        onCheckedChange = { birdnetChecked = it },
+                    )
+                    Text(stringResource(R.string.btn_birdnet))
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Checkbox(
+                        checked = perchChecked,
+                        onCheckedChange = { perchChecked = it },
+                        enabled = isPerchInstalled,
+                    )
+                    Text(stringResource(R.string.btn_perch))
+                }
                 if (!isPerchInstalled) {
                     Text(
                         stringResource(R.string.dialog_perch_not_installed),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 48.dp),
                     )
                 }
             }
         },
         confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = onPickBirdnet) { Text(stringResource(R.string.btn_birdnet)) }
-                TextButton(
-                    onClick = onPickPerch,
-                    enabled = isPerchInstalled,
-                ) { Text(stringResource(R.string.btn_perch)) }
+            TextButton(
+                onClick = { onConfirm(birdnetChecked, perchChecked) },
+                enabled = birdnetChecked || perchChecked,
+            ) {
+                Text(stringResource(R.string.btn_ok))
             }
         },
         dismissButton = {

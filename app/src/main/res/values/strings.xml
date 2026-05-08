@@ -75,7 +75,7 @@
     <string name="review_submit_already_uploaded">Already uploaded</string>
     <string name="review_submit_select_species">Select species</string>
     <string name="dialog_reanalyze_title">Re-analyze recording</string>
-    <string name="dialog_reanalyze_body">Pick a model to run again. New detections are merged with existing ones — matching species pick up an extra source badge.</string>
+    <string name="dialog_reanalyze_body">Select models to run again. New detections are merged with existing ones — matching species pick up an extra source badge.</string>
     <string name="dialog_perch_not_installed">Perch is not installed — install it from Settings to enable.</string>
     <string name="cd_region_confirmed">Observed in region</string>
     <string name="cd_region_not_confirmed">Not observed in region</string>
