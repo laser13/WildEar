@@ -1,9 +1,12 @@
 package com.sound2inat.app.di
 
 import android.content.Context
+import com.sound2inat.app.data.Settings
 import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.BirdNetMetaModel
 import com.sound2inat.inference.BirdNetTfliteModel
+import com.sound2inat.inference.DefaultInferenceUseCase
+import com.sound2inat.inference.InferenceUseCase
 import com.sound2inat.inference.InterpreterFactory
 import com.sound2inat.inference.LiveInferenceEngine
 import com.sound2inat.inference.LiveInferenceEngineFactory
@@ -15,8 +18,6 @@ import com.sound2inat.location.FusedLocationProvider
 import com.sound2inat.location.LocationProvider
 import com.sound2inat.modelmanager.BirdNetMetaV24
 import com.sound2inat.modelmanager.KnownModels
-import com.sound2inat.app.data.Settings
-import kotlinx.coroutines.flow.first
 import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelManager
 import com.sound2inat.modelmanager.YamNetV1
@@ -29,6 +30,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.flow.first
 import okhttp3.OkHttpClient
 import javax.inject.Singleton
 
@@ -94,6 +96,30 @@ object SwappableModule {
     /** Descriptors paired (by [BioacousticModel.modelId]) with installed models. */
     @Provides @Singleton
     fun provideModelDescriptors(): List<ModelDescriptor> = KnownModels
+
+    /**
+     * Bundle of production inference seams ([com.sound2inat.app.ui.review.InferenceJob]
+     * + [com.sound2inat.app.ui.review.PerchAnalysisJob]) consumed by the Review
+     * screen. Test modules override this single binding to swap the whole
+     * stack without touching VM construction.
+     */
+    @Provides @Singleton
+    @Suppress("LongParameterList")
+    fun provideInferenceUseCase(
+        bioModels: List<@JvmSuppressWildcards BioacousticModel>,
+        descriptors: List<@JvmSuppressWildcards ModelDescriptor>,
+        modelManager: ModelManager,
+        settings: Settings,
+        yamNetGate: YamNetGate?,
+        birdNetMeta: BirdNetMetaModel?,
+    ): InferenceUseCase = DefaultInferenceUseCase(
+        models = bioModels,
+        descriptors = descriptors,
+        modelManager = modelManager,
+        settings = settings,
+        yamNetGate = yamNetGate,
+        birdNetMeta = birdNetMeta,
+    )
 
     /**
      * Factory that builds a [LiveInferenceEngine] bound to the recorder's sample
