@@ -10,6 +10,7 @@ import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.ObservationDetail
 import com.sound2inat.inat.RegionFilter
+import com.sound2inat.inat.RegionalStatusRepository
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.FragmentRanges
 import com.sound2inat.inference.InferenceJob
@@ -43,7 +44,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -139,14 +139,16 @@ class ReviewViewModel(
         throw com.sound2inat.inat.INatException(-1, "No observation fetcher configured")
     },
     /**
-     * Shared across all [ReviewViewModel] instances created by the same
-     * [ReviewViewModelFactory]. Pre-populated entries skip the annotation
-     * round-trip so the Review screen opens without the green→red flicker.
-     * Defaults to an empty private map so unit tests remain self-contained.
+     * Repository for regional-status results, shared across all [ReviewViewModel]
+     * instances. Keyed by (taxonName, lat-lon-bucket) so results from different
+     * recording locations do not collide. Null in unit tests that don't need it.
      */
-    private val regionalStatusCache: MutableMap<String, RegionalStatus?> = mutableMapOf(),
+    private val regionalStatusRepository: RegionalStatusRepository? = null,
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
+
+    /** Statuses fetched during this VM's lifetime; used to pre-populate rows on DB re-emission. */
+    private val annotatedStatuses: MutableMap<String, RegionalStatus?> = mutableMapOf()
 
     private val ownsScope: Boolean = externalScope == null
     private val scope: CoroutineScope = externalScope ?: viewModelScope
@@ -268,7 +270,7 @@ class ReviewViewModel(
                             isSelected = e.isSelectedByUser,
                             confidenceBySource = SourceStats.decodeConfidenceOnly(e.sources),
                             taxonPhotoUrl = photoUrlCache[e.taxonScientificName],
-                            regionalStatus = regionalStatusCache[e.taxonScientificName],
+                            regionalStatus = annotatedStatuses[e.taxonScientificName],
                             observationDetailState = prevDetailStates[e.id] ?: ObservationDetailLoadState.NotLoaded,
                             fragmentRanges = FragmentRanges.decode(e.fragmentRanges),
                         )
@@ -286,7 +288,7 @@ class ReviewViewModel(
                 val lon = draft.longitude
                 if (lat != null && lon != null) {
                     val newNames = rows.map { it.taxonScientificName }.toSet()
-                    val cachedNames = regionalStatusCache.keys.toSet()
+                    val cachedNames = annotatedStatuses.keys.toSet()
                     // Skip annotation while inference is pending — launchAnnotationIfIdle()
                     // will run it on the final merged data after analysis completes.
                     // Also ignore the transient empty emission from Room's non-atomic
@@ -748,8 +750,9 @@ class ReviewViewModel(
      * when [regionFilter] is null. Any previously running annotation job is
      * cancelled so only the latest species list triggers network calls.
      *
-     * Results are stored in [regionalStatusCache] and merged into
-     * [_state].species so the UI updates without waiting for a Room re-emission.
+     * Results are stored in [annotatedStatuses] (and the shared
+     * [regionalStatusRepository]) then merged into [_state].species so the UI
+     * updates without waiting for a Room re-emission.
      */
     private fun launchAnnotation(rows: List<SpeciesRow>, lat: Double, lon: Double) {
         val filter = regionFilter ?: run {
@@ -780,20 +783,23 @@ class ReviewViewModel(
                     lat, lon, radiusKm,
                 )
                 annotated.forEach { det ->
-                    regionalStatusCache[det.taxonScientificName] = det.regionalStatus
+                    annotatedStatuses[det.taxonScientificName] = det.regionalStatus
+                    det.regionalStatus?.let { s ->
+                        regionalStatusRepository?.storeResult(det.taxonScientificName, lat, lon, s)
+                    }
                 }
                 Log.d("ReviewVM", "launchAnnotation: complete, updating state with ${annotated.size} statuses")
                 _state.update { s ->
                     s.copy(
                         species = s.species.map { row ->
-                            row.copy(regionalStatus = regionalStatusCache[row.taxonScientificName])
+                            row.copy(regionalStatus = annotatedStatuses[row.taxonScientificName])
                         },
                     )
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 Log.d(
                     "ReviewVM",
-                    "launchAnnotation: job cancelled after annotating ${regionalStatusCache.size} species"
+                    "launchAnnotation: job cancelled after annotating ${annotatedStatuses.size} species"
                 )
                 throw e
             }
@@ -823,20 +829,13 @@ class ReviewViewModelFactory @Inject constructor(
     private val inatObservationsDao: InatObservationDao,
     private val inatClient: INaturalistClient,
     private val regionFilter: RegionFilter,
+    private val regionalStatusRepository: RegionalStatusRepository,
     private val inferenceUseCase: InferenceUseCase,
     private val inatAuth: com.sound2inat.inat.INatAuthRepository,
     private val modelManager: ModelManager,
 ) {
     /** Cache root used by the screen's `ensureVisuals` call. */
     val filesDir: File get() = context.filesDir
-
-    /**
-     * Shared regional-status cache across all [ReviewViewModel] instances.
-     * Because the factory is @Singleton, this map survives for the entire
-     * app session — opening Review for a draft that was already annotated
-     * costs zero network/disk work and shows no green→red flicker.
-     */
-    private val sharedRegionalStatusCache: MutableMap<String, RegionalStatus?> = ConcurrentHashMap()
 
     fun create(draftId: String): ReviewViewModel = ReviewViewModel(
         draftId = draftId,
@@ -866,7 +865,7 @@ class ReviewViewModelFactory @Inject constructor(
         minWindowsProvider = { settings.minWindows.first() },
         regionRadiusKmProvider = { settings.regionRadiusKm.first() },
         observationFetcher = { id -> inatClient.getObservation(id) },
-        regionalStatusCache = sharedRegionalStatusCache,
+        regionalStatusRepository = regionalStatusRepository,
     )
 }
 
