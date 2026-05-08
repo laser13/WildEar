@@ -525,32 +525,34 @@ class ReviewViewModel(
         val recordedAt = _state.value.recordedAtUtcMs
         inferenceJob?.cancel()
         perchJob?.cancel()
+        // perchJob is not reassigned — reanalyze owns inferenceJob for the full combined run.
+        // perchProgress guards against concurrent Perch-only runs.
         inferenceStarted = true
         _windowPreds.value = emptyList()
         inferenceJob = scope.launch {
             if (runBirdnet) {
                 _state.value = _state.value.copy(inferenceError = null, inferenceProgress = 0f)
-                val outcome = inferenceReanalysis.run(path, lat, lon, recordedAt) { p ->
-                    _state.value = _state.value.copy(inferenceProgress = p.coerceIn(0f, 1f))
-                }
-                when (outcome) {
-                    is InferenceOutcome.Success -> {
-                        repo.mergeAndPersist(
-                            draftId = draftId,
-                            newModelId = outcome.modelId,
-                            newModelVersion = outcome.modelVersion,
-                            freshDetections = outcome.detections,
-                            promoteToReviewed = true,
-                        )
-                        _windowPreds.value = outcome.windows
-                        _state.value = _state.value.copy(inferenceProgress = null)
+                try {
+                    val outcome = inferenceReanalysis.run(path, lat, lon, recordedAt) { p ->
+                        _state.value = _state.value.copy(inferenceProgress = p.coerceIn(0f, 1f))
                     }
-                    is InferenceOutcome.Failure -> {
-                        _state.value = _state.value.copy(
-                            inferenceProgress = null,
-                            inferenceError = outcome.message,
-                        )
+                    when (outcome) {
+                        is InferenceOutcome.Success -> {
+                            repo.mergeAndPersist(
+                                draftId = draftId,
+                                newModelId = outcome.modelId,
+                                newModelVersion = outcome.modelVersion,
+                                freshDetections = outcome.detections,
+                                promoteToReviewed = true,
+                            )
+                            _windowPreds.value = outcome.windows
+                        }
+                        is InferenceOutcome.Failure -> {
+                            _state.value = _state.value.copy(inferenceError = outcome.message)
+                        }
                     }
+                } finally {
+                    _state.value = _state.value.copy(inferenceProgress = null)
                 }
             }
             if (runPerch) {

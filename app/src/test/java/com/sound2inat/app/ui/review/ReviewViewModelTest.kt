@@ -685,6 +685,8 @@ class ReviewViewModelTest {
             )
             vm.reanalyze(runBirdnet = false, runPerch = true)
             assertThat(perchReanalysisCalls).isEqualTo(1)
+            assertThat(vm.state.value.perchProgress).isNull()
+            assertThat(vm.state.value.perchError).isNull()
         }
 
     @Test
