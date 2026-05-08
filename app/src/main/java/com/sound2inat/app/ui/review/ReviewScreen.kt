@@ -2,6 +2,8 @@ package com.sound2inat.app.ui.review
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -398,7 +400,7 @@ private fun ModelPickerDialog(
     onDismiss: () -> Unit,
 ) {
     var birdnetChecked by remember { mutableStateOf(true) }
-    var perchChecked by remember { mutableStateOf(isPerchInstalled) }
+    var perchChecked by remember(isPerchInstalled) { mutableStateOf(isPerchInstalled) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.dialog_reanalyze_title)) },
@@ -410,21 +412,34 @@ private fun ModelPickerDialog(
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = birdnetChecked,
+                            onValueChange = { birdnetChecked = it },
+                            role = Role.Checkbox,
+                        ),
                 ) {
                     Checkbox(
                         checked = birdnetChecked,
-                        onCheckedChange = { birdnetChecked = it },
+                        onCheckedChange = null,
                     )
                     Text(stringResource(R.string.btn_birdnet))
                 }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = perchChecked,
+                            enabled = isPerchInstalled,
+                            onValueChange = { perchChecked = it },
+                            role = Role.Checkbox,
+                        ),
                 ) {
                     Checkbox(
                         checked = perchChecked,
-                        onCheckedChange = { perchChecked = it },
+                        onCheckedChange = null,
                         enabled = isPerchInstalled,
                     )
                     Text(stringResource(R.string.btn_perch))
