@@ -54,12 +54,12 @@ import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -105,7 +105,7 @@ fun ReviewScreen(
     onBack: () -> Unit,
 ) {
     val pagerVm: ReviewPagerViewModel = hiltViewModel()
-    val draftIds by pagerVm.orderedDraftIds.collectAsState()
+    val draftIds by pagerVm.orderedDraftIds.collectAsStateWithLifecycle()
 
     if (draftIds.isEmpty()) {
         // Either the list flow has not emitted yet or every draft has been
@@ -152,11 +152,11 @@ private fun ReviewPage(
     filesDir: java.io.File,
     onBack: () -> Unit,
 ) {
-    val state by vm.state.collectAsState()
-    val spectrogramFile by vm.spectrogramFile.collectAsState()
-    val waveformPeaks by vm.waveformPeaks.collectAsState()
-    val windowPreds by vm.windowPreds.collectAsState()
-    val highlight by vm.highlight.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
+    val spectrogramFile by vm.spectrogramFile.collectAsStateWithLifecycle()
+    val waveformPeaks by vm.waveformPeaks.collectAsStateWithLifecycle()
+    val windowPreds by vm.windowPreds.collectAsStateWithLifecycle()
+    val highlight by vm.highlight.collectAsStateWithLifecycle()
 
     LaunchedEffect(state.audioPath) {
         if (state.audioPath != null) vm.ensureVisuals(filesDir)

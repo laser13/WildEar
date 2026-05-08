@@ -22,8 +22,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -41,7 +41,7 @@ private const val MAP_HEIGHT_DP = 280
 @Composable
 fun RadarScreen(onOpenSettings: () -> Unit) {
     val vm: RadarViewModelHilt = hiltViewModel()
-    val state by vm.delegate.state.collectAsState()
+    val state by vm.delegate.state.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
     val perms = LocalPermissionsController.current
 

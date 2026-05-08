@@ -33,8 +33,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -51,7 +51,7 @@ import com.sound2inat.modelmanager.ModelInstallState
 fun SettingsScreen(onBack: () -> Unit) {
     val hilt: SettingsViewModelHilt = hiltViewModel()
     val vm = hilt.delegate
-    val state by vm.state.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {

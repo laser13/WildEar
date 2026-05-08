@@ -46,11 +46,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -81,12 +81,12 @@ fun HomeScreen(
     onSettings: () -> Unit,
 ) {
     val vm: HomeViewModelHilt = hiltViewModel()
-    val state by vm.delegate.state.collectAsState()
-    val filterMode by vm.filterMode.collectAsState()
-    val enrichedDrafts by vm.enrichedDrafts.collectAsState()
-    val filteredDrafts by vm.filteredDrafts.collectAsState()
-    val selectedIds by vm.selectedIds.collectAsState()
-    val allowDeleteUploaded by vm.allowDeleteUploaded.collectAsState()
+    val state by vm.delegate.state.collectAsStateWithLifecycle()
+    val filterMode by vm.filterMode.collectAsStateWithLifecycle()
+    val enrichedDrafts by vm.enrichedDrafts.collectAsStateWithLifecycle()
+    val filteredDrafts by vm.filteredDrafts.collectAsStateWithLifecycle()
+    val selectedIds by vm.selectedIds.collectAsStateWithLifecycle()
+    val allowDeleteUploaded by vm.allowDeleteUploaded.collectAsStateWithLifecycle()
     val selectionMode = filterMode == FilterMode.NOTHING_DETECTED
     var bulkDeletePreview by remember { mutableStateOf<BulkDeletePreview?>(null) }
     var longPressedDraft by remember { mutableStateOf<DraftSummary?>(null) }
@@ -274,16 +274,16 @@ private fun RecordingCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
 ) {
-    val topLabel by remember(summary.id) { vm.observeTopLabel(summary.id) }.collectAsState(initial = null)
+    val topLabel by remember(summary.id) { vm.observeTopLabel(summary.id) }.collectAsStateWithLifecycle(initialValue = null)
     val topSpecies by remember(summary.id) {
         vm.observeTopSpecies(summary.id)
-    }.collectAsState(initial = emptyList())
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
     val detectionCount by remember(summary.id) {
         vm.observeDetectionCount(summary.id)
-    }.collectAsState(initial = 0)
+    }.collectAsStateWithLifecycle(initialValue = 0)
     val inatCount by remember(summary.id) {
         vm.observeInatObservationCount(summary.id)
-    }.collectAsState(initial = 0)
+    }.collectAsStateWithLifecycle(initialValue = 0)
 
     val analysedButEmpty = topSpecies.isEmpty() &&
         (
@@ -369,7 +369,7 @@ private fun RecordingThumbnail(
     if (firstSpecies != null) {
         val observedUrl by remember(firstSpecies.scientificName) {
             vm.observeTaxonPhoto(firstSpecies.scientificName)
-        }.collectAsState()
+        }.collectAsStateWithLifecycle(initialValue = null)
         photoUrl = observedUrl
     }
     Box(
