@@ -59,6 +59,7 @@ class Settings(private val ctx: Context) {
         ctx.dataStore.data.map { it[K.ALLOW_DELETE_UPLOADED] ?: false }
     val audioSourceRaw: Flow<Boolean> =
         ctx.dataStore.data.map { it[K.AUDIO_SOURCE_RAW] ?: true }
+    /** Consumed by PostRecordingProcessor — applied after recording stops. */
     val normalizeAudio: Flow<Boolean> =
         ctx.dataStore.data.map { it[K.NORMALIZE_AUDIO] ?: true }
     val themeMode: Flow<ThemeMode> = ctx.dataStore.data.map {

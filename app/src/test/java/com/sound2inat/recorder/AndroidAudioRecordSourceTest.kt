@@ -83,4 +83,28 @@ class AndroidAudioRecordSourceTest {
         assertNotNull(result)
         assert(result === unprocessedRecord) { "Expected UNPROCESSED AudioRecord to be returned" }
     }
+
+    @Test
+    fun `uses only MIC when useRaw is false`() {
+        val micRecord = mockk<AudioRecord>(relaxed = true) {
+            every { state } returns AudioRecord.STATE_INITIALIZED
+        }
+        val calledSources = mutableListOf<Int>()
+
+        AndroidAudioRecordSource.audioRecordFactory = { source, _, _ ->
+            calledSources += source
+            when (source) {
+                MediaRecorder.AudioSource.MIC -> micRecord
+                else -> throw AssertionError("UNPROCESSED must not be requested when useRaw=false")
+            }
+        }
+
+        val result = AndroidAudioRecordSource.buildAudioRecord(48_000, 8192, useRaw = false)
+
+        assertNotNull(result)
+        assert(result === micRecord) { "Expected MIC-based AudioRecord when useRaw=false" }
+        assert(calledSources == listOf(MediaRecorder.AudioSource.MIC)) {
+            "Factory should be called exactly once with MIC; got: $calledSources"
+        }
+    }
 }

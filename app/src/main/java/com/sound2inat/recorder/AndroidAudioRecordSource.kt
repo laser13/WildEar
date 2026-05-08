@@ -20,6 +20,7 @@ class AndroidAudioRecordSource(
     private var record: AudioRecord? = null
     private var stopped = false
 
+    @SuppressLint("MissingPermission")
     override suspend fun start() {
         record = buildAudioRecord(sampleRate, bufBytes, preferRaw())
         record!!.startRecording()
