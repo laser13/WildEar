@@ -19,7 +19,11 @@ import java.util.Calendar
  */
 interface InferenceUseCase {
     val inference: InferenceJob
+    /** YAMNet gate always disabled — use for user-triggered re-analysis. */
+    val inferenceReanalysis: InferenceJob
     val perchAnalysis: PerchAnalysisJob
+    /** YAMNet gate always disabled — use for user-triggered re-analysis. */
+    val perchReanalysis: PerchAnalysisJob
 }
 
 /**
@@ -45,11 +49,27 @@ class DefaultInferenceUseCase(
         birdNetMeta = birdNetMeta,
     )
 
+    override val inferenceReanalysis: InferenceJob = ProductionInferenceJob(
+        models = models,
+        descriptors = descriptors,
+        modelManager = modelManager,
+        settings = settings,
+        yamNetGate = null,
+        birdNetMeta = birdNetMeta,
+    )
+
     override val perchAnalysis: PerchAnalysisJob = ProductionPerchAnalysisJob(
         models = models,
         modelManager = modelManager,
         settings = settings,
         yamNetGate = yamNetGate,
+    )
+
+    override val perchReanalysis: PerchAnalysisJob = ProductionPerchAnalysisJob(
+        models = models,
+        modelManager = modelManager,
+        settings = settings,
+        yamNetGate = null,
     )
 }
 

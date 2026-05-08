@@ -120,6 +120,8 @@ class ReviewViewModel(
     private val perchAnalysis: PerchAnalysisJob = PerchAnalysisJob { _, _, _, _, _ ->
         PerchAnalysisOutcome.NotInstalled
     },
+    private val inferenceReanalysis: InferenceJob = inference,
+    private val perchReanalysis: PerchAnalysisJob = perchAnalysis,
     /**
      * Returns true if the Perch model is installed (Ready) right now. Queried
      * once on init and after every successful Perch run; the UI gates the
@@ -506,6 +508,87 @@ class ReviewViewModel(
             inferenceProgress = 0f,
         )
         startInference(path = path, lat = lat, lon = lon, recordedAt = recordedAt)
+    }
+
+    /**
+     * User-triggered re-analysis. Skips the YAMNet gate (the gate adds overhead
+     * without skipping model inference — see InferenceRunner). Runs the selected
+     * models sequentially: BirdNET first (if [runBirdnet]), then Perch (if [runPerch]).
+     * No-op when either progress field is already active.
+     */
+    fun reanalyze(runBirdnet: Boolean, runPerch: Boolean) {
+        if (!runBirdnet && !runPerch) return
+        if (_state.value.inferenceProgress != null || _state.value.perchProgress != null) return
+        val path = _state.value.audioPath ?: return
+        val lat = _state.value.latitude
+        val lon = _state.value.longitude
+        val recordedAt = _state.value.recordedAtUtcMs
+        inferenceJob?.cancel()
+        perchJob?.cancel()
+        inferenceStarted = true
+        _windowPreds.value = emptyList()
+        inferenceJob = scope.launch {
+            if (runBirdnet) {
+                _state.value = _state.value.copy(inferenceError = null, inferenceProgress = 0f)
+                val outcome = inferenceReanalysis.run(path, lat, lon, recordedAt) { p ->
+                    _state.value = _state.value.copy(inferenceProgress = p.coerceIn(0f, 1f))
+                }
+                when (outcome) {
+                    is InferenceOutcome.Success -> {
+                        repo.mergeAndPersist(
+                            draftId = draftId,
+                            newModelId = outcome.modelId,
+                            newModelVersion = outcome.modelVersion,
+                            freshDetections = outcome.detections,
+                            promoteToReviewed = true,
+                        )
+                        _windowPreds.value = outcome.windows
+                        _state.value = _state.value.copy(inferenceProgress = null)
+                    }
+                    is InferenceOutcome.Failure -> {
+                        _state.value = _state.value.copy(
+                            inferenceProgress = null,
+                            inferenceError = outcome.message,
+                        )
+                    }
+                }
+            }
+            if (runPerch) {
+                _state.value = _state.value.copy(perchProgress = 0f, perchError = null)
+                try {
+                    val outcome = perchReanalysis.run(path, lat, lon, recordedAt) { p ->
+                        _state.value = _state.value.copy(perchProgress = p.coerceIn(0f, 1f))
+                    }
+                    when (outcome) {
+                        is PerchAnalysisOutcome.Success -> {
+                            repo.mergeAndPersist(
+                                draftId = draftId,
+                                newModelId = ModelIds.PERCH,
+                                newModelVersion = "perch",
+                                freshDetections = outcome.detections,
+                            )
+                        }
+                        is PerchAnalysisOutcome.Failure -> {
+                            _state.value = _state.value.copy(perchError = outcome.message)
+                        }
+                        PerchAnalysisOutcome.NotInstalled -> {
+                            _state.value = _state.value.copy(
+                                perchError = "Perch model is not installed",
+                            )
+                        }
+                    }
+                } catch (t: Throwable) {
+                    _state.value = _state.value.copy(
+                        perchError = t.message ?: t::class.simpleName.orEmpty(),
+                    )
+                } finally {
+                    _state.value = _state.value.copy(perchProgress = null)
+                    perchInstalled = runCatching { perchInstalledProbe() }.getOrDefault(perchInstalled)
+                    recomputePerchEligibility()
+                }
+            }
+            launchAnnotationIfIdle()
+        }
     }
 
     /**
@@ -919,6 +1002,8 @@ class ReviewViewModelFactory @Inject constructor(
             .map { rows -> rows.map { InatObsEntry(it.taxonScientificName, it.observationId, it.observationUrl) } },
         photoFetcher = { name -> inatClient.fetchTaxonPhotoUrl(name) },
         perchAnalysis = inferenceUseCase.perchAnalysis,
+        inferenceReanalysis = inferenceUseCase.inferenceReanalysis,
+        perchReanalysis = inferenceUseCase.perchReanalysis,
         perchInstalledProbe = {
             modelManager.stateFor(com.sound2inat.modelmanager.PerchV2.descriptor) is
             ModelInstallState.Ready

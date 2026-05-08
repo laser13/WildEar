@@ -630,6 +630,94 @@ class ReviewViewModelTest {
             assertThat(lookup.checkCalls).isEqualTo(1)
         }
 
+    @Test
+    fun `reanalyze BirdNET-only calls inferenceReanalysis not inference`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "reanalyze_birdnet"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            var gatedCalls = 0
+            var noGateCalls = 0
+            val inference = InferenceJob { _, _, _, _, _ ->
+                gatedCalls++
+                InferenceOutcome.Success("birdnet_v2_4", "2.4", emptyList())
+            }
+            val inferenceReanalysis = InferenceJob { _, _, _, _, _ ->
+                noGateCalls++
+                InferenceOutcome.Success("birdnet_v2_4", "2.4", emptyList())
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo(draftDao, FakeDetectionDao()),
+                player = FakeAudioPlayer(),
+                inference = inference,
+                inferenceReanalysis = inferenceReanalysis,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            vm.reanalyze(runBirdnet = true, runPerch = false)
+            assertThat(noGateCalls).isEqualTo(1)
+            assertThat(gatedCalls).isEqualTo(0)
+        }
+
+    @Test
+    fun `reanalyze Perch-only calls perchReanalysis`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "reanalyze_perch"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            var perchReanalysisCalls = 0
+            val perchReanalysis = PerchAnalysisJob { _, _, _, _, _ ->
+                perchReanalysisCalls++
+                PerchAnalysisOutcome.Success(emptyList())
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo(draftDao, FakeDetectionDao()),
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                perchReanalysis = perchReanalysis,
+                perchInstalledProbe = { true },
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            vm.reanalyze(runBirdnet = false, runPerch = true)
+            assertThat(perchReanalysisCalls).isEqualTo(1)
+        }
+
+    @Test
+    fun `reanalyze both runs BirdNET then Perch in order`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "reanalyze_both"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val order = mutableListOf<String>()
+            val inferenceReanalysis = InferenceJob { _, _, _, _, _ ->
+                order += "birdnet"
+                InferenceOutcome.Success("birdnet_v2_4", "2.4", emptyList())
+            }
+            val perchReanalysis = PerchAnalysisJob { _, _, _, _, _ ->
+                order += "perch"
+                PerchAnalysisOutcome.Success(emptyList())
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo(draftDao, FakeDetectionDao()),
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                inferenceReanalysis = inferenceReanalysis,
+                perchReanalysis = perchReanalysis,
+                perchInstalledProbe = { true },
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            vm.reanalyze(runBirdnet = true, runPerch = true)
+            assertThat(order).containsExactly("birdnet", "perch").inOrder()
+        }
+
     private fun draftFor(id: String, status: DraftStatus): DraftEntity = DraftEntity(
         id = id,
         audioPath = "/tmp/$id.wav",
