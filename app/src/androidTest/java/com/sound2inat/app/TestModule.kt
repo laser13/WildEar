@@ -1,8 +1,11 @@
 package com.sound2inat.app
 
 import com.sound2inat.app.di.SwappableModule
+import com.sound2inat.app.data.Settings
 import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.BirdNetMetaModel
+import com.sound2inat.inference.DefaultInferenceUseCase
+import com.sound2inat.inference.InferenceUseCase
 import com.sound2inat.inference.LiveInferenceEngineFactory
 import com.sound2inat.inference.WindowPrediction
 import com.sound2inat.inference.YamNetGate
@@ -77,6 +80,34 @@ object TestSwappableModule {
      */
     @Provides
     fun provideLiveInferenceEngineFactory(): LiveInferenceEngineFactory? = null
+
+    /**
+     * Deliberately wires the full [DefaultInferenceUseCase] production pipeline rather than
+     * a canned-outcome stub. The swap point exists so instrumented tests exercise the real
+     * priors-application + aggregation + region-filter logic with deterministic inputs:
+     * [FakeBioacousticModel] returns fixed predictions, [FakeModelManager] always reports
+     * Ready, and YAMNet/BirdNET-Meta are both null so the pipeline is gate-free.
+     *
+     * This is an intentional integration-test choice — do not replace with a lambda stub
+     * unless no test in this suite depends on aggregation or confidence filtering behaviour.
+     */
+    @Provides @Singleton
+    @Suppress("LongParameterList")
+    fun provideInferenceUseCase(
+        bioModels: List<@JvmSuppressWildcards BioacousticModel>,
+        descriptors: List<@JvmSuppressWildcards ModelDescriptor>,
+        modelManager: ModelManager,
+        settings: Settings,
+        yamNetGate: YamNetGate?,
+        birdNetMeta: BirdNetMetaModel?,
+    ): InferenceUseCase = DefaultInferenceUseCase(
+        models = bioModels,
+        descriptors = descriptors,
+        modelManager = modelManager,
+        settings = settings,
+        yamNetGate = yamNetGate,
+        birdNetMeta = birdNetMeta,
+    )
 }
 
 /**

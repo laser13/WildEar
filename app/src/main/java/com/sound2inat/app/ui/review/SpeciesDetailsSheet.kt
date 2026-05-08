@@ -1,5 +1,6 @@
 package com.sound2inat.app.ui.review
 
+import com.sound2inat.inference.ModelIds
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -85,8 +86,8 @@ internal fun SpeciesDetailsSheet(
                 Spacer(Modifier.height(6.dp))
             }
 
-            val birdnetConf = row.confidenceBySource["birdnet_v2_4"]
-            val perchConf = row.confidenceBySource["perch_v2"]
+            val birdnetConf = row.confidenceBySource[ModelIds.BIRDNET]
+            val perchConf = row.confidenceBySource[ModelIds.PERCH]
 
             if (birdnetConf != null) {
                 item {

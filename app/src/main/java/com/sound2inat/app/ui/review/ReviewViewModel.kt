@@ -10,19 +10,19 @@ import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.ObservationDetail
 import com.sound2inat.inat.RegionFilter
+import com.sound2inat.inat.RegionalStatusRepository
 import com.sound2inat.inference.AggregatedDetection
-import com.sound2inat.inference.BioacousticModel
-import com.sound2inat.inference.BirdNetMetaModel
-import com.sound2inat.inference.DetectionAggregator
 import com.sound2inat.inference.FragmentRanges
-import com.sound2inat.inference.InferenceRunner
+import com.sound2inat.inference.InferenceJob
+import com.sound2inat.inference.InferenceOutcome
+import com.sound2inat.inference.InferenceUseCase
+import com.sound2inat.inference.ModelIds
+import com.sound2inat.inference.PerchAnalysisJob
+import com.sound2inat.inference.PerchAnalysisOutcome
 import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.inference.SourceStats
-import com.sound2inat.inference.SpectralSubtractor
 import com.sound2inat.inference.WavReader
 import com.sound2inat.inference.WindowPrediction
-import com.sound2inat.inference.YamNetGate
-import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
 import com.sound2inat.storage.DraftRepository
@@ -34,7 +34,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -44,34 +43,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.Calendar
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
-
-/**
- * Result of a single inference invocation. Either [Success] with the
- * aggregated species list, or [Failure] with a user-facing message.
- */
-sealed interface InferenceOutcome {
-    data class Success(
-        val modelId: String,
-        val modelVersion: String,
-        val detections: List<AggregatedDetection>,
-        /**
-         * Raw per-window predictions retained for overlay rendering on the
-         * Review screen. Not persisted — overlays disappear if the user closes
-         * and reopens the screen until inference reruns. (See Task 15.)
-         */
-        val windows: List<WindowPrediction> = emptyList(),
-    ) : InferenceOutcome
-
-    data class Failure(val message: String) : InferenceOutcome
-}
 
 /**
  * Builds (or loads cached) waveform and spectrogram artifacts for a draft.
@@ -111,63 +86,12 @@ data class Visuals(
 }
 
 /**
- * Runs inference for a single draft. Implementations are responsible for:
- * - resolving the on-disk model & labels,
- * - loading the model,
- * - slicing the WAV and reporting progress via [onProgress] in `[0,1]`,
- * - aggregating predictions into a species list.
- *
- * Decoupled from [BioacousticModel] / [InferenceRunner] so the VM is testable
- * without TFLite or a real WAV.
- */
-fun interface InferenceJob {
-    suspend fun run(
-        audioPath: String,
-        latitude: Double?,
-        longitude: Double?,
-        observedAtMillis: Long,
-        onProgress: (Float) -> Unit,
-    ): InferenceOutcome
-}
-
-/**
  * Submission seam abstracted from the production [INatSubmitter] so the VM
  * is unit-testable without going near OkHttp. Test fakes return canned
  * outcomes; the production wiring forwards to [INatSubmitter.submit].
  */
 fun interface InatSubmissionJob {
     suspend fun submit(token: String, draftId: String): InatSubmissionOutcome
-}
-
-/**
- * Outcome of an on-demand Perch analysis pass over a saved WAV. The VM merges
- * [Success.detections] with the existing per-draft detections and persists the
- * union — Perch never *replaces* prior BirdNET output.
- */
-sealed interface PerchAnalysisOutcome {
-    /** Aggregated Perch detections, ready to be merged. */
-    data class Success(val detections: List<AggregatedDetection>) : PerchAnalysisOutcome
-
-    /** Perch model artifact is not installed (state != Ready) — UI shouldn't have offered the button. */
-    data object NotInstalled : PerchAnalysisOutcome
-
-    data class Failure(val message: String) : PerchAnalysisOutcome
-}
-
-/**
- * Seam abstracting the on-demand Perch pipeline from the VM so unit tests can
- * inject canned outcomes without loading a 407 MB TFLite. Production wiring
- * loads [com.sound2inat.inference.PerchTfliteModel] and runs
- * [com.sound2inat.inference.InferenceRunner] against the WAV at [audioPath].
- */
-fun interface PerchAnalysisJob {
-    suspend fun run(
-        audioPath: String,
-        latitude: Double?,
-        longitude: Double?,
-        observedAtMillis: Long,
-        onProgress: (Float) -> Unit,
-    ): PerchAnalysisOutcome
 }
 
 sealed interface InatSubmissionOutcome {
@@ -216,14 +140,16 @@ class ReviewViewModel(
         throw com.sound2inat.inat.INatException(-1, "No observation fetcher configured")
     },
     /**
-     * Shared across all [ReviewViewModel] instances created by the same
-     * [ReviewViewModelFactory]. Pre-populated entries skip the annotation
-     * round-trip so the Review screen opens without the green→red flicker.
-     * Defaults to an empty private map so unit tests remain self-contained.
+     * Repository for regional-status results, shared across all [ReviewViewModel]
+     * instances. Keyed by (taxonName, lat-lon-bucket) so results from different
+     * recording locations do not collide. Null in unit tests that don't need it.
      */
-    private val regionalStatusCache: MutableMap<String, RegionalStatus?> = mutableMapOf(),
+    private val regionalStatusRepository: RegionalStatusRepository? = null,
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
+
+    /** Statuses fetched during this VM's lifetime; used to pre-populate rows on DB re-emission. */
+    private val annotatedStatuses: MutableMap<String, RegionalStatus?> = mutableMapOf()
 
     private val ownsScope: Boolean = externalScope == null
     private val scope: CoroutineScope = externalScope ?: viewModelScope
@@ -276,13 +202,6 @@ class ReviewViewModel(
     /** Last result of [perchInstalledProbe]; folded into [ReviewUiState.canAnalyzeWithPerch]. */
     private var perchInstalled: Boolean = false
     private var perchJob: Job? = null
-
-    /**
-     * Serialises [mergeAndPersist] across BirdNET and Perch jobs. Without this,
-     * a quick second analysis trigger can race the in-flight read-merge-write
-     * cycle and clobber the other job's results.
-     */
-    private val persistMutex = Mutex()
 
     init {
         scope.launch {
@@ -352,7 +271,7 @@ class ReviewViewModel(
                             isSelected = e.isSelectedByUser,
                             confidenceBySource = SourceStats.decodeConfidenceOnly(e.sources),
                             taxonPhotoUrl = photoUrlCache[e.taxonScientificName],
-                            regionalStatus = regionalStatusCache[e.taxonScientificName],
+                            regionalStatus = annotatedStatuses[e.taxonScientificName],
                             observationDetailState = prevDetailStates[e.id] ?: ObservationDetailLoadState.NotLoaded,
                             fragmentRanges = FragmentRanges.decode(e.fragmentRanges),
                         )
@@ -370,7 +289,7 @@ class ReviewViewModel(
                 val lon = draft.longitude
                 if (lat != null && lon != null) {
                     val newNames = rows.map { it.taxonScientificName }.toSet()
-                    val cachedNames = regionalStatusCache.keys.toSet()
+                    val cachedNames = annotatedStatuses.keys.toSet()
                     // Skip annotation while inference is pending — launchAnnotationIfIdle()
                     // will run it on the final merged data after analysis completes.
                     // Also ignore the transient empty emission from Room's non-atomic
@@ -451,7 +370,8 @@ class ReviewViewModel(
                     // user's checkbox selection alone — auto-promotion runs
                     // in the same IO block as attachDetections so collectors
                     // never see an intermediate PENDING_REVIEW snapshot.
-                    mergeAndPersist(
+                    repo.mergeAndPersist(
+                        draftId = draftId,
                         newModelId = outcome.modelId,
                         newModelVersion = outcome.modelVersion,
                         freshDetections = outcome.detections,
@@ -614,8 +534,9 @@ class ReviewViewModel(
                 }
                 when (outcome) {
                     is PerchAnalysisOutcome.Success -> {
-                        mergeAndPersist(
-                            newModelId = "perch_v2",
+                        repo.mergeAndPersist(
+                            draftId = draftId,
+                            newModelId = ModelIds.PERCH,
                             newModelVersion = "perch",
                             freshDetections = outcome.detections,
                         )
@@ -639,70 +560,6 @@ class ReviewViewModel(
                 _state.value = _state.value.copy(perchProgress = null)
                 perchInstalled = runCatching { perchInstalledProbe() }.getOrDefault(perchInstalled)
                 recomputePerchEligibility()
-            }
-        }
-    }
-
-    /**
-     * Folds [freshDetections] into the draft's current detections (read fresh
-     * from [DraftRepository.observeWithDetections]) and writes the union back
-     * via [DraftRepository.attachDetections]. [newModelId]/[newModelVersion]
-     * are appended to the draft's stored model lineage so the persisted
-     * `modelId` reads as `birdnet_v2_4,perch_v2` after both have run.
-     *
-     * When [promoteToReviewed] is true and the merged set is non-empty the
-     * draft is also marked REVIEWED inside the same IO-dispatched block so
-     * the [DraftRepository.observeWithDetections] flow does not emit an
-     * intermediate `PENDING_REVIEW` snapshot between the two writes.
-     */
-    private suspend fun mergeAndPersist(
-        newModelId: String,
-        newModelVersion: String,
-        freshDetections: List<AggregatedDetection>,
-        promoteToReviewed: Boolean = false,
-    ) = persistMutex.withLock {
-        val dwd = repo.observeWithDetections(draftId).first()
-        val existing = dwd.detections.map { e ->
-            val fullStats = SourceStats.decode(e.sources)
-            AggregatedDetection(
-                taxonScientificName = e.taxonScientificName,
-                taxonCommonName = e.taxonCommonName,
-                maxConfidence = e.maxConfidence,
-                detectedWindows = e.detectedWindows,
-                firstSeenMs = e.firstSeenMs,
-                lastSeenMs = e.lastSeenMs,
-                confidenceBySource  = if (fullStats.isNotEmpty()) fullStats.mapValues { it.value.maxConf }
-                                      else SourceStats.decodeConfidenceOnly(e.sources),
-                windowsBySource     = fullStats.mapValues { it.value.windows },
-                firstSeenBySource   = fullStats.mapValues { it.value.firstSeenMs },
-                lastSeenBySource    = fullStats.mapValues { it.value.lastSeenMs },
-                fragmentRanges = FragmentRanges.decode(e.fragmentRanges),
-                aggregatedConfidence = e.aggregatedConfidence,
-            )
-        }
-        val merged = mergeBySpecies(existing, freshDetections)
-        val priorModelId = dwd.draft.modelId
-        val combinedModelId = when {
-            priorModelId.isNullOrBlank() -> newModelId
-            priorModelId.split(',', '+').contains(newModelId) -> priorModelId
-            else -> "$priorModelId,$newModelId"
-        }
-        val priorVersion = dwd.draft.modelVersion ?: ""
-        val combinedVersion = when {
-            priorVersion.isBlank() -> newModelVersion
-            newModelVersion.isBlank() -> priorVersion
-            priorVersion.contains(newModelVersion) -> priorVersion
-            else -> "$priorVersion+$newModelVersion"
-        }
-        withContext(ioDispatcher) {
-            repo.attachDetections(
-                draftId = draftId,
-                modelId = combinedModelId,
-                modelVersion = combinedVersion.trim('+'),
-                items = merged,
-            )
-            if (promoteToReviewed && merged.isNotEmpty()) {
-                repo.markReviewed(draftId)
             }
         }
     }
@@ -894,8 +751,9 @@ class ReviewViewModel(
      * when [regionFilter] is null. Any previously running annotation job is
      * cancelled so only the latest species list triggers network calls.
      *
-     * Results are stored in [regionalStatusCache] and merged into
-     * [_state].species so the UI updates without waiting for a Room re-emission.
+     * Results are stored in [annotatedStatuses] (and the shared
+     * [regionalStatusRepository]) then merged into [_state].species so the UI
+     * updates without waiting for a Room re-emission.
      */
     private fun launchAnnotation(rows: List<SpeciesRow>, lat: Double, lon: Double) {
         val filter = regionFilter ?: run {
@@ -912,34 +770,58 @@ class ReviewViewModel(
         annotationJob = scope.launch {
             val radiusKm = regionRadiusKmProvider()
             try {
-                val annotated = filter.annotate(
-                    rows.map { r ->
-                        AggregatedDetection(
-                            taxonScientificName = r.taxonScientificName,
-                            taxonCommonName = r.taxonCommonName,
-                            maxConfidence = r.maxConfidence,
-                            detectedWindows = r.detectedWindows,
-                            firstSeenMs = r.firstSeenMs,
-                            lastSeenMs = r.lastSeenMs,
-                        )
-                    },
-                    lat, lon, radiusKm,
-                )
-                annotated.forEach { det ->
-                    regionalStatusCache[det.taxonScientificName] = det.regionalStatus
+                // Pre-flight: populate hits from the shared repo; collect misses for the network call.
+                val missingRows = mutableListOf<SpeciesRow>()
+                if (regionalStatusRepository != null) {
+                    for (row in rows) {
+                        val cached = regionalStatusRepository.getCached(row.taxonScientificName, lat, lon)
+                        if (cached != null) {
+                            annotatedStatuses[row.taxonScientificName] = cached
+                        } else {
+                            missingRows += row
+                        }
+                    }
+                } else {
+                    missingRows += rows
                 }
-                Log.d("ReviewVM", "launchAnnotation: complete, updating state with ${annotated.size} statuses")
+                Log.d(
+                    "ReviewVM",
+                    "launchAnnotation: ${rows.size - missingRows.size} cache hits," +
+                        " ${missingRows.size} misses going to network"
+                )
+                if (missingRows.isNotEmpty()) {
+                    val annotated = filter.annotate(
+                        missingRows.map { r ->
+                            AggregatedDetection(
+                                taxonScientificName = r.taxonScientificName,
+                                taxonCommonName = r.taxonCommonName,
+                                maxConfidence = r.maxConfidence,
+                                detectedWindows = r.detectedWindows,
+                                firstSeenMs = r.firstSeenMs,
+                                lastSeenMs = r.lastSeenMs,
+                            )
+                        },
+                        lat, lon, radiusKm,
+                    )
+                    annotated.forEach { det ->
+                        annotatedStatuses[det.taxonScientificName] = det.regionalStatus
+                        det.regionalStatus?.let { s ->
+                            regionalStatusRepository?.storeResult(det.taxonScientificName, lat, lon, s)
+                        }
+                    }
+                }
+                Log.d("ReviewVM", "launchAnnotation: complete, updating state with ${annotatedStatuses.size} statuses")
                 _state.update { s ->
                     s.copy(
                         species = s.species.map { row ->
-                            row.copy(regionalStatus = regionalStatusCache[row.taxonScientificName])
+                            row.copy(regionalStatus = annotatedStatuses[row.taxonScientificName])
                         },
                     )
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 Log.d(
                     "ReviewVM",
-                    "launchAnnotation: job cancelled after annotating ${regionalStatusCache.size} species"
+                    "launchAnnotation: job cancelled after annotating ${annotatedStatuses.size} species"
                 )
                 throw e
             }
@@ -964,42 +846,24 @@ class ReviewViewModel(
 class ReviewViewModelFactory @Inject constructor(
     @ApplicationContext private val context: Context,
     private val repo: DraftRepository,
-    private val models: List<@JvmSuppressWildcards BioacousticModel>,
-    private val descriptors: List<@JvmSuppressWildcards ModelDescriptor>,
-    private val modelManager: ModelManager,
     private val settings: Settings,
     private val submitter: INatSubmitter,
     private val inatObservationsDao: InatObservationDao,
     private val inatClient: INaturalistClient,
     private val regionFilter: RegionFilter,
-    private val yamNetGate: YamNetGate?,
-    private val birdNetMeta: BirdNetMetaModel?,
+    private val regionalStatusRepository: RegionalStatusRepository,
+    private val inferenceUseCase: InferenceUseCase,
     private val inatAuth: com.sound2inat.inat.INatAuthRepository,
+    private val modelManager: ModelManager,
 ) {
     /** Cache root used by the screen's `ensureVisuals` call. */
     val filesDir: File get() = context.filesDir
-
-    /**
-     * Shared regional-status cache across all [ReviewViewModel] instances.
-     * Because the factory is @Singleton, this map survives for the entire
-     * app session — opening Review for a draft that was already annotated
-     * costs zero network/disk work and shows no green→red flicker.
-     */
-    private val sharedRegionalStatusCache: MutableMap<String, RegionalStatus?> = ConcurrentHashMap()
 
     fun create(draftId: String): ReviewViewModel = ReviewViewModel(
         draftId = draftId,
         repo = repo,
         player = MediaPlayerAudioPlayer(),
-        inference = ProductionInferenceJob(
-            models,
-            descriptors,
-            modelManager,
-            settings,
-            regionFilter,
-            yamNetGate,
-            birdNetMeta,
-        ),
+        inference = inferenceUseCase.inference,
         visuals = ProductionVisualsProvider(),
         submission = InatSubmissionJob { token, id ->
             // Pulling the freshest draft + detections so the submitter sees the
@@ -1014,7 +878,7 @@ class ReviewViewModelFactory @Inject constructor(
         inatObservationsFlow = inatObservationsDao.observeForDraft(draftId)
             .map { rows -> rows.map { InatObsEntry(it.taxonScientificName, it.observationId, it.observationUrl) } },
         photoFetcher = { name -> inatClient.fetchTaxonPhotoUrl(name) },
-        perchAnalysis = ProductionPerchAnalysisJob(models, modelManager, settings, yamNetGate),
+        perchAnalysis = inferenceUseCase.perchAnalysis,
         perchInstalledProbe = {
             modelManager.stateFor(com.sound2inat.modelmanager.PerchV2.descriptor) is
             ModelInstallState.Ready
@@ -1023,7 +887,7 @@ class ReviewViewModelFactory @Inject constructor(
         minWindowsProvider = { settings.minWindows.first() },
         regionRadiusKmProvider = { settings.regionRadiusKm.first() },
         observationFetcher = { id -> inatClient.getObservation(id) },
-        regionalStatusCache = sharedRegionalStatusCache,
+        regionalStatusRepository = regionalStatusRepository,
     )
 }
 
@@ -1052,57 +916,6 @@ class ReviewPagerViewModel @Inject constructor(
     val orderedDraftIds: StateFlow<List<String>> = repo.observeAll()
         .map { drafts -> drafts.map { it.id } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-}
-
-/**
- * Unions two aggregated-detection lists by `taxonScientificName`. For species
- * present in both: max(maxConfidence), sum(detectedWindows), min(firstSeenMs),
- * max(lastSeenMs), per-source max for [AggregatedDetection.confidenceBySource];
- * common name preferred from the side that has one. Result is sorted by
- * maxConfidence descending so the UI ordering matches a fresh aggregator pass.
- */
-internal fun mergeBySpecies(
-    existing: List<AggregatedDetection>,
-    incoming: List<AggregatedDetection>,
-): List<AggregatedDetection> {
-    val byName = LinkedHashMap<String, AggregatedDetection>()
-    for (d in existing) byName[d.taxonScientificName] = d
-    for (d in incoming) {
-        val prior = byName[d.taxonScientificName]
-        if (prior == null) {
-            byName[d.taxonScientificName] = d
-            continue
-        }
-        val allSourceKeys = prior.confidenceBySource.keys + d.confidenceBySource.keys
-        val mergedSources = allSourceKeys.associateWith { key ->
-            maxOf(prior.confidenceBySource[key] ?: 0f, d.confidenceBySource[key] ?: 0f)
-        }
-        val mergedWindows = (prior.windowsBySource.keys + d.windowsBySource.keys)
-            .associateWith { key ->
-                (prior.windowsBySource[key] ?: 0) + (d.windowsBySource[key] ?: 0)
-            }
-        val mergedFirstSeen = (prior.firstSeenBySource.keys + d.firstSeenBySource.keys)
-            .associateWith { key ->
-                minOf(prior.firstSeenBySource[key] ?: Long.MAX_VALUE, d.firstSeenBySource[key] ?: Long.MAX_VALUE)
-            }
-        val mergedLastSeen = (prior.lastSeenBySource.keys + d.lastSeenBySource.keys)
-            .associateWith { key ->
-                maxOf(prior.lastSeenBySource[key] ?: 0L, d.lastSeenBySource[key] ?: 0L)
-            }
-        byName[d.taxonScientificName] = AggregatedDetection(
-            taxonScientificName = d.taxonScientificName,
-            taxonCommonName = prior.taxonCommonName ?: d.taxonCommonName,
-            maxConfidence = maxOf(prior.maxConfidence, d.maxConfidence),
-            detectedWindows = prior.detectedWindows + d.detectedWindows,
-            firstSeenMs = minOf(prior.firstSeenMs, d.firstSeenMs),
-            lastSeenMs = maxOf(prior.lastSeenMs, d.lastSeenMs),
-            confidenceBySource  = mergedSources,
-            windowsBySource     = mergedWindows,
-            firstSeenBySource   = mergedFirstSeen,
-            lastSeenBySource    = mergedLastSeen,
-        )
-    }
-    return byName.values.sortedByDescending { it.maxConfidence }
 }
 
 /** Default sink used in tests; never builds anything. */
@@ -1139,259 +952,5 @@ internal class ProductionVisualsProvider(
         }
         val peaks = WaveformBitmap.peaks(floats)
         return Visuals(spectrogramFile = pngFile, waveformPeaks = peaks)
-    }
-}
-
-/**
- * Wires the production stack: pairs each [BioacousticModel] with its
- * [ModelDescriptor] by `modelId`, runs every installed (Ready) model
- * sequentially over the same WAV, and concatenates per-window predictions
- * before [DetectionAggregator] groups them per taxon.
- *
- * Sequential — not parallel — because TFLite interpreters are not
- * thread-safe for concurrent inference and Perch v2 alone already pegs
- * memory on a phone. Progress is reported as a smoothed fraction across
- * the full multi-model run.
- *
- * If no model is installed, returns [InferenceOutcome.Failure]. If only
- * one is installed, the run is identical to the legacy single-model path,
- * with `confidenceBySource` reflecting just that one source.
- */
-private class ProductionInferenceJob(
-    private val models: List<BioacousticModel>,
-    private val descriptors: List<ModelDescriptor>,
-    private val modelManager: ModelManager,
-    private val settings: Settings,
-    private val regionFilter: RegionFilter,
-    private val yamNetGate: YamNetGate?,
-    private val birdNetMeta: BirdNetMetaModel?,
-) : InferenceJob {
-
-    @Suppress("TooGenericExceptionCaught", "LongMethod", "NestedBlockDepth")
-    override suspend fun run(
-        audioPath: String,
-        latitude: Double?,
-        longitude: Double?,
-        observedAtMillis: Long,
-        onProgress: (Float) -> Unit,
-    ): InferenceOutcome = withContext(Dispatchers.IO) {
-        val descriptorsById = descriptors.associateBy { it.id }
-        val ready = models.mapNotNull { m ->
-            val d = descriptorsById[m.modelId] ?: return@mapNotNull null
-            val state = modelManager.stateFor(d) as? ModelInstallState.Ready
-                ?: return@mapNotNull null
-            Triple(m, d, state)
-        }
-        if (ready.isEmpty()) {
-            android.util.Log.w(TAG, "No model installed; skipping inference")
-            return@withContext InferenceOutcome.Failure("No model installed")
-        }
-        val minConf = settings.minConfidenceDisplay.first()
-        val minWin = settings.minWindows.first()
-        val spectralEnabled = settings.spectralSubtractionEnabled.first()
-        val yamNetEnabled = settings.yamNetGateEnabled.first()
-        val activeGate = if (yamNetEnabled) yamNetGate else null
-        val aggregator = DetectionAggregator(minConfidence = minConf, minWindows = minWin)
-        // Compute BirdNET location/time priors once per run; null when the meta
-        // model isn't installed, the user disabled it in Settings, or coords
-        // aren't known. Applied later only to BirdNET window predictions —
-        // Perch has its own label space.
-        val birdNetMetaEnabled = settings.birdNetMetaEnabled.first()
-        val birdNetPriors = if (birdNetMetaEnabled) {
-            computeBirdNetPriors(latitude, longitude, observedAtMillis)
-        } else {
-            null
-        }
-        val allPreds = ArrayList<WindowPrediction>()
-        val succeeded = ArrayList<BioacousticModel>()
-        val perModelErrors = ArrayList<String>()
-        val total = ready.size
-        // Per-model try/catch so a broken model (e.g. wrong output shape)
-        // doesn't kill the entire run — the other models still produce
-        // detections. The user sees a partial-success banner with the
-        // failing model's error message.
-        for ((idx, triple) in ready.withIndex()) {
-            val (model, _, state) = triple
-            try {
-                android.util.Log.i(
-                    TAG,
-                    "Running ${model.modelId} v${model.modelVersion} " +
-                        "(${idx + 1}/$total) on $audioPath",
-                )
-                model.load(state.modelFile, state.labelsFile)
-                // Fresh SpectralSubtractor per model — its EMA noise profile is sized to
-                // the FFT of this model's window length and must not leak between models.
-                val subtractor = if (spectralEnabled) SpectralSubtractor() else null
-                val runner = InferenceRunner(
-                    model,
-                    spectralSubtractor = subtractor,
-                    yamNetGate = activeGate,
-                )
-                val perModel = coroutineScope {
-                    val collector = launch {
-                        runner.progress.collect { p ->
-                            onProgress((idx + p) / total)
-                        }
-                    }
-                    val result = runner.run(File(audioPath), latitude, longitude, observedAtMillis)
-                    collector.cancel()
-                    result
-                }
-                val rescaled = if (model.modelId == BIRDNET_MODEL_ID && birdNetPriors != null) {
-                    applyBirdNetPriors(perModel, birdNetPriors)
-                } else {
-                    perModel
-                }
-                allPreds += rescaled
-                succeeded += model
-                android.util.Log.i(
-                    TAG,
-                    "${model.modelId} produced ${perModel.size} window predictions" +
-                        if (rescaled.size != perModel.size) {
-                            " (${perModel.size - rescaled.size} suppressed by regional priors)"
-                        } else {
-                            ""
-                        },
-                )
-            } catch (t: Throwable) {
-                android.util.Log.e(TAG, "Inference failed for ${model.modelId}", t)
-                perModelErrors += "${model.modelId}: ${t.message ?: t::class.simpleName.orEmpty()}"
-            } finally {
-                runCatching { model.close() }
-                    .onFailure { android.util.Log.w(TAG, "model.close() threw", it) }
-            }
-        }
-        onProgress(1f)
-        if (succeeded.isEmpty()) {
-            android.util.Log.e(TAG, "All ${ready.size} model(s) failed: $perModelErrors")
-            return@withContext InferenceOutcome.Failure(
-                perModelErrors.joinToString(separator = "; ").ifEmpty { "Inference failed" },
-            )
-        }
-        val ids = succeeded.joinToString(separator = "+") { it.modelId }
-        val versions = succeeded.joinToString(separator = "+") { it.modelVersion }
-        val rawDetections = aggregator.aggregate(allPreds)
-        // Below-threshold "candidates" used to be surfaced separately as a
-        // grayed-out list, but the 1% absolute floor produced too much noise
-        // (BirdNET v2.4 GLOBAL spreads tiny scores across hundreds of similar
-        // species). Honoring the user-set threshold strictly is cleaner.
-
-        if (latitude != null && longitude != null) {
-            settings.setLastKnownCoords(latitude, longitude)
-        }
-
-        InferenceOutcome.Success(
-            modelId = ids,
-            modelVersion = versions,
-            detections = rawDetections,
-            windows = allPreds,
-        )
-    }
-
-    /**
-     * Runs the BirdNET location/time meta-model once for this recording and
-     * returns the per-species multiplier map, or null when we have no priors
-     * to apply (model not installed, coords unknown, or any internal failure).
-     * Coords fall back to [Settings.lastKnownLat]/[lastKnownLon] when the
-     * recording itself has no GPS fix attached.
-     */
-    private suspend fun computeBirdNetPriors(
-        latitude: Double?,
-        longitude: Double?,
-        recordedAtMillis: Long,
-    ): Map<String, Float>? {
-        val meta = birdNetMeta ?: return null
-        val effectiveLat = latitude ?: settings.lastKnownLat.first() ?: return null
-        val effectiveLon = longitude ?: settings.lastKnownLon.first() ?: return null
-        val cal = Calendar.getInstance()
-        cal.timeInMillis = if (recordedAtMillis > 0L) recordedAtMillis else System.currentTimeMillis()
-        val week = BirdNetMetaModel.weekOfYearFromDayOfYear(cal.get(Calendar.DAY_OF_YEAR))
-        return meta.priorsByScientificName(effectiveLat, effectiveLon, week)
-    }
-
-    /**
-     * Folds [priors] into [preds]: species absent from the map (multiplier 0)
-     * are dropped entirely so they never reach the aggregator; species with a
-     * non-unit multiplier have their confidence scaled accordingly. Pass-through
-     * for species with multiplier 1.0 to avoid allocating new objects.
-     */
-    private fun applyBirdNetPriors(
-        preds: List<WindowPrediction>,
-        priors: Map<String, Float>,
-    ): List<WindowPrediction> = preds.mapNotNull { wp ->
-        val mult = priors[wp.taxonScientificName] ?: 0f
-        when {
-            mult <= 0f -> null
-            mult >= 1f -> wp
-            else -> wp.copy(confidence = wp.confidence * mult)
-        }
-    }
-
-    private companion object {
-        const val TAG = "ProductionInferenceJob"
-        const val BIRDNET_MODEL_ID = "birdnet_v2_4"
-    }
-}
-
-/**
- * Production [PerchAnalysisJob]. Resolves the Perch [BioacousticModel] from the
- * injected list, ensures the artifact is installed, and runs
- * [InferenceRunner] over the WAV. The resulting per-window predictions are
- * aggregated with the user's `minConfidenceDisplay` threshold but NOT subjected
- * to the regional filter — Perch covers taxa (frogs, insects, mammals) for
- * which the regional service has no priors yet.
- */
-private class ProductionPerchAnalysisJob(
-    private val models: List<BioacousticModel>,
-    private val modelManager: ModelManager,
-    private val settings: Settings,
-    private val yamNetGate: YamNetGate?,
-) : PerchAnalysisJob {
-
-    @Suppress("TooGenericExceptionCaught")
-    override suspend fun run(
-        audioPath: String,
-        latitude: Double?,
-        longitude: Double?,
-        observedAtMillis: Long,
-        onProgress: (Float) -> Unit,
-    ): PerchAnalysisOutcome = withContext(Dispatchers.IO) {
-        val perch = models.firstOrNull { it.modelId == "perch_v2" }
-            ?: return@withContext PerchAnalysisOutcome.NotInstalled
-        val state = modelManager.stateFor(com.sound2inat.modelmanager.PerchV2.descriptor)
-            as? ModelInstallState.Ready
-            ?: return@withContext PerchAnalysisOutcome.NotInstalled
-        try {
-            perch.load(state.modelFile, state.labelsFile)
-            val subtractor = if (settings.spectralSubtractionEnabled.first()) {
-                SpectralSubtractor()
-            } else {
-                null
-            }
-            val gate = if (settings.yamNetGateEnabled.first()) yamNetGate else null
-            val runner = InferenceRunner(
-                model = perch,
-                spectralSubtractor = subtractor,
-                yamNetGate = gate,
-            )
-            val preds = coroutineScope {
-                val collector = launch {
-                    runner.progress.collect { p -> onProgress(p) }
-                }
-                val result = runner.run(File(audioPath), latitude, longitude, observedAtMillis)
-                collector.cancel()
-                result
-            }
-            onProgress(1f)
-            val minConf = settings.minConfidenceDisplay.first()
-            val minWin = settings.minWindows.first()
-            val aggregator = DetectionAggregator(minConfidence = minConf, minWindows = minWin)
-            PerchAnalysisOutcome.Success(aggregator.aggregate(preds))
-        } catch (t: Throwable) {
-            android.util.Log.e("ProductionPerchAnalysisJob", "Perch run failed", t)
-            PerchAnalysisOutcome.Failure(t.message ?: t::class.simpleName.orEmpty())
-        } finally {
-            runCatching { perch.close() }
-        }
     }
 }

@@ -1,5 +1,7 @@
 package com.sound2inat.modelmanager
 
+import com.sound2inat.inference.ModelIds
+
 data class ModelDescriptor(
     val id: String,
     val displayName: String,
@@ -41,7 +43,7 @@ enum class LabelsFormat {
 object BirdNetV24 {
     // Values frozen from docs/private/MODEL_SPIKE.md (2026-04-29).
     val descriptor = ModelDescriptor(
-        id = "birdnet_v2_4",
+        id = ModelIds.BIRDNET,
         displayName = "BirdNET v2.4",
         version = "2.4",
         modelUrl = "https://github.com/woheller69/whoBIRD-TFlite/raw/master/" +
@@ -76,7 +78,7 @@ val KnownModels: List<ModelDescriptor> by lazy {
 
 object PerchV2 {
     val descriptor = ModelDescriptor(
-        id = "perch_v2",
+        id = ModelIds.PERCH,
         displayName = "Perch v2 (Google)",
         version = "2",
         modelUrl = "https://huggingface.co/justinchuby/Perch-onnx/resolve/main/perch_v2.tflite",
@@ -108,7 +110,7 @@ object PerchV2 {
  */
 object BirdNetMetaV24 {
     val descriptor = ModelDescriptor(
-        id = "birdnet_v2_4_meta",
+        id = ModelIds.BIRDNET_META,
         displayName = "BirdNET v2.4 location/time meta",
         version = "2.4",
         modelUrl = "https://raw.githubusercontent.com/woheller69/whoBIRD-TFlite/" +

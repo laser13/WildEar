@@ -7,6 +7,7 @@ import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.DetectionAggregator
 import com.sound2inat.inference.LiveInferenceEngine
 import com.sound2inat.inference.LiveInferenceEngineFactory
+import com.sound2inat.inference.ModelIds
 import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.location.Fix
 import com.sound2inat.location.LocationProvider
@@ -391,7 +392,7 @@ class DefaultRecordingController(
         const val LOCATION_TIMEOUT_MS = 15_000L
         const val DEFAULT_MIN_CONFIDENCE = 0.25f
         const val DEFAULT_REGION_RADIUS_KM = 200
-        const val LIVE_MODEL_ID = "birdnet_v2_4"
+        const val LIVE_MODEL_ID = ModelIds.BIRDNET
         const val LIVE_MODEL_VERSION = "2.4"
     }
 }

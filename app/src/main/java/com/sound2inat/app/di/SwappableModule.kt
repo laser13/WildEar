@@ -1,12 +1,16 @@
 package com.sound2inat.app.di
 
 import android.content.Context
+import com.sound2inat.app.data.Settings
 import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.BirdNetMetaModel
 import com.sound2inat.inference.BirdNetTfliteModel
+import com.sound2inat.inference.DefaultInferenceUseCase
+import com.sound2inat.inference.InferenceUseCase
 import com.sound2inat.inference.InterpreterFactory
 import com.sound2inat.inference.LiveInferenceEngine
 import com.sound2inat.inference.LiveInferenceEngineFactory
+import com.sound2inat.inference.ModelIds
 import com.sound2inat.inference.PerchTfliteModel
 import com.sound2inat.inference.SpectralSubtractor
 import com.sound2inat.inference.YamNetGate
@@ -15,8 +19,6 @@ import com.sound2inat.location.FusedLocationProvider
 import com.sound2inat.location.LocationProvider
 import com.sound2inat.modelmanager.BirdNetMetaV24
 import com.sound2inat.modelmanager.KnownModels
-import com.sound2inat.app.data.Settings
-import kotlinx.coroutines.flow.first
 import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelManager
 import com.sound2inat.modelmanager.YamNetV1
@@ -29,6 +31,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.flow.first
 import okhttp3.OkHttpClient
 import javax.inject.Singleton
 
@@ -96,6 +99,30 @@ object SwappableModule {
     fun provideModelDescriptors(): List<ModelDescriptor> = KnownModels
 
     /**
+     * Bundle of production inference seams ([com.sound2inat.inference.InferenceJob]
+     * + [com.sound2inat.inference.PerchAnalysisJob]) consumed by the Review
+     * screen. Test modules override this single binding to swap the whole
+     * stack without touching VM construction.
+     */
+    @Provides @Singleton
+    @Suppress("LongParameterList")
+    fun provideInferenceUseCase(
+        bioModels: List<@JvmSuppressWildcards BioacousticModel>,
+        descriptors: List<@JvmSuppressWildcards ModelDescriptor>,
+        modelManager: ModelManager,
+        settings: Settings,
+        yamNetGate: YamNetGate?,
+        birdNetMeta: BirdNetMetaModel?,
+    ): InferenceUseCase = DefaultInferenceUseCase(
+        models = bioModels,
+        descriptors = descriptors,
+        modelManager = modelManager,
+        settings = settings,
+        yamNetGate = yamNetGate,
+        birdNetMeta = birdNetMeta,
+    )
+
+    /**
      * Factory that builds a [LiveInferenceEngine] bound to the recorder's sample
      * rate. Returned as nullable so test modules can override with `null` and
      * fall back to the offline pipeline. The factory's `create` is suspend
@@ -111,7 +138,7 @@ object SwappableModule {
         modelManager: ModelManager,
         settings: Settings,
     ): LiveInferenceEngineFactory? = LiveInferenceEngineFactory { sampleRateHz ->
-        val birdnet = bioModels.firstOrNull { it.modelId == "birdnet_v2_4" }
+        val birdnet = bioModels.firstOrNull { it.modelId == ModelIds.BIRDNET }
             ?: return@LiveInferenceEngineFactory null
         val state = modelManager.stateFor(com.sound2inat.modelmanager.BirdNetV24.descriptor)
         val ready = state as? com.sound2inat.modelmanager.ModelInstallState.Ready
