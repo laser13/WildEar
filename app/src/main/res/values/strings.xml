@@ -80,6 +80,8 @@
     <string name="cd_region_confirmed">Observed in region</string>
     <string name="cd_region_not_confirmed">Not observed in region</string>
     <string name="cd_region_unverified">Regional check unavailable</string>
+    <string name="review_denoise_off">Denoise off</string>
+    <string name="review_denoise_on">Denoise on</string>
 
     <!-- Species details sheet -->
     <string name="sheet_model_scores">Model scores</string>
