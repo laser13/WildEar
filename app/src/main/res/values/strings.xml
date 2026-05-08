@@ -33,6 +33,18 @@
     <string name="cd_filter_nothing_detected">Nothing detected</string>
     <string name="label_today">Today</string>
     <string name="label_yesterday">Yesterday</string>
+    <!-- Recording card status headlines -->
+    <string name="home_headline_nothing_detected">Nothing detected</string>
+    <string name="home_headline_analyzing">Analyzing…</string>
+    <string name="home_headline_ready_review">Ready to review</string>
+    <string name="home_headline_ready_submit">Ready to submit</string>
+    <string name="home_headline_submitted">Submitted to iNaturalist</string>
+    <!-- Recording card supporting status labels -->
+    <string name="home_label_no_detections">No detections</string>
+    <string name="home_label_analyzing">Analyzing</string>
+    <string name="home_label_needs_review">Needs review</string>
+    <string name="home_label_not_submitted">Not submitted</string>
+    <string name="home_label_submitted">Submitted</string>
     <!-- Single recording delete dialog -->
     <string name="dialog_delete_single_title">Delete recording?</string>
     <string name="dialog_delete_single_blocked_title">Cannot delete</string>

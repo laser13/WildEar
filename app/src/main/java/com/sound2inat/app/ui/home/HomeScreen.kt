@@ -67,6 +67,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.sound2inat.storage.DraftStatus
+import kotlinx.coroutines.flow.Flow
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -217,7 +218,11 @@ fun HomeScreen(
                                 items(group.drafts, key = { it.id }) { d ->
                                     RecordingCard(
                                         summary = d,
-                                        vm = vm,
+                                        observeTopLabel = vm::observeTopLabel,
+                                        observeTopSpecies = vm::observeTopSpecies,
+                                        observeDetectionCount = vm::observeDetectionCount,
+                                        observeInatObservationCount = vm::observeInatObservationCount,
+                                        observeTaxonPhoto = vm::observeTaxonPhoto,
                                         selectionMode = selectionMode,
                                         selected = d.id in selectedIds,
                                         onToggleSelection = { vm.toggleSelection(d.id) },
@@ -267,22 +272,26 @@ private fun EmptyState(modifier: Modifier = Modifier) {
 @Composable
 private fun RecordingCard(
     summary: DraftSummary,
-    vm: HomeViewModelHilt,
+    observeTopLabel: (String) -> Flow<String?>,
+    observeTopSpecies: (String) -> Flow<List<TopSpeciesItem>>,
+    observeDetectionCount: (String) -> Flow<Int>,
+    observeInatObservationCount: (String) -> Flow<Int>,
+    observeTaxonPhoto: (String) -> Flow<String?>,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelection: () -> Unit = {},
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
 ) {
-    val topLabel by remember(summary.id) { vm.observeTopLabel(summary.id) }.collectAsStateWithLifecycle(initialValue = null)
+    val topLabel by remember(summary.id) { observeTopLabel(summary.id) }.collectAsStateWithLifecycle(initialValue = null)
     val topSpecies by remember(summary.id) {
-        vm.observeTopSpecies(summary.id)
+        observeTopSpecies(summary.id)
     }.collectAsStateWithLifecycle(initialValue = emptyList())
     val detectionCount by remember(summary.id) {
-        vm.observeDetectionCount(summary.id)
+        observeDetectionCount(summary.id)
     }.collectAsStateWithLifecycle(initialValue = 0)
     val inatCount by remember(summary.id) {
-        vm.observeInatObservationCount(summary.id)
+        observeInatObservationCount(summary.id)
     }.collectAsStateWithLifecycle(initialValue = 0)
 
     val analysedButEmpty = topSpecies.isEmpty() &&
@@ -315,7 +324,7 @@ private fun RecordingCard(
                         firstSpecies = topSpecies.firstOrNull(),
                         icon = icon,
                         iconBg = iconBg,
-                        vm = vm,
+                        observeTaxonPhoto = observeTaxonPhoto,
                     )
                 }
             },
@@ -362,13 +371,13 @@ private fun RecordingThumbnail(
     firstSpecies: TopSpeciesItem?,
     icon: ImageVector,
     iconBg: Color,
-    vm: HomeViewModelHilt,
+    observeTaxonPhoto: (String) -> Flow<String?>,
 ) {
     val shape = RoundedCornerShape(RECORDING_THUMB_CORNER_DP.dp)
     var photoUrl: String? = null
     if (firstSpecies != null) {
         val observedUrl by remember(firstSpecies.scientificName) {
-            vm.observeTaxonPhoto(firstSpecies.scientificName)
+            observeTaxonPhoto(firstSpecies.scientificName)
         }.collectAsStateWithLifecycle(initialValue = null)
         photoUrl = observedUrl
     }
@@ -433,24 +442,26 @@ private fun statusVisuals(
     }
 }
 
+@Composable
 private fun statusHeadline(status: DraftStatus, analysedButEmpty: Boolean): String {
-    if (analysedButEmpty) return "Nothing detected"
-    return when (status) {
-        DraftStatus.PENDING_INFERENCE -> "Analyzing…"
-        DraftStatus.PENDING_REVIEW -> "Ready to review"
-        DraftStatus.REVIEWED -> "Ready to submit"
-        DraftStatus.UPLOADED -> "Submitted to iNaturalist"
-    }
+    if (analysedButEmpty) return stringResource(R.string.home_headline_nothing_detected)
+    return stringResource(when (status) {
+        DraftStatus.PENDING_INFERENCE -> R.string.home_headline_analyzing
+        DraftStatus.PENDING_REVIEW -> R.string.home_headline_ready_review
+        DraftStatus.REVIEWED -> R.string.home_headline_ready_submit
+        DraftStatus.UPLOADED -> R.string.home_headline_submitted
+    })
 }
 
-internal fun homeStatusLabel(status: DraftStatus, analysedButEmpty: Boolean): String {
-    if (analysedButEmpty) return "No detections"
-    return when (status) {
-        DraftStatus.PENDING_INFERENCE -> "Analyzing"
-        DraftStatus.PENDING_REVIEW -> "Needs review"
-        DraftStatus.REVIEWED -> "Not submitted"
-        DraftStatus.UPLOADED -> "Submitted"
-    }
+@Composable
+private fun homeStatusLabel(status: DraftStatus, analysedButEmpty: Boolean): String {
+    if (analysedButEmpty) return stringResource(R.string.home_label_no_detections)
+    return stringResource(when (status) {
+        DraftStatus.PENDING_INFERENCE -> R.string.home_label_analyzing
+        DraftStatus.PENDING_REVIEW -> R.string.home_label_needs_review
+        DraftStatus.REVIEWED -> R.string.home_label_not_submitted
+        DraftStatus.UPLOADED -> R.string.home_label_submitted
+    })
 }
 
 private fun formatTimestamp(ms: Long): String =
