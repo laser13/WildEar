@@ -163,6 +163,7 @@ private fun ReviewPage(
     }
 
     var pickerVisible by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     var detailsRow by remember { mutableStateOf<SpeciesRow?>(null) }
     val isAnalysisRunning = state.inferenceProgress != null || state.perchProgress != null
     val uploadedUrls = remember(state.inatObservations) { state.inatObservations.associate { it.scientificName to it.url } }
@@ -178,7 +179,7 @@ private fun ReviewPage(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { vm.delete(onDeleted = onBack) }) {
+                    IconButton(onClick = { showDeleteConfirm = true }) {
                         Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.cd_delete))
                     }
                 },
@@ -334,6 +335,27 @@ private fun ReviewPage(
                 }
             }
         }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text(stringResource(R.string.dialog_delete_single_title)) },
+            text = { Text(stringResource(R.string.dialog_delete_single_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = { vm.delete(onDeleted = onBack) },
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) { Text(stringResource(R.string.btn_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
+            },
+        )
     }
 
     if (pickerVisible) {
@@ -664,7 +686,6 @@ private fun SpeciesListItem(
                     Checkbox(
                         checked = row.isSelected,
                         onCheckedChange = onCheckedChange,
-                        modifier = Modifier.size(20.dp),
                     )
                 }
             }
