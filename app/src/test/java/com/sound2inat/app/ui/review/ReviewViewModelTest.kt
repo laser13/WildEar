@@ -1,11 +1,15 @@
 package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.inat.RegionFilter
+import com.sound2inat.inat.RegionLookup
+import com.sound2inat.inat.RegionalStatusRepository
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.InferenceJob
 import com.sound2inat.inference.InferenceOutcome
 import com.sound2inat.inference.PerchAnalysisJob
 import com.sound2inat.inference.PerchAnalysisOutcome
+import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.inference.SourceStat
 import com.sound2inat.inference.SourceStats
 import com.sound2inat.inference.WindowPrediction
@@ -564,6 +568,67 @@ class ReviewViewModelTest {
         assertThat(names).doesNotContain("Cuculus canorus")
     }
 
+    @Test
+    fun `launchAnnotation reads from repo cache and skips network for cached species`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "ann1"
+            // Draft with GPS so annotation is triggered.
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 1L,
+                            draftId = draftId,
+                            taxonScientificName = "Parus major",
+                            taxonCommonName = "Great Tit",
+                            maxConfidence = 0.9f,
+                            detectedWindows = 1,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 1_000L,
+                            isSelectedByUser = false,
+                        ),
+                        DetectionEntity(
+                            id = 2L,
+                            draftId = draftId,
+                            taxonScientificName = "Corvus cornix",
+                            taxonCommonName = "Carrion Crow",
+                            maxConfidence = 0.7f,
+                            detectedWindows = 1,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 1_000L,
+                            isSelectedByUser = false,
+                        ),
+                    ),
+                )
+            }
+            // draftFor() sets lat=40.0, lon=-3.0 — pre-populate statusRepo for Parus major at that bucket.
+            val lookup = CountingLookup(placeIds = listOf(1L), inPlaces = true)
+            val filter = RegionFilter(lookup)
+            val statusRepo = RegionalStatusRepository.forTest(
+                annotator = { _, _, _ -> RegionalStatus.CONFIRMED },
+            )
+            statusRepo.storeResult("Parus major", 40.0, -3.0, RegionalStatus.CONFIRMED)
+
+            ReviewViewModel(
+                draftId = draftId,
+                repo = repo(draftDao, detectionDao),
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                regionFilter = filter,
+                regionalStatusRepository = statusRepo,
+                externalScope = backgroundScope,
+            )
+
+            // Only Corvus cornix (the cache miss) should reach the network.
+            // Parus major is served from the repo cache → no checkInPlaces call for it.
+            // One placeIds call for the location + one checkInPlaces for Corvus cornix only.
+            assertThat(lookup.checkCalls).isEqualTo(1)
+        }
+
     private fun draftFor(id: String, status: DraftStatus): DraftEntity = DraftEntity(
         id = id,
         audioPath = "/tmp/$id.wav",
@@ -815,6 +880,25 @@ class ReviewViewModelTest {
             assertThat(rowAfterCollapse.observationDetailState)
                 .isEqualTo(ObservationDetailLoadState.NotLoaded)
         }
+}
+
+private class CountingLookup(
+    private val placeIds: List<Long> = emptyList(),
+    private val inPlaces: Boolean = false,
+) : RegionLookup {
+    var checkCalls = 0
+
+    override suspend fun getPlaceIds(lat: Double, lon: Double): List<Long> = placeIds
+    override suspend fun checkInPlaces(scientificName: String, placeIds: List<Long>): Boolean {
+        checkCalls++
+        return inPlaces
+    }
+    override suspend fun checkNear(
+        scientificName: String,
+        lat: Double,
+        lon: Double,
+        radiusKm: Int,
+    ): Boolean = false
 }
 
 private class FakeAudioPlayer : AudioPlayer {

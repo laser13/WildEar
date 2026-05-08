@@ -769,26 +769,47 @@ class ReviewViewModel(
         annotationJob = scope.launch {
             val radiusKm = regionRadiusKmProvider()
             try {
-                val annotated = filter.annotate(
-                    rows.map { r ->
-                        AggregatedDetection(
-                            taxonScientificName = r.taxonScientificName,
-                            taxonCommonName = r.taxonCommonName,
-                            maxConfidence = r.maxConfidence,
-                            detectedWindows = r.detectedWindows,
-                            firstSeenMs = r.firstSeenMs,
-                            lastSeenMs = r.lastSeenMs,
-                        )
-                    },
-                    lat, lon, radiusKm,
+                // Pre-flight: populate hits from the shared repo; collect misses for the network call.
+                val missingRows = mutableListOf<SpeciesRow>()
+                if (regionalStatusRepository != null) {
+                    for (row in rows) {
+                        val cached = regionalStatusRepository.getCached(row.taxonScientificName, lat, lon)
+                        if (cached != null) {
+                            annotatedStatuses[row.taxonScientificName] = cached
+                        } else {
+                            missingRows += row
+                        }
+                    }
+                } else {
+                    missingRows += rows
+                }
+                Log.d(
+                    "ReviewVM",
+                    "launchAnnotation: ${rows.size - missingRows.size} cache hits," +
+                        " ${missingRows.size} misses going to network"
                 )
-                annotated.forEach { det ->
-                    annotatedStatuses[det.taxonScientificName] = det.regionalStatus
-                    det.regionalStatus?.let { s ->
-                        regionalStatusRepository?.storeResult(det.taxonScientificName, lat, lon, s)
+                if (missingRows.isNotEmpty()) {
+                    val annotated = filter.annotate(
+                        missingRows.map { r ->
+                            AggregatedDetection(
+                                taxonScientificName = r.taxonScientificName,
+                                taxonCommonName = r.taxonCommonName,
+                                maxConfidence = r.maxConfidence,
+                                detectedWindows = r.detectedWindows,
+                                firstSeenMs = r.firstSeenMs,
+                                lastSeenMs = r.lastSeenMs,
+                            )
+                        },
+                        lat, lon, radiusKm,
+                    )
+                    annotated.forEach { det ->
+                        annotatedStatuses[det.taxonScientificName] = det.regionalStatus
+                        det.regionalStatus?.let { s ->
+                            regionalStatusRepository?.storeResult(det.taxonScientificName, lat, lon, s)
+                        }
                     }
                 }
-                Log.d("ReviewVM", "launchAnnotation: complete, updating state with ${annotated.size} statuses")
+                Log.d("ReviewVM", "launchAnnotation: complete, updating state with ${annotatedStatuses.size} statuses")
                 _state.update { s ->
                     s.copy(
                         species = s.species.map { row ->

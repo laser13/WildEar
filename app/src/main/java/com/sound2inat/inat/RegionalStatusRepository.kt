@@ -54,6 +54,21 @@ class RegionalStatusRepository(
         return fresh
     }
 
+    /**
+     * Returns the cached [RegionalStatus] for the given taxon+location bucket if a
+     * non-expired entry exists, or `null` if there is no entry (cache miss). Never
+     * calls the network. Use this for the VM pre-flight check before issuing a
+     * batched [RegionFilter.annotate] call for only the missing rows.
+     *
+     * Note: `null` unambiguously means "not in cache" — the cache never stores null
+     * because [RegionalStatus] is a non-nullable enum.
+     */
+    fun getCached(taxonName: String, lat: Double, lon: Double): RegionalStatus? {
+        val key = "$taxonName|${bucket(lat)}|${bucket(lon)}"
+        val now = nowMs()
+        return cache[key]?.takeIf { now - it.storedAtMs < TTL_MS }?.status
+    }
+
     /** Stores a result already fetched externally (e.g. via a batched [RegionFilter] call). */
     fun storeResult(taxonName: String, lat: Double, lon: Double, status: RegionalStatus) {
         val key = "$taxonName|${bucket(lat)}|${bucket(lon)}"

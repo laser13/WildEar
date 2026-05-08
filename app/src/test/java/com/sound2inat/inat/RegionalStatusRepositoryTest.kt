@@ -96,4 +96,40 @@ class RegionalStatusRepositoryTest {
         repo.get("Corvus cornix", 51.5, 0.1)
         assertThat(fake.calls).isEqualTo(2)
     }
+
+    // ─── getCached ────────────────────────────────────────────────────────────
+
+    @Test fun `getCached returns null when nothing is stored`() = runTest {
+        val repo = RegionalStatusRepository.forTest(annotator = FakeFilter())
+        assertThat(repo.getCached("Parus major", 51.5, 0.1)).isNull()
+    }
+
+    @Test fun `getCached returns status after storeResult without calling the annotator`() = runTest {
+        val fake = FakeFilter()
+        val repo = RegionalStatusRepository.forTest(annotator = fake)
+        repo.storeResult("Parus major", 51.5, 0.1, RegionalStatus.CONFIRMED)
+        val result = repo.getCached("Parus major", 51.5, 0.1)
+        assertThat(result).isEqualTo(RegionalStatus.CONFIRMED)
+        assertThat(fake.calls).isEqualTo(0)
+    }
+
+    @Test fun `getCached returns status after get() and does not re-invoke the annotator`() = runTest {
+        val fake = FakeFilter(RegionalStatus.NOT_CONFIRMED)
+        val repo = RegionalStatusRepository.forTest(annotator = fake)
+        repo.get("Parus major", 51.5, 0.1)
+        val cached = repo.getCached("Parus major", 51.5, 0.1)
+        assertThat(cached).isEqualTo(RegionalStatus.NOT_CONFIRMED)
+        assertThat(fake.calls).isEqualTo(1) // only the initial get(), not getCached()
+    }
+
+    @Test fun `getCached returns null after TTL expires`() = runTest {
+        var fakeNow = 0L
+        val repo = RegionalStatusRepository.forTest(
+            annotator = FakeFilter(),
+            nowMs = { fakeNow },
+        )
+        repo.storeResult("Parus major", 51.5, 0.1, RegionalStatus.CONFIRMED)
+        fakeNow = RegionalStatusRepository.TTL_MS + 1L
+        assertThat(repo.getCached("Parus major", 51.5, 0.1)).isNull()
+    }
 }
