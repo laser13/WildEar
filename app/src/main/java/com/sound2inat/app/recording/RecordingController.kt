@@ -29,7 +29,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -233,31 +232,29 @@ class DefaultRecordingController(
         }
         val result = recorder.stop()
         cancelJobs()
-        withContext(ioDispatcher) {
-            if (engine != null && finalDetections.isNotEmpty()) {
-                drafts.createWithDetections(
-                    id = id,
-                    audioPath = result.audioPath,
-                    recordedAtUtcMs = recordingStartMs,
-                    durationMs = result.durationMs,
-                    latitude = fix?.latitude,
-                    longitude = fix?.longitude,
-                    accuracyMeters = fix?.accuracyMeters,
-                    modelId = LIVE_MODEL_ID,
-                    modelVersion = LIVE_MODEL_VERSION,
-                    detections = finalDetections,
-                )
-            } else {
-                drafts.create(
-                    id = id,
-                    audioPath = result.audioPath,
-                    recordedAtUtcMs = recordingStartMs,
-                    durationMs = result.durationMs,
-                    latitude = fix?.latitude,
-                    longitude = fix?.longitude,
-                    accuracyMeters = fix?.accuracyMeters,
-                )
-            }
+        if (engine != null && finalDetections.isNotEmpty()) {
+            drafts.createWithDetections(
+                id = id,
+                audioPath = result.audioPath,
+                recordedAtUtcMs = recordingStartMs,
+                durationMs = result.durationMs,
+                latitude = fix?.latitude,
+                longitude = fix?.longitude,
+                accuracyMeters = fix?.accuracyMeters,
+                modelId = LIVE_MODEL_ID,
+                modelVersion = LIVE_MODEL_VERSION,
+                detections = finalDetections,
+            )
+        } else {
+            drafts.create(
+                id = id,
+                audioPath = result.audioPath,
+                recordedAtUtcMs = recordingStartMs,
+                durationMs = result.durationMs,
+                latitude = fix?.latitude,
+                longitude = fix?.longitude,
+                accuracyMeters = fix?.accuracyMeters,
+            )
         }
         activeEngine = null
         activeAggregator = null

@@ -33,7 +33,7 @@ class Spectrogram(
 
     fun process(block: FloatArray): List<FloatArray> {
         if (block.isEmpty()) return emptyList()
-        val out = ArrayList<FloatArray>(2)
+        val out = ArrayList<FloatArray>(maxOf(1, block.size / hopSize))
         var idx = 0
         while (idx < block.size) {
             val take = (fftSize - filled).coerceAtMost(block.size - idx)

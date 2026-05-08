@@ -53,7 +53,7 @@ class DraftRepository(
         }.flowOn(ioDispatcher)
 
     @Suppress("LongParameterList")
-    fun create(
+    suspend fun create(
         id: String,
         audioPath: String,
         recordedAtUtcMs: Long,
@@ -61,7 +61,7 @@ class DraftRepository(
         latitude: Double?,
         longitude: Double?,
         accuracyMeters: Float?,
-    ) {
+    ) = withContext(ioDispatcher) {
         val now = nowMs()
         drafts.insert(
             DraftEntity(
@@ -90,7 +90,7 @@ class DraftRepository(
      * [create] then [attachDetections].
      */
     @Suppress("LongParameterList")
-    fun createWithDetections(
+    suspend fun createWithDetections(
         id: String,
         audioPath: String,
         recordedAtUtcMs: Long,
@@ -101,8 +101,9 @@ class DraftRepository(
         modelId: String,
         modelVersion: String,
         detections: List<AggregatedDetection>,
-    ) {
+    ) = withContext(ioDispatcher) {
         val now = nowMs()
+        val detectionDao = this@DraftRepository.detections
         runInTransaction {
             drafts.insert(
                 DraftEntity(
@@ -120,7 +121,7 @@ class DraftRepository(
                     updatedAtUtcMs = now,
                 ),
             )
-            this.detections.insertAll(
+            detectionDao.insertAll(
                 detections.map {
                     DetectionEntity(
                         draftId = id,
@@ -149,18 +150,20 @@ class DraftRepository(
         }
     }
 
-    fun attachDetections(
+    suspend fun attachDetections(
         draftId: String,
         modelId: String,
         modelVersion: String,
         items: List<AggregatedDetection>,
-    ) {
+        promoteToReviewed: Boolean = false,
+    ) = withContext(ioDispatcher) {
         val now = nowMs()
+        val finalStatus = if (promoteToReviewed && items.isNotEmpty()) DraftStatus.REVIEWED else DraftStatus.PENDING_REVIEW
         runInTransaction {
             val current = drafts.getById(draftId) ?: error("draft $draftId missing")
             drafts.update(
                 current.copy(
-                    status = DraftStatus.PENDING_REVIEW,
+                    status = finalStatus,
                     modelId = modelId,
                     modelVersion = modelVersion,
                     updatedAtUtcMs = now,
@@ -196,16 +199,15 @@ class DraftRepository(
         }
     }
 
-    fun setSelection(detectionId: Long, selected: Boolean) {
-        detections.setSelected(detectionId, selected)
-    }
+    suspend fun setSelection(detectionId: Long, selected: Boolean) =
+        withContext(ioDispatcher) { detections.setSelected(detectionId, selected) }
 
-    fun markReviewed(draftId: String) {
+    suspend fun markReviewed(draftId: String) = withContext(ioDispatcher) {
         val d = drafts.getById(draftId) ?: error("draft $draftId missing")
         drafts.update(d.copy(status = DraftStatus.REVIEWED, updatedAtUtcMs = nowMs()))
     }
 
-    fun delete(draftId: String) {
+    suspend fun delete(draftId: String) = withContext(ioDispatcher) {
         drafts.deleteById(draftId)
         files.deleteAllFor(draftId)
     }
@@ -220,9 +222,9 @@ class DraftRepository(
      * `birdnet_v2_4,perch_v2` so the persisted `modelId` records both contributors.
      *
      * When [promoteToReviewed] is true and the merged set is non-empty the draft is
-     * also marked REVIEWED inside the same IO-dispatched block so the
-     * [observeWithDetections] flow does not emit an intermediate `PENDING_REVIEW`
-     * snapshot between the two writes.
+     * also marked REVIEWED inside the same [runInTransaction] block as the detection
+     * insert, so the [observeWithDetections] flow never emits an intermediate
+     * `PENDING_REVIEW` snapshot between the two writes.
      *
      * Serialised by [persistMutex] so concurrent BirdNET and Perch jobs do not race
      * the read-merge-write cycle.
@@ -267,17 +269,13 @@ class DraftRepository(
             priorVersion.contains(newModelVersion) -> priorVersion
             else -> "$priorVersion+$newModelVersion"
         }
-        withContext(ioDispatcher) {
-            attachDetections(
-                draftId = draftId,
-                modelId = combinedModelId,
-                modelVersion = combinedVersion.trim('+'),
-                items = merged,
-            )
-            if (promoteToReviewed && merged.isNotEmpty()) {
-                markReviewed(draftId)
-            }
-        }
+        attachDetections(
+            draftId = draftId,
+            modelId = combinedModelId,
+            modelVersion = combinedVersion.trim('+'),
+            items = merged,
+            promoteToReviewed = promoteToReviewed,
+        )
     }
 
     /**

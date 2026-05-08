@@ -120,6 +120,9 @@ internal object WavReader {
             val sr = readLeUint32(header, 24)
             val bits = readLeUint16(header, 34)
             require(ch == 1 && bits == 16) { "Mono 16-bit PCM only (got ch=$ch bits=$bits)" }
+            require(String(header, 36, 4) == "data") {
+                "WAV 'data' chunk not at offset 36 — unsupported chunk layout"
+            }
             val dataSize = readLeUint32(header, 40)
             val raw = ByteArray(dataSize)
             raf.readFully(raw)
