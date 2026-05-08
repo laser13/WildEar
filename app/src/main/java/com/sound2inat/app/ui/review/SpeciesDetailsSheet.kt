@@ -3,6 +3,7 @@ package com.sound2inat.app.ui.review
 import com.sound2inat.inference.ModelIds
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -218,10 +219,51 @@ internal fun SpeciesDetailsSheet(
                         }
                         if (d.commentsCount > 0) {
                             item {
-                                DetailRow(
-                                    label = stringResource(R.string.sheet_label_comments),
-                                    value = "${d.commentsCount}",
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    text = stringResource(R.string.sheet_label_comments),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                                Spacer(Modifier.height(4.dp))
+                            }
+                            if (d.comments.isNotEmpty()) {
+                                items(d.comments) { comment ->
+                                    HorizontalDivider()
+                                    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                                        Text(
+                                            text = "@${comment.username}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(
+                                            text = comment.body,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                        )
+                                    }
+                                }
+                                if (d.commentsCount > d.comments.size) {
+                                    item {
+                                        Text(
+                                            text = stringResource(
+                                                R.string.sheet_comments_more,
+                                                d.commentsCount - d.comments.size,
+                                            ),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(vertical = 4.dp),
+                                        )
+                                    }
+                                }
+                            } else {
+                                // Edge case: API returned commentsCount > 0 but no comment bodies
+                                item {
+                                    DetailRow(
+                                        label = stringResource(R.string.sheet_label_comments),
+                                        value = "${d.commentsCount}",
+                                    )
+                                }
                             }
                         }
                     }

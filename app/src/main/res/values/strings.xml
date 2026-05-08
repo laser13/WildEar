@@ -98,6 +98,7 @@
     <string name="sheet_label_status">Status</string>
     <string name="sheet_label_confirmed_as">Confirmed as</string>
     <string name="sheet_label_comments">Comments</string>
+    <string name="sheet_comments_more">… and %1$d more</string>
     <string name="sheet_error_load_inat">Could not load iNat data</string>
     <string name="sheet_quality_research">Research Grade</string>
     <string name="sheet_quality_needs_id">Needs ID</string>
