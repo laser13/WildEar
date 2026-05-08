@@ -214,8 +214,7 @@ class ReviewViewModel(
         scope.launch {
             // Probe once on init — the user can install Perch later, but the
             // typical flow is: install in Settings -> open a draft. Probing
-            // again after each successful analyzeWithPerch run lets us flip the
-            // button off (we just produced perch detections).
+            // again after each successful Perch reanalysis run keeps the flag current.
             perchInstalled = runCatching { perchInstalledProbe() }.getOrDefault(false)
             recomputePerchEligibility()
         }
@@ -486,31 +485,6 @@ class ReviewViewModel(
     }
 
     /**
-     * Re-runs the BirdNET inference path and merges the resulting detections
-     * with what is already on the draft (Perch rows survive; matching taxa
-     * pick up an extra `birdnet_v2_4` source badge with its own confidence).
-     * No-op while another inference job is in flight.
-     */
-    fun reanalyzeBirdnet() {
-        if (_state.value.inferenceProgress != null) return
-        if (_state.value.perchProgress != null) return
-        val path = _state.value.audioPath ?: return
-        val lat = _state.value.latitude
-        val lon = _state.value.longitude
-        val recordedAt = _state.value.recordedAtUtcMs
-        inferenceJob?.cancel()
-        // Block init's flow collector from kicking off inference if Room
-        // re-emits during the run — this is the single entry point.
-        inferenceStarted = true
-        _windowPreds.value = emptyList()
-        _state.value = _state.value.copy(
-            inferenceError = null,
-            inferenceProgress = 0f,
-        )
-        startInference(path = path, lat = lat, lon = lon, recordedAt = recordedAt)
-    }
-
-    /**
      * User-triggered re-analysis. Skips the YAMNet gate (the gate adds overhead
      * without skipping model inference — see InferenceRunner). Runs the selected
      * models sequentially: BirdNET first (if [runBirdnet]), then Perch (if [runPerch]).
@@ -590,67 +564,6 @@ class ReviewViewModel(
                 }
             }
             launchAnnotationIfIdle()
-        }
-    }
-
-    /**
-     * Runs Perch v2 on the current saved WAV and merges the resulting
-     * detections with the draft's existing per-species rows. No-op when:
-     *  - Perch isn't installed (button shouldn't be visible),
-     *  - Another Perch run is already in flight,
-     *  - The draft has no audio path or live inference is currently running.
-     *
-     * Merge policy: union by `taxonScientificName`, taking max(maxConfidence),
-     * sum(detectedWindows), min(firstSeenMs), max(lastSeenMs), and per-source
-     * max for [AggregatedDetection.confidenceBySource]. Result is sorted by
-     * maxConfidence desc, then persisted via [DraftRepository.attachDetections]
-     * which replaces the row set atomically — no historical detections are
-     * lost because we pass the merged union.
-     */
-    @Suppress("TooGenericExceptionCaught", "LongMethod")
-    fun analyzeWithPerch() {
-        if (!_state.value.isPerchInstalled) return
-        if (_state.value.perchProgress != null) return
-        if (_state.value.inferenceProgress != null) return
-        val path = _state.value.audioPath ?: return
-        val lat = _state.value.latitude
-        val lon = _state.value.longitude
-        val recordedAt = _state.value.recordedAtUtcMs
-        _state.value = _state.value.copy(perchProgress = 0f, perchError = null)
-        perchJob = scope.launch {
-            try {
-                val outcome = perchAnalysis.run(path, lat, lon, recordedAt) { p ->
-                    _state.value = _state.value.copy(perchProgress = p.coerceIn(0f, 1f))
-                }
-                when (outcome) {
-                    is PerchAnalysisOutcome.Success -> {
-                        repo.mergeAndPersist(
-                            draftId = draftId,
-                            newModelId = ModelIds.PERCH,
-                            newModelVersion = "perch",
-                            freshDetections = outcome.detections,
-                        )
-                        launchAnnotationIfIdle()
-                    }
-                    is PerchAnalysisOutcome.Failure -> {
-                        _state.value = _state.value.copy(perchError = outcome.message)
-                    }
-                    PerchAnalysisOutcome.NotInstalled -> {
-                        _state.value = _state.value.copy(
-                            perchError = "Perch model is not installed",
-                        )
-                    }
-                }
-            } catch (t: Throwable) {
-                android.util.Log.e("ReviewViewModel", "analyzeWithPerch failed", t)
-                _state.value = _state.value.copy(
-                    perchError = t.message ?: t::class.simpleName.orEmpty(),
-                )
-            } finally {
-                _state.value = _state.value.copy(perchProgress = null)
-                perchInstalled = runCatching { perchInstalledProbe() }.getOrDefault(perchInstalled)
-                recomputePerchEligibility()
-            }
         }
     }
 

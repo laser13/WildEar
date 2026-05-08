@@ -458,7 +458,7 @@ class ReviewViewModelTest {
         }
 
     @Test
-    fun `analyzeWithPerch merges new species with existing detections`() =
+    fun `reanalyze Perch-only merges new species with existing detections`() =
         runTest(UnconfinedTestDispatcher()) {
             val draftId = "p3"
             val draftDao = FakeDraftDao().apply {
@@ -502,13 +502,13 @@ class ReviewViewModelTest {
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
-                perchAnalysis = perchJob,
+                perchReanalysis = perchJob,
                 perchInstalledProbe = { true },
                 externalScope = backgroundScope,
             )
             assertThat(vm.state.value.isPerchInstalled).isTrue()
 
-            vm.analyzeWithPerch()
+            vm.reanalyze(runBirdnet = false, runPerch = true)
 
             // Perch run finished → progress cleared, both species persisted.
             assertThat(vm.state.value.perchProgress).isNull()

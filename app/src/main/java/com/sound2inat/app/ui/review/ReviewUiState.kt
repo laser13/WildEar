@@ -59,7 +59,7 @@ data class ReviewUiState(
      * one progress block at a time.
      */
     val perchProgress: Float? = null,
-    /** Last failure message from an [analyzeWithPerch] run, cleared on next start. */
+    /** Last failure message from a Perch reanalysis run, cleared on next start. */
     val perchError: String? = null,
     /** Whether playback uses the denoised audio file instead of the raw recording. */
     val denoisePlayback: Boolean = false,
