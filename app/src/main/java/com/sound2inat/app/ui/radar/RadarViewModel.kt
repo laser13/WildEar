@@ -141,7 +141,7 @@ class RadarViewModelHilt @Inject constructor(
     private val settings: Settings,
     @Suppress("UNUSED_PARAMETER") savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
-    val delegate: RadarViewModel = RadarViewModel(
+    private val delegate: RadarViewModel = RadarViewModel(
         repoFetch = { key, force -> repo.fetch(key, force) },
         radarRadiusKm = settings.radarRadiusKm,
         radarPeriodDays = settings.radarPeriodDays,
@@ -150,6 +150,9 @@ class RadarViewModelHilt @Inject constructor(
         getLocation = { location.getCurrent() },
         userId = { auth.userId },
     )
+
+    val state get() = delegate.state
+    fun pullRefresh() = delegate.pullRefresh()
 
     fun setRadius(km: Int) = viewModelScope.launch { settings.setRadarRadiusKm(km) }
     fun setPeriod(d: Int) = viewModelScope.launch { settings.setRadarPeriodDays(d) }

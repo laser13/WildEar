@@ -72,11 +72,13 @@ class HomeViewModelHilt @Inject constructor(
     private val settings: Settings,
 ) : ViewModel() {
 
-    val delegate = HomeViewModel(
+    private val delegate = HomeViewModel(
         observeDrafts = { repo.observeAll() },
         topLabelFor = { _ -> null },
         isModelReady = { modelManager.stateFor(BirdNetV24.descriptor) is ModelInstallState.Ready },
     )
+
+    val state get() = delegate.state
 
     val filterMode = MutableStateFlow(FilterMode.ALL)
 

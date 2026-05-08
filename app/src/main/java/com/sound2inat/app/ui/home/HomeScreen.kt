@@ -82,7 +82,7 @@ fun HomeScreen(
     onSettings: () -> Unit,
 ) {
     val vm: HomeViewModelHilt = hiltViewModel()
-    val state by vm.delegate.state.collectAsStateWithLifecycle()
+    val state by vm.state.collectAsStateWithLifecycle()
     val filterMode by vm.filterMode.collectAsStateWithLifecycle()
     val enrichedDrafts by vm.enrichedDrafts.collectAsStateWithLifecycle()
     val filteredDrafts by vm.filteredDrafts.collectAsStateWithLifecycle()

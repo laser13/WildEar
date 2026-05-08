@@ -41,7 +41,7 @@ private const val MAP_HEIGHT_DP = 280
 @Composable
 fun RadarScreen(onOpenSettings: () -> Unit) {
     val vm: RadarViewModelHilt = hiltViewModel()
-    val state by vm.delegate.state.collectAsStateWithLifecycle()
+    val state by vm.state.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
     val perms = LocalPermissionsController.current
 
@@ -49,7 +49,7 @@ fun RadarScreen(onOpenSettings: () -> Unit) {
         if (perms.statuses.value[Permission.ACCESS_FINE_LOCATION] != PermissionStatus.GRANTED) {
             val result = perms.request(setOf(Permission.ACCESS_FINE_LOCATION))
             if (result[Permission.ACCESS_FINE_LOCATION] == PermissionStatus.GRANTED) {
-                vm.delegate.pullRefresh()
+                vm.pullRefresh()
             }
         }
     }
@@ -81,7 +81,7 @@ fun RadarScreen(onOpenSettings: () -> Unit) {
             )
             PullToRefreshBox(
                 isRefreshing = state.loading && state.species.isNotEmpty(),
-                onRefresh = vm.delegate::pullRefresh,
+                onRefresh = vm::pullRefresh,
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
             ) {
                 RadarBody(
