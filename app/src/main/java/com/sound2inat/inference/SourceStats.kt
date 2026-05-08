@@ -21,6 +21,11 @@ object SourceStats {
 
     fun encode(map: Map<String, SourceStat>): String? {
         if (map.isEmpty()) return null
+        for (key in map.keys) {
+            require(key.none { it == '=' || it == ';' || it == ':' }) {
+                "SourceStat key must not contain '=', ';', or ':': '$key'"
+            }
+        }
         return map.entries
             .sortedBy { it.key }
             .joinToString(";") { (k, v) ->
