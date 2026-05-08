@@ -762,7 +762,7 @@ class ReviewViewModelTest {
                     lastSeenBySource    = mapOf("perch_v2" to 8_000L),
                 ),
             )
-            val result = mergeBySpecies(existing, incoming).first()
+            val result = repo(FakeDraftDao(), FakeDetectionDao()).mergeBySpecies(existing, incoming).first()
 
             assertThat(result.windowsBySource).containsExactly("birdnet_v2_4", 2, "perch_v2", 1)
             assertThat(result.firstSeenBySource).containsExactly("birdnet_v2_4", 0L, "perch_v2", 3_000L)

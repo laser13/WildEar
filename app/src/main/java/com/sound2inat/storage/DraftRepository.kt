@@ -7,8 +7,12 @@ import com.sound2inat.inference.SourceStats
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 data class DraftWithDetections(
     val draft: DraftEntity,
@@ -28,6 +32,13 @@ class DraftRepository(
      */
     private val runInTransaction: (block: () -> Unit) -> Unit = { it() },
 ) {
+
+    /**
+     * Serialises [mergeAndPersist] across concurrent callers (BirdNET and Perch
+     * jobs). Without this, a quick second analysis trigger can race the
+     * in-flight read-merge-write cycle and clobber the other job's results.
+     */
+    private val persistMutex = Mutex()
     fun observeAll(): Flow<List<DraftEntity>> = drafts.observeAll()
 
     /**
@@ -197,5 +208,126 @@ class DraftRepository(
     fun delete(draftId: String) {
         drafts.deleteById(draftId)
         files.deleteAllFor(draftId)
+    }
+
+    /**
+     * Reads the existing detections for [draftId], merges them with [freshDetections]
+     * using [mergeBySpecies], then atomically replaces the stored detections and
+     * updates the draft's model lineage.
+     *
+     * Model lineage is accumulated rather than replaced: if the draft already has
+     * `birdnet_v2_4` and a Perch run arrives, [attachDetections] is called with
+     * `birdnet_v2_4,perch_v2` so the persisted `modelId` records both contributors.
+     *
+     * When [promoteToReviewed] is true and the merged set is non-empty the draft is
+     * also marked REVIEWED inside the same IO-dispatched block so the
+     * [observeWithDetections] flow does not emit an intermediate `PENDING_REVIEW`
+     * snapshot between the two writes.
+     *
+     * Serialised by [persistMutex] so concurrent BirdNET and Perch jobs do not race
+     * the read-merge-write cycle.
+     */
+    suspend fun mergeAndPersist(
+        draftId: String,
+        newModelId: String,
+        newModelVersion: String,
+        freshDetections: List<AggregatedDetection>,
+        promoteToReviewed: Boolean = false,
+    ) = persistMutex.withLock {
+        val dwd = observeWithDetections(draftId).first()
+        val existing = dwd.detections.map { e ->
+            val fullStats = SourceStats.decode(e.sources)
+            AggregatedDetection(
+                taxonScientificName = e.taxonScientificName,
+                taxonCommonName = e.taxonCommonName,
+                maxConfidence = e.maxConfidence,
+                detectedWindows = e.detectedWindows,
+                firstSeenMs = e.firstSeenMs,
+                lastSeenMs = e.lastSeenMs,
+                confidenceBySource  = if (fullStats.isNotEmpty()) fullStats.mapValues { it.value.maxConf }
+                                      else SourceStats.decodeConfidenceOnly(e.sources),
+                windowsBySource     = fullStats.mapValues { it.value.windows },
+                firstSeenBySource   = fullStats.mapValues { it.value.firstSeenMs },
+                lastSeenBySource    = fullStats.mapValues { it.value.lastSeenMs },
+                fragmentRanges = FragmentRanges.decode(e.fragmentRanges),
+                aggregatedConfidence = e.aggregatedConfidence,
+            )
+        }
+        val merged = mergeBySpecies(existing, freshDetections)
+        val priorModelId = dwd.draft.modelId
+        val combinedModelId = when {
+            priorModelId.isNullOrBlank() -> newModelId
+            priorModelId.split(',', '+').contains(newModelId) -> priorModelId
+            else -> "$priorModelId,$newModelId"
+        }
+        val priorVersion = dwd.draft.modelVersion ?: ""
+        val combinedVersion = when {
+            priorVersion.isBlank() -> newModelVersion
+            newModelVersion.isBlank() -> priorVersion
+            priorVersion.contains(newModelVersion) -> priorVersion
+            else -> "$priorVersion+$newModelVersion"
+        }
+        withContext(ioDispatcher) {
+            attachDetections(
+                draftId = draftId,
+                modelId = combinedModelId,
+                modelVersion = combinedVersion.trim('+'),
+                items = merged,
+            )
+            if (promoteToReviewed && merged.isNotEmpty()) {
+                markReviewed(draftId)
+            }
+        }
+    }
+
+    /**
+     * Merges two lists of [AggregatedDetection] by taxon name. For species that
+     * appear in both lists the per-source confidence, window counts, and time
+     * ranges are unioned; [maxConfidence] and window timestamps take the
+     * max/min of both sides. Species that appear in only one list are kept
+     * as-is. Result is sorted by [AggregatedDetection.maxConfidence] descending.
+     */
+    internal fun mergeBySpecies(
+        existing: List<AggregatedDetection>,
+        incoming: List<AggregatedDetection>,
+    ): List<AggregatedDetection> {
+        val byName = LinkedHashMap<String, AggregatedDetection>()
+        for (d in existing) byName[d.taxonScientificName] = d
+        for (d in incoming) {
+            val prior = byName[d.taxonScientificName]
+            if (prior == null) {
+                byName[d.taxonScientificName] = d
+                continue
+            }
+            val allSourceKeys = prior.confidenceBySource.keys + d.confidenceBySource.keys
+            val mergedSources = allSourceKeys.associateWith { key ->
+                maxOf(prior.confidenceBySource[key] ?: 0f, d.confidenceBySource[key] ?: 0f)
+            }
+            val mergedWindows = (prior.windowsBySource.keys + d.windowsBySource.keys)
+                .associateWith { key ->
+                    (prior.windowsBySource[key] ?: 0) + (d.windowsBySource[key] ?: 0)
+                }
+            val mergedFirstSeen = (prior.firstSeenBySource.keys + d.firstSeenBySource.keys)
+                .associateWith { key ->
+                    minOf(prior.firstSeenBySource[key] ?: Long.MAX_VALUE, d.firstSeenBySource[key] ?: Long.MAX_VALUE)
+                }
+            val mergedLastSeen = (prior.lastSeenBySource.keys + d.lastSeenBySource.keys)
+                .associateWith { key ->
+                    maxOf(prior.lastSeenBySource[key] ?: 0L, d.lastSeenBySource[key] ?: 0L)
+                }
+            byName[d.taxonScientificName] = AggregatedDetection(
+                taxonScientificName = d.taxonScientificName,
+                taxonCommonName = prior.taxonCommonName ?: d.taxonCommonName,
+                maxConfidence = maxOf(prior.maxConfidence, d.maxConfidence),
+                detectedWindows = prior.detectedWindows + d.detectedWindows,
+                firstSeenMs = minOf(prior.firstSeenMs, d.firstSeenMs),
+                lastSeenMs = maxOf(prior.lastSeenMs, d.lastSeenMs),
+                confidenceBySource  = mergedSources,
+                windowsBySource     = mergedWindows,
+                firstSeenBySource   = mergedFirstSeen,
+                lastSeenBySource    = mergedLastSeen,
+            )
+        }
+        return byName.values.sortedByDescending { it.maxConfidence }
     }
 }

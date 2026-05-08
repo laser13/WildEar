@@ -41,8 +41,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -201,13 +199,6 @@ class ReviewViewModel(
     /** Last result of [perchInstalledProbe]; folded into [ReviewUiState.canAnalyzeWithPerch]. */
     private var perchInstalled: Boolean = false
     private var perchJob: Job? = null
-
-    /**
-     * Serialises [mergeAndPersist] across BirdNET and Perch jobs. Without this,
-     * a quick second analysis trigger can race the in-flight read-merge-write
-     * cycle and clobber the other job's results.
-     */
-    private val persistMutex = Mutex()
 
     init {
         scope.launch {
@@ -376,7 +367,8 @@ class ReviewViewModel(
                     // user's checkbox selection alone — auto-promotion runs
                     // in the same IO block as attachDetections so collectors
                     // never see an intermediate PENDING_REVIEW snapshot.
-                    mergeAndPersist(
+                    repo.mergeAndPersist(
+                        draftId = draftId,
                         newModelId = outcome.modelId,
                         newModelVersion = outcome.modelVersion,
                         freshDetections = outcome.detections,
@@ -539,7 +531,8 @@ class ReviewViewModel(
                 }
                 when (outcome) {
                     is PerchAnalysisOutcome.Success -> {
-                        mergeAndPersist(
+                        repo.mergeAndPersist(
+                            draftId = draftId,
                             newModelId = "perch_v2",
                             newModelVersion = "perch",
                             freshDetections = outcome.detections,
@@ -564,70 +557,6 @@ class ReviewViewModel(
                 _state.value = _state.value.copy(perchProgress = null)
                 perchInstalled = runCatching { perchInstalledProbe() }.getOrDefault(perchInstalled)
                 recomputePerchEligibility()
-            }
-        }
-    }
-
-    /**
-     * Folds [freshDetections] into the draft's current detections (read fresh
-     * from [DraftRepository.observeWithDetections]) and writes the union back
-     * via [DraftRepository.attachDetections]. [newModelId]/[newModelVersion]
-     * are appended to the draft's stored model lineage so the persisted
-     * `modelId` reads as `birdnet_v2_4,perch_v2` after both have run.
-     *
-     * When [promoteToReviewed] is true and the merged set is non-empty the
-     * draft is also marked REVIEWED inside the same IO-dispatched block so
-     * the [DraftRepository.observeWithDetections] flow does not emit an
-     * intermediate `PENDING_REVIEW` snapshot between the two writes.
-     */
-    private suspend fun mergeAndPersist(
-        newModelId: String,
-        newModelVersion: String,
-        freshDetections: List<AggregatedDetection>,
-        promoteToReviewed: Boolean = false,
-    ) = persistMutex.withLock {
-        val dwd = repo.observeWithDetections(draftId).first()
-        val existing = dwd.detections.map { e ->
-            val fullStats = SourceStats.decode(e.sources)
-            AggregatedDetection(
-                taxonScientificName = e.taxonScientificName,
-                taxonCommonName = e.taxonCommonName,
-                maxConfidence = e.maxConfidence,
-                detectedWindows = e.detectedWindows,
-                firstSeenMs = e.firstSeenMs,
-                lastSeenMs = e.lastSeenMs,
-                confidenceBySource  = if (fullStats.isNotEmpty()) fullStats.mapValues { it.value.maxConf }
-                                      else SourceStats.decodeConfidenceOnly(e.sources),
-                windowsBySource     = fullStats.mapValues { it.value.windows },
-                firstSeenBySource   = fullStats.mapValues { it.value.firstSeenMs },
-                lastSeenBySource    = fullStats.mapValues { it.value.lastSeenMs },
-                fragmentRanges = FragmentRanges.decode(e.fragmentRanges),
-                aggregatedConfidence = e.aggregatedConfidence,
-            )
-        }
-        val merged = mergeBySpecies(existing, freshDetections)
-        val priorModelId = dwd.draft.modelId
-        val combinedModelId = when {
-            priorModelId.isNullOrBlank() -> newModelId
-            priorModelId.split(',', '+').contains(newModelId) -> priorModelId
-            else -> "$priorModelId,$newModelId"
-        }
-        val priorVersion = dwd.draft.modelVersion ?: ""
-        val combinedVersion = when {
-            priorVersion.isBlank() -> newModelVersion
-            newModelVersion.isBlank() -> priorVersion
-            priorVersion.contains(newModelVersion) -> priorVersion
-            else -> "$priorVersion+$newModelVersion"
-        }
-        withContext(ioDispatcher) {
-            repo.attachDetections(
-                draftId = draftId,
-                modelId = combinedModelId,
-                modelVersion = combinedVersion.trim('+'),
-                items = merged,
-            )
-            if (promoteToReviewed && merged.isNotEmpty()) {
-                repo.markReviewed(draftId)
             }
         }
     }
@@ -966,57 +895,6 @@ class ReviewPagerViewModel @Inject constructor(
     val orderedDraftIds: StateFlow<List<String>> = repo.observeAll()
         .map { drafts -> drafts.map { it.id } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-}
-
-/**
- * Unions two aggregated-detection lists by `taxonScientificName`. For species
- * present in both: max(maxConfidence), sum(detectedWindows), min(firstSeenMs),
- * max(lastSeenMs), per-source max for [AggregatedDetection.confidenceBySource];
- * common name preferred from the side that has one. Result is sorted by
- * maxConfidence descending so the UI ordering matches a fresh aggregator pass.
- */
-internal fun mergeBySpecies(
-    existing: List<AggregatedDetection>,
-    incoming: List<AggregatedDetection>,
-): List<AggregatedDetection> {
-    val byName = LinkedHashMap<String, AggregatedDetection>()
-    for (d in existing) byName[d.taxonScientificName] = d
-    for (d in incoming) {
-        val prior = byName[d.taxonScientificName]
-        if (prior == null) {
-            byName[d.taxonScientificName] = d
-            continue
-        }
-        val allSourceKeys = prior.confidenceBySource.keys + d.confidenceBySource.keys
-        val mergedSources = allSourceKeys.associateWith { key ->
-            maxOf(prior.confidenceBySource[key] ?: 0f, d.confidenceBySource[key] ?: 0f)
-        }
-        val mergedWindows = (prior.windowsBySource.keys + d.windowsBySource.keys)
-            .associateWith { key ->
-                (prior.windowsBySource[key] ?: 0) + (d.windowsBySource[key] ?: 0)
-            }
-        val mergedFirstSeen = (prior.firstSeenBySource.keys + d.firstSeenBySource.keys)
-            .associateWith { key ->
-                minOf(prior.firstSeenBySource[key] ?: Long.MAX_VALUE, d.firstSeenBySource[key] ?: Long.MAX_VALUE)
-            }
-        val mergedLastSeen = (prior.lastSeenBySource.keys + d.lastSeenBySource.keys)
-            .associateWith { key ->
-                maxOf(prior.lastSeenBySource[key] ?: 0L, d.lastSeenBySource[key] ?: 0L)
-            }
-        byName[d.taxonScientificName] = AggregatedDetection(
-            taxonScientificName = d.taxonScientificName,
-            taxonCommonName = prior.taxonCommonName ?: d.taxonCommonName,
-            maxConfidence = maxOf(prior.maxConfidence, d.maxConfidence),
-            detectedWindows = prior.detectedWindows + d.detectedWindows,
-            firstSeenMs = minOf(prior.firstSeenMs, d.firstSeenMs),
-            lastSeenMs = maxOf(prior.lastSeenMs, d.lastSeenMs),
-            confidenceBySource  = mergedSources,
-            windowsBySource     = mergedWindows,
-            firstSeenBySource   = mergedFirstSeen,
-            lastSeenBySource    = mergedLastSeen,
-        )
-    }
-    return byName.values.sortedByDescending { it.maxConfidence }
 }
 
 /** Default sink used in tests; never builds anything. */
