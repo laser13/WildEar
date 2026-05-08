@@ -41,9 +41,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sound2inat.app.R
 import com.sound2inat.app.permissions.LocalPermissionsController
 import com.sound2inat.app.ui.theme.detectionCardLikelyDark
 import com.sound2inat.app.ui.theme.detectionCardLikelyLight
@@ -69,13 +71,13 @@ fun RecordingScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Recording") },
+                title = { Text(stringResource(R.string.title_recording)) },
                 navigationIcon = {
                     IconButton(onClick = {
                         vm.cancel()
                         onCancel()
                     }) {
-                        Icon(Icons.Outlined.Close, contentDescription = "Cancel")
+                        Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.cd_cancel))
                     }
                 },
             )
@@ -91,7 +93,7 @@ fun RecordingScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("Starting…", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.recording_starting), style = MaterialTheme.typography.titleMedium)
                 }
                 is RecordingUiState.Recording -> RecordingBody(
                     s = s,
@@ -109,7 +111,7 @@ fun RecordingScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(s.message, style = MaterialTheme.typography.bodyLarge)
                         Spacer(Modifier.height(16.dp))
-                        TextButton(onClick = onCancel) { Text("Back") }
+                        TextButton(onClick = onCancel) { Text(stringResource(R.string.btn_back)) }
                     }
                 }
             }
@@ -162,7 +164,7 @@ private fun RecordingBody(
             if (s.backlogWindows > BACKLOG_VISIBLE_THRESHOLD) {
                 val delaySeconds = (s.backlogWindows * BACKLOG_SECONDS_PER_WINDOW).roundToInt()
                 Text(
-                    "Detections delayed ~${delaySeconds}s",
+                    stringResource(R.string.recording_backlog_hint, delaySeconds),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White,
                     modifier = Modifier
@@ -189,7 +191,7 @@ private fun RecordingBody(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        LIVE_LISTENING_LABEL,
+                        stringResource(R.string.live_listening),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -209,7 +211,7 @@ private fun RecordingBody(
                 ) {
                     item {
                         Text(
-                            LIVE_MATCHES_TITLE,
+                            stringResource(R.string.live_matches_title),
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -220,7 +222,7 @@ private fun RecordingBody(
                     if (unlikely.isNotEmpty()) {
                         item {
                             Text(
-                                LIVE_UNLIKELY_TITLE,
+                                stringResource(R.string.live_unlikely_title),
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(top = 4.dp),
@@ -236,7 +238,7 @@ private fun RecordingBody(
 
         if (s.warningSoftLimit) {
             Text(
-                "Long recording — auto-stop at 10:00",
+                stringResource(R.string.recording_auto_stop),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -253,7 +255,7 @@ private fun RecordingBody(
         ) {
             Icon(
                 Icons.Filled.Stop,
-                contentDescription = "Stop",
+                contentDescription = stringResource(R.string.cd_stop),
                 modifier = Modifier.size(STOP_ICON_DP.dp),
             )
         }
@@ -327,7 +329,7 @@ private fun GpsIndicator(gps: GpsStatus, modifier: Modifier = Modifier) {
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("GPS", style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(R.string.label_gps), style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.size(GPS_DOT_GAP_DP.dp))
         Box(
             modifier = Modifier
@@ -336,12 +338,6 @@ private fun GpsIndicator(gps: GpsStatus, modifier: Modifier = Modifier) {
         )
     }
 }
-
-internal const val LIVE_LISTENING_LABEL = "Listening for wildlife..."
-
-internal const val LIVE_MATCHES_TITLE = "Possible matches"
-
-internal const val LIVE_UNLIKELY_TITLE = "Unlikely — not observed nearby"
 
 private fun formatElapsed(ms: Long): String {
     val totalSeconds = ms / MS_PER_SECOND

@@ -23,8 +23,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
+import com.sound2inat.app.R
 
 /**
  * Bottom sheet showing technical details for a single species detection.
@@ -79,7 +81,7 @@ internal fun SpeciesDetailsSheet(
             // Model scores
             item {
                 Text(
-                    text = "Model scores",
+                    text = stringResource(R.string.sheet_model_scores),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -92,7 +94,7 @@ internal fun SpeciesDetailsSheet(
             if (birdnetConf != null) {
                 item {
                     DetailRow(
-                        label = "BirdNET",
+                        label = stringResource(R.string.sheet_label_birdnet),
                         value = "${(birdnetConf * SHEET_PERCENT).toInt()}%",
                     )
                 }
@@ -100,7 +102,7 @@ internal fun SpeciesDetailsSheet(
             if (perchConf != null) {
                 item {
                     DetailRow(
-                        label = "Perch",
+                        label = stringResource(R.string.sheet_label_perch),
                         value = "${(perchConf * SHEET_PERCENT).toInt()}%",
                     )
                 }
@@ -108,7 +110,7 @@ internal fun SpeciesDetailsSheet(
             if (birdnetConf == null && perchConf == null) {
                 item {
                     DetailRow(
-                        label = "Confidence",
+                        label = stringResource(R.string.sheet_label_confidence),
                         value = "${(row.maxConfidence * SHEET_PERCENT).toInt()}%",
                     )
                 }
@@ -116,7 +118,7 @@ internal fun SpeciesDetailsSheet(
 
             // YAMNet gate — not stored in SpeciesRow yet (Task 7 adds it)
             item {
-                DetailRow(label = "YAMNet gate", value = "N/A")
+                DetailRow(label = stringResource(R.string.sheet_label_yamnet_gate), value = stringResource(R.string.sheet_yamnet_na))
             }
 
             item {
@@ -128,7 +130,7 @@ internal fun SpeciesDetailsSheet(
             // Fragment info
             item {
                 Text(
-                    text = "Fragments",
+                    text = stringResource(R.string.sheet_fragments_section),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -136,14 +138,14 @@ internal fun SpeciesDetailsSheet(
             }
 
             item {
-                DetailRow(label = "Count", value = "${row.detectedWindows}")
+                DetailRow(label = stringResource(R.string.sheet_label_count), value = "${row.detectedWindows}")
             }
 
             // Single time range from firstSeenMs / lastSeenMs
             item {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "Time ranges",
+                    text = stringResource(R.string.sheet_time_ranges_section),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -175,7 +177,7 @@ internal fun SpeciesDetailsSheet(
                     HorizontalDivider()
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        text = "iNaturalist",
+                        text = stringResource(R.string.sheet_inat_section),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -192,13 +194,18 @@ internal fun SpeciesDetailsSheet(
                     is ObservationDetailLoadState.Loaded -> {
                         val d = detailState.detail
                         item {
+                            val gradeLabel = when (d.qualityGrade) {
+                                "research" -> stringResource(R.string.sheet_quality_research)
+                                "needs_id" -> stringResource(R.string.sheet_quality_needs_id)
+                                else -> d.qualityGrade
+                            }
                             val idText = when (d.agreeingIdCount) {
-                                0 -> "Awaiting IDs"
-                                1 -> "1 ID · ${sheetQualityGradeLabel(d.qualityGrade)}"
-                                else -> "${d.agreeingIdCount} IDs · ${sheetQualityGradeLabel(d.qualityGrade)}"
+                                0 -> stringResource(R.string.sheet_awaiting_ids)
+                                1 -> "1 ID · $gradeLabel"
+                                else -> "${d.agreeingIdCount} IDs · $gradeLabel"
                             }
                             DetailRow(
-                                label = "Status",
+                                label = stringResource(R.string.sheet_label_status),
                                 value = idText,
                                 valueColor = if (d.qualityGrade == "research") SHEET_INAT_GREEN
                                     else MaterialTheme.colorScheme.onSurface,
@@ -206,13 +213,13 @@ internal fun SpeciesDetailsSheet(
                         }
                         if (d.taxonCommonName != null && d.qualityGrade == "research") {
                             item {
-                                DetailRow(label = "Confirmed as", value = d.taxonCommonName)
+                                DetailRow(label = stringResource(R.string.sheet_label_confirmed_as), value = d.taxonCommonName)
                             }
                         }
                         if (d.commentsCount > 0) {
                             item {
                                 DetailRow(
-                                    label = "Comments",
+                                    label = stringResource(R.string.sheet_label_comments),
                                     value = "${d.commentsCount}",
                                 )
                             }
@@ -225,13 +232,13 @@ internal fun SpeciesDetailsSheet(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(
-                                "Could not load iNat data",
+                                stringResource(R.string.sheet_error_load_inat),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             if (onLoadDetail != null) {
                                 TextButton(onClick = onLoadDetail) {
-                                    Text("Retry", style = MaterialTheme.typography.bodySmall)
+                                    Text(stringResource(R.string.btn_retry), style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
@@ -277,12 +284,6 @@ private fun DetailRow(
 internal data class SpeciesTimeRange(val startMs: Long, val endMs: Long)
 
 private val SHEET_INAT_GREEN = Color(0xFF74AC00)
-
-private fun sheetQualityGradeLabel(grade: String): String = when (grade) {
-    "research" -> "Research Grade"
-    "needs_id"  -> "Needs ID"
-    else        -> grade
-}
 
 internal fun formatSheetMs(ms: Long): String {
     val totalSeconds = (ms / SHEET_MS_PER_SECOND).coerceAtLeast(0L)

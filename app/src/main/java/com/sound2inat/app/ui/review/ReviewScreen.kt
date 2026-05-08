@@ -68,6 +68,9 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.sound2inat.app.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
@@ -168,15 +171,15 @@ private fun ReviewPage(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Review") },
+                title = { Text(stringResource(R.string.title_review)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { vm.delete(onDeleted = onBack) }) {
-                        Icon(Icons.Outlined.Delete, contentDescription = "Delete")
+                        Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.cd_delete))
                     }
                 },
             )
@@ -281,7 +284,7 @@ private fun ReviewPage(
 
                 item {
                     Text(
-                        REVIEW_SPECIES_SECTION_TITLE,
+                        stringResource(R.string.review_section_detected_wildlife),
                         style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
@@ -301,7 +304,7 @@ private fun ReviewPage(
                 if (likelySpecies.isEmpty() && state.inferenceProgress == null && unlikelySpecies.isEmpty()) {
                     item {
                         Text(
-                            "No species detected.",
+                            stringResource(R.string.review_no_species),
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(16.dp),
                         )
@@ -311,7 +314,7 @@ private fun ReviewPage(
                 if (unlikelySpecies.isNotEmpty()) {
                     item {
                         Text(
-                            "Unlikely — not observed nearby",
+                            stringResource(R.string.review_unlikely_section),
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -379,17 +382,16 @@ private fun ModelPickerDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Re-analyze recording") },
+        title = { Text(stringResource(R.string.dialog_reanalyze_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "Pick a model to run again. New detections are merged with " +
-                        "existing ones — matching species pick up an extra source badge.",
+                    stringResource(R.string.dialog_reanalyze_body),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 if (!isPerchInstalled) {
                     Text(
-                        "Perch is not installed — install it from Settings to enable.",
+                        stringResource(R.string.dialog_perch_not_installed),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -398,15 +400,15 @@ private fun ModelPickerDialog(
         },
         confirmButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = onPickBirdnet) { Text("BirdNET") }
+                TextButton(onClick = onPickBirdnet) { Text(stringResource(R.string.btn_birdnet)) }
                 TextButton(
                     onClick = onPickPerch,
                     enabled = isPerchInstalled,
-                ) { Text("Perch") }
+                ) { Text(stringResource(R.string.btn_perch)) }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.btn_cancel)) }
         },
     )
 }
@@ -424,7 +426,7 @@ private fun HeaderBlock(state: ReviewUiState) {
             if (state.latitude != null && state.longitude != null) {
                 "GPS: %.4f, %.4f".format(state.latitude, state.longitude)
             } else {
-                "No location"
+                stringResource(R.string.review_no_location)
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -436,7 +438,7 @@ private fun HeaderBlock(state: ReviewUiState) {
 @Composable
 private fun InferenceProgressBlock(progress: Float) {
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text("Analyzing audio…", style = MaterialTheme.typography.labelMedium)
+        Text(stringResource(R.string.review_analyzing_audio), style = MaterialTheme.typography.labelMedium)
         Spacer(Modifier.height(4.dp))
         LinearProgressIndicator(
             progress = { progress.coerceIn(0f, 1f) },
@@ -454,7 +456,13 @@ private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
     val inProgress = state.inatSubmission is InatSubmissionState.InProgress
     val canSubmit = !alreadyUploaded && selectedCount > 0 && !inProgress
 
-    val label = reviewSubmitLabel(state.status, state.inatSubmission, selectedCount)
+    val alreadyUploadedForLabel = state.status == DraftStatus.UPLOADED || state.inatSubmission is InatSubmissionState.Done
+    val label = when {
+        state.inatSubmission is InatSubmissionState.InProgress -> stringResource(R.string.review_submit_uploading)
+        alreadyUploadedForLabel -> stringResource(R.string.review_submit_already_uploaded)
+        selectedCount == 0 -> stringResource(R.string.review_submit_select_species)
+        else -> pluralStringResource(R.plurals.review_submit_selected, selectedCount, selectedCount)
+    }
 
     Surface(shadowElevation = 4.dp) {
         Button(
@@ -496,11 +504,7 @@ private fun UploadedBanner(
                 modifier = Modifier.size(16.dp),
             )
             Text(
-                if (observations.size == 1) {
-                    "1 observation already uploaded"
-                } else {
-                    "${observations.size} observations already uploaded"
-                },
+                pluralStringResource(R.plurals.review_obs_uploaded, observations.size, observations.size),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -519,7 +523,7 @@ private fun UploadedBanner(
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = { uriHandler.openUri(url) }) {
-                    Text("View", style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.btn_view), style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -546,10 +550,10 @@ private fun PlayerControls(state: ReviewUiState, vm: ReviewViewModel) {
             OutlinedButton(onClick = { if (isPlaying) vm.pause() else vm.play() }) {
                 Icon(
                     if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    contentDescription = if (isPlaying) stringResource(R.string.btn_pause) else stringResource(R.string.btn_play),
                 )
                 Spacer(Modifier.width(8.dp))
-                Text(if (isPlaying) "Pause" else "Play")
+                Text(if (isPlaying) stringResource(R.string.btn_pause) else stringResource(R.string.btn_play))
             }
             Text("${formatMs(positionMs)} / ${formatMs(state.durationMs)}")
         }
@@ -571,9 +575,9 @@ private fun RegionalStatusIcon(status: RegionalStatus) {
         RegionalStatus.UNVERIFIED -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val desc = when (status) {
-        RegionalStatus.CONFIRMED -> "Observed in region"
-        RegionalStatus.NOT_CONFIRMED -> "Not observed in region"
-        RegionalStatus.UNVERIFIED -> "Regional check unavailable"
+        RegionalStatus.CONFIRMED -> stringResource(R.string.cd_region_confirmed)
+        RegionalStatus.NOT_CONFIRMED -> stringResource(R.string.cd_region_not_confirmed)
+        RegionalStatus.UNVERIFIED -> stringResource(R.string.cd_region_unverified)
     }
     Icon(
         imageVector = Icons.Outlined.Public,
@@ -652,7 +656,7 @@ private fun SpeciesListItem(
                 if (uploadedUrl != null) {
                     Icon(
                         Icons.Filled.Eco,
-                        contentDescription = "Uploaded to iNaturalist",
+                        contentDescription = stringResource(R.string.cd_uploaded_to_inat),
                         tint = INAT_GREEN,
                         modifier = Modifier.size(20.dp),
                     )
@@ -666,24 +670,6 @@ private fun SpeciesListItem(
             }
         },
     )
-}
-
-internal const val REVIEW_SPECIES_SECTION_TITLE = "Detected wildlife"
-
-internal fun reviewSubmitLabel(
-    status: DraftStatus,
-    submission: InatSubmissionState,
-    selectedCount: Int,
-): String {
-    val alreadyUploaded = status == DraftStatus.UPLOADED ||
-        submission is InatSubmissionState.Done
-    return when {
-        submission is InatSubmissionState.InProgress -> "Uploading…"
-        alreadyUploaded -> "Already uploaded"
-        selectedCount == 0 -> "Select species"
-        selectedCount == 1 -> "Submit 1 selected"
-        else -> "Submit $selectedCount selected"
-    }
 }
 
 internal fun speciesRowTrailingLabel(confidence: Float, detectedWindows: Int): String =

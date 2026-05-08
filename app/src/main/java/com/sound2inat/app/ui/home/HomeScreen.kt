@@ -57,8 +57,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sound2inat.app.R
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -126,10 +129,10 @@ fun HomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("WildEar") },
+                title = { Text(stringResource(R.string.app_name)) },
                 actions = {
                     IconButton(onClick = onSettings) {
-                        Icon(Icons.Outlined.Settings, contentDescription = "Settings")
+                        Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.cd_settings))
                     }
                 },
             )
@@ -138,7 +141,7 @@ fun HomeScreen(
             ExtendedFloatingActionButton(
                 onClick = onRecord,
                 icon = { Icon(Icons.Filled.Mic, contentDescription = null) },
-                text = { Text("Record") },
+                text = { Text(stringResource(R.string.fab_record)) },
             )
         },
     ) { padding ->
@@ -156,7 +159,7 @@ fun HomeScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Text(
-                        "Model not installed — analysis will run after you install it in Settings.",
+                        stringResource(R.string.home_model_not_installed),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
                         modifier = Modifier.padding(12.dp),
@@ -189,7 +192,7 @@ fun HomeScreen(
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                "No recordings match this filter",
+                                stringResource(R.string.home_no_recordings_filter),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -246,12 +249,12 @@ private fun EmptyState(modifier: Modifier = Modifier) {
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "No recordings yet",
+                stringResource(R.string.home_empty_title),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "Tap Record to capture wildlife sounds.",
+                stringResource(R.string.home_empty_subtitle),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -408,7 +411,7 @@ private fun uploadBadge(summary: DraftSummary, inatCount: Int): (@Composable () 
     return {
         Icon(
             Icons.Filled.Eco,
-            contentDescription = "Uploaded to iNaturalist",
+            contentDescription = stringResource(R.string.cd_uploaded_to_inat),
             tint = INAT_GREEN,
             modifier = Modifier.size(BADGE_ICON_SIZE_DP.dp),
         )
@@ -539,7 +542,7 @@ private fun RecordingFilterBar(
                     onFilterChange(if (filterMode == FilterMode.UPLOADED) FilterMode.ALL else FilterMode.UPLOADED)
                 },
                 label = {
-                    Icon(Icons.Filled.Eco, contentDescription = "Uploaded", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.Eco, contentDescription = stringResource(R.string.cd_filter_uploaded), modifier = Modifier.size(18.dp))
                 },
             )
             FilterChip(
@@ -550,7 +553,7 @@ private fun RecordingFilterBar(
                     )
                 },
                 label = {
-                    Icon(Icons.Filled.SearchOff, contentDescription = "Nothing detected", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.SearchOff, contentDescription = stringResource(R.string.cd_filter_nothing_detected), modifier = Modifier.size(18.dp))
                 },
             )
         }
@@ -563,7 +566,7 @@ private fun RecordingFilterBar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = if (allSelected) onClearSelection else onSelectAll) {
-                    Text(if (allSelected) "Deselect all" else "Select all")
+                    Text(if (allSelected) stringResource(R.string.filter_deselect_all) else stringResource(R.string.filter_select_all))
                 }
                 Spacer(modifier = Modifier.weight(1f))
                 if (selectedCount > 0) {
@@ -573,7 +576,7 @@ private fun RecordingFilterBar(
                             contentColor = MaterialTheme.colorScheme.error,
                         ),
                     ) {
-                        Text("Delete ($selectedCount)")
+                        Text(stringResource(R.string.filter_delete_selected, selectedCount))
                     }
                 }
             }
@@ -591,15 +594,13 @@ private fun BulkDeleteDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Delete ${preview.toDelete.size} recording${if (preview.toDelete.size > 1) "s" else ""}?") },
+        title = { Text(pluralStringResource(R.plurals.dialog_bulk_delete_title, preview.toDelete.size, preview.toDelete.size)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("This will permanently delete the selected recordings and their audio files.")
+                Text(stringResource(R.string.dialog_bulk_delete_body))
                 if (preview.skippedUploaded > 0) {
                     Text(
-                        "${preview.skippedUploaded} recording${if (preview.skippedUploaded > 1) "s" else ""} " +
-                            "with iNaturalist observations will be kept. " +
-                            "You can allow deleting them in Settings.",
+                        pluralStringResource(R.plurals.dialog_bulk_delete_skipped, preview.skippedUploaded, preview.skippedUploaded),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -612,10 +613,10 @@ private fun BulkDeleteDialog(
                 colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
                     contentColor = MaterialTheme.colorScheme.error,
                 ),
-            ) { Text("Delete") }
+            ) { Text(stringResource(R.string.btn_delete)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.btn_cancel)) }
         },
     )
 }
@@ -629,13 +630,11 @@ private fun SingleDeleteDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (blocked) "Cannot delete" else "Delete recording?") },
+        title = { Text(if (blocked) stringResource(R.string.dialog_delete_single_blocked_title) else stringResource(R.string.dialog_delete_single_title)) },
         text = {
             Text(
-                if (blocked)
-                    "This recording has an iNaturalist observation. To allow deleting it, enable \"Allow deleting recordings with observations\" in Settings."
-                else
-                    "This will permanently delete the recording and its audio file.",
+                if (blocked) stringResource(R.string.dialog_delete_single_blocked_body)
+                else stringResource(R.string.dialog_delete_single_body),
             )
         },
         confirmButton = {
@@ -645,11 +644,11 @@ private fun SingleDeleteDialog(
                     colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error,
                     ),
-                ) { Text("Delete") }
+                ) { Text(stringResource(R.string.btn_delete)) }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(if (blocked) "OK" else "Cancel") }
+            TextButton(onClick = onDismiss) { Text(if (blocked) stringResource(R.string.btn_ok) else stringResource(R.string.btn_cancel)) }
         },
     )
 }
