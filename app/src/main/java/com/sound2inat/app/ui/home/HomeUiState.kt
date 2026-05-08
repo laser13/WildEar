@@ -8,9 +8,18 @@ data class DraftSummary(
     val durationMs: Long,
     val status: DraftStatus,
     val topLabel: String?,
+    val inatCount: Int = 0,
+    val detectionCount: Int = 0,
 )
 
 data class HomeUiState(
     val isModelReady: Boolean = false,
     val drafts: List<DraftSummary> = emptyList(),
+)
+
+enum class FilterMode { ALL, UPLOADED, NOTHING_DETECTED }
+
+data class BulkDeletePreview(
+    val toDelete: List<DraftSummary>,
+    val skippedUploaded: Int,
 )

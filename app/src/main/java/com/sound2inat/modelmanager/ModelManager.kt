@@ -1,5 +1,8 @@
 package com.sound2inat.modelmanager
 
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -7,25 +10,35 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.security.MessageDigest
 
-class ModelManager(
+open class ModelManager(
     private val filesDir: File,
     private val http: OkHttpClient,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val hiddenDescriptors: List<ModelDescriptor> = emptyList(),
 ) {
     private val dir: File = File(filesDir, "models").apply { mkdirs() }
 
-    fun stateFor(descriptor: ModelDescriptor): ModelInstallState {
-        val m = modelFile(descriptor)
-        val l = labelsFile(descriptor)
-        val bothExist = m.exists() && l.exists()
-        val shaMatch = bothExist && sha256(m) == descriptor.modelSha256 && sha256(l) == descriptor.labelsSha256
-        return if (shaMatch) ModelInstallState.Ready(m, l) else ModelInstallState.NotInstalled
-    }
+    /**
+     * Reports whether the model is on disk and SHA-256-verified. SHA-256 over the
+     * 50 MB model file takes ~1 s; this method is `suspend` so callers always
+     * dispatch off Main.
+     */
+    open suspend fun stateFor(descriptor: ModelDescriptor): ModelInstallState =
+        withContext(ioDispatcher) {
+            val m = modelFile(descriptor)
+            val l = labelsFile(descriptor)
+            val bothExist = m.exists() && l.exists()
+            val shaMatch = bothExist &&
+                sha256(m) == descriptor.modelSha256 &&
+                sha256(l) == descriptor.labelsSha256
+            if (shaMatch) ModelInstallState.Ready(m, l) else ModelInstallState.NotInstalled
+        }
 
     @Suppress("TooGenericExceptionCaught")
-    suspend fun install(
+    open suspend fun install(
         descriptor: ModelDescriptor,
         emit: (ModelInstallState) -> Unit,
-    ) {
+    ): Unit = withContext(Dispatchers.IO) {
         try {
             emit(ModelInstallState.Downloading(0f))
             val modelTmp = downloadTo(
@@ -48,6 +61,14 @@ class ModelManager(
             modelTmp.renameTo(mFinal)
             labelsTmp.renameTo(lFinal)
             emit(ModelInstallState.Ready(mFinal, lFinal))
+            // Auto-install hidden companion models (e.g. YAMNet) once a visible model lands.
+            if (!descriptor.hidden) {
+                for (hidden in hiddenDescriptors) {
+                    if (stateFor(hidden) !is ModelInstallState.Ready) {
+                        install(hidden) { /* progress silently ignored */ }
+                    }
+                }
+            }
         } catch (t: Throwable) {
             partialFor(descriptor.id, "tflite").delete()
             partialFor(descriptor.id, "labels.txt").delete()
@@ -57,7 +78,7 @@ class ModelManager(
         }
     }
 
-    fun remove(descriptor: ModelDescriptor) {
+    open fun remove(descriptor: ModelDescriptor) {
         modelFile(descriptor).delete()
         labelsFile(descriptor).delete()
     }

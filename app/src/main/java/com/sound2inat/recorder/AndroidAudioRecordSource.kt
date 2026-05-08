@@ -20,7 +20,7 @@ class AndroidAudioRecordSource : AudioRecordSource {
 
     @SuppressLint("MissingPermission")
     override suspend fun start() {
-        record = AudioRecord(MediaRecorder.AudioSource.MIC, sampleRate, channelCfg, format, bufBytes)
+        record = buildAudioRecord(sampleRate, bufBytes)
         record!!.startRecording()
         stopped = false
     }
@@ -40,5 +40,37 @@ class AndroidAudioRecordSource : AudioRecordSource {
 
     companion object {
         const val MIN_BUF_BYTES = 8192
+
+        /**
+         * Factory seam: replaceable in unit tests to inject fake [AudioRecord] instances.
+         * Parameters: audioSource, sampleRate, bufferSizeInBytes → AudioRecord.
+         */
+        internal var audioRecordFactory: (source: Int, sampleRate: Int, bufferSize: Int) -> AudioRecord =
+            { source, sr, buf ->
+                AudioRecord(source, sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, buf)
+            }
+
+        /**
+         * Tries [MediaRecorder.AudioSource.UNPROCESSED] first (skips AGC, noise suppression,
+         * echo cancellation) for cleaner raw audio. Falls back to [MediaRecorder.AudioSource.MIC]
+         * if construction fails or the recorder ends up in an uninitialized state.
+         */
+        @SuppressLint("MissingPermission")
+        internal fun buildAudioRecord(sampleRate: Int, bufferSize: Int): AudioRecord {
+            runCatching {
+                val ar = audioRecordFactory(
+                    MediaRecorder.AudioSource.UNPROCESSED,
+                    sampleRate,
+                    bufferSize,
+                )
+                if (ar.state == AudioRecord.STATE_INITIALIZED) return ar
+                ar.release()
+            }
+            return audioRecordFactory(
+                MediaRecorder.AudioSource.MIC,
+                sampleRate,
+                bufferSize,
+            )
+        }
     }
 }

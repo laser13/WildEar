@@ -23,3 +23,10 @@ captures/
 __pycache__/
 *.pyc
 .venv/
+
+# Tooling state / scratch
+.claude/
+.superpowers/
+*.zip
+log.txt
+image*.png

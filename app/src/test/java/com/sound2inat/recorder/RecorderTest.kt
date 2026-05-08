@@ -3,6 +3,7 @@ package com.sound2inat.recorder
 import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
@@ -18,10 +19,9 @@ class RecorderTest {
     fun `produces a WAV with the recorded duration`() = runTest {
         val testDispatcher = UnconfinedTestDispatcher(testScheduler)
         val source = FakeAudioSource(emitFrames = 48_000) // 1 second
-        val recorder = DefaultRecorder(source, clock = TestClock(), ioDispatcher = testDispatcher)
+        val recorder = DefaultRecorder(source, clock = TestClock(), ioDispatcher = testDispatcher, externalScope = this)
         val target = tmp.newFile("rec.wav")
         recorder.start(target)
-        // With UnconfinedTestDispatcher the pump loop runs eagerly until blocked (source exhausted)
         testScheduler.advanceUntilIdle()
         val result = recorder.stop()
         assertThat(result.audioPath).isEqualTo(target.absolutePath)
@@ -32,7 +32,7 @@ class RecorderTest {
     fun `cancel deletes the file`() = runTest {
         val testDispatcher = UnconfinedTestDispatcher(testScheduler)
         val source = FakeAudioSource(emitFrames = 0)
-        val recorder = DefaultRecorder(source, clock = TestClock(), ioDispatcher = testDispatcher)
+        val recorder = DefaultRecorder(source, clock = TestClock(), ioDispatcher = testDispatcher, externalScope = this)
         val target = tmp.newFile("rec.wav")
         recorder.start(target)
         recorder.cancel()
@@ -40,10 +40,44 @@ class RecorderTest {
     }
 
     @Test
+    fun `audioBlocks emits float blocks scaled to -1 to 1`() = runTest {
+        val testDispatcher = UnconfinedTestDispatcher(testScheduler)
+        val source = ScriptedAudioSource(
+            blocks = listOf(shortArrayOf(0, Short.MAX_VALUE, Short.MIN_VALUE, 16384)),
+        )
+        val recorder = DefaultRecorder(
+            source,
+            clock = TestClock(),
+            ioDispatcher = testDispatcher,
+            externalScope = this,
+        )
+        val target = tmp.newFile("rec.wav")
+        val collected = mutableListOf<FloatArray>()
+        val collectorJob = launch { recorder.audioBlocks.collect { collected += it } }
+        recorder.start(target)
+        testScheduler.advanceUntilIdle()
+        recorder.stop()
+        collectorJob.cancel()
+
+        assertThat(collected).hasSize(1)
+        assertThat(collected[0][0]).isWithin(1e-4f).of(0f)
+        assertThat(collected[0][1]).isWithin(1e-4f).of(1f)
+        assertThat(collected[0][2]).isLessThan(-0.99f)
+        assertThat(collected[0][3]).isWithin(1e-3f).of(16384f / Short.MAX_VALUE)
+    }
+
+    @Test
+    fun `sampleRate matches underlying source`() = runTest {
+        val source = FakeAudioSource(emitFrames = 0)
+        val recorder = DefaultRecorder(source, clock = TestClock(), externalScope = this)
+        assertThat(recorder.sampleRate).isEqualTo(source.sampleRate)
+    }
+
+    @Test
     fun `rmsLevel emits non-negative bounded values`() = runTest {
         val testDispatcher = UnconfinedTestDispatcher(testScheduler)
         val source = FakeAudioSource(emitFrames = 48_000, amplitude = 0.5f)
-        val recorder = DefaultRecorder(source, clock = TestClock(), ioDispatcher = testDispatcher)
+        val recorder = DefaultRecorder(source, clock = TestClock(), ioDispatcher = testDispatcher, externalScope = this)
         val target = tmp.newFile("rec.wav")
         recorder.start(target)
         testScheduler.advanceUntilIdle()

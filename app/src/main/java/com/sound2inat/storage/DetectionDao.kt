@@ -21,4 +21,9 @@ interface DetectionDao {
 
     @Query("DELETE FROM detections WHERE draftId = :draftId")
     fun deleteForDraft(draftId: String): Int
+
+    @Query("SELECT draftId AS draftId, COUNT(*) AS count FROM detections GROUP BY draftId")
+    fun observeCountsByDraft(): Flow<List<DraftDetectionCount>>
 }
+
+data class DraftDetectionCount(val draftId: String, val count: Int)

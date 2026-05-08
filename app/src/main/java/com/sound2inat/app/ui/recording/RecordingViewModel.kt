@@ -1,141 +1,108 @@
 package com.sound2inat.app.ui.recording
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sound2inat.app.permissions.Permission
 import com.sound2inat.app.permissions.PermissionStatus
 import com.sound2inat.app.permissions.PermissionsController
-import com.sound2inat.location.Fix
-import com.sound2inat.location.LocationProvider
-import com.sound2inat.recorder.Recorder
-import com.sound2inat.storage.DraftRepository
-import com.sound2inat.storage.WavFileStore
+import com.sound2inat.app.recording.RecordingController
+import com.sound2inat.app.recording.RecordingServiceLauncher
+import com.sound2inat.app.recording.RecordingSessionState
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.UUID
 import javax.inject.Inject
 
-@Suppress("LongParameterList")
 class RecordingViewModel(
     private val perms: PermissionsController,
-    private val recorder: Recorder,
-    private val location: LocationProvider,
-    private val files: WavFileStore,
-    private val drafts: DraftRepository,
-    private val nowMs: () -> Long = { System.currentTimeMillis() },
-    private val locationTimeoutMs: Long = LOCATION_TIMEOUT_MS,
-    private val tickIntervalMs: Long = TICK_INTERVAL_MS,
-    private val softLimitMs: Long = SOFT_LIMIT_MS,
-    private val hardLimitMs: Long = HARD_LIMIT_MS,
+    private val controller: RecordingController,
+    private val launcher: RecordingServiceLauncher,
+    private val appContext: Context,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow<RecordingUiState>(RecordingUiState.Idle)
-    val state: StateFlow<RecordingUiState> = _state
+    private val permissionError = MutableStateFlow<String?>(null)
 
-    private var draftId: String? = null
-    private var recordingStartMs: Long = 0L
-    private var fix: Fix? = null
-    private var tickJob: Job? = null
-    private var rmsJob: Job? = null
-    private var locationJob: Job? = null
+    // True once this VM instance has observed at least one Recording state, meaning
+    // the controller is running a session we started. Without this guard, a stale
+    // Done(prevId) left in the singleton controller would fire onDone immediately
+    // on the next navigation to RecordingScreen, sending the user to the wrong draft.
+    private var hasSeenRecording = false
+
+    val state: StateFlow<RecordingUiState> = combine(
+        controller.state,
+        permissionError,
+    ) { session, error ->
+        if (session is RecordingSessionState.Recording) hasSeenRecording = true
+        val uiState = error?.let { RecordingUiState.Error(it) } ?: session.toUiState()
+        if (!hasSeenRecording && uiState is RecordingUiState.Done) RecordingUiState.Idle else uiState
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, RecordingUiState.Idle)
+
+    val rmsHistory: StateFlow<FloatArray> = controller.rmsHistory
+    val audioBlocks: SharedFlow<FloatArray> = controller.audioBlocks
+    val sampleRateHz: Int get() = controller.sampleRateHz
 
     fun start() {
         viewModelScope.launch {
-            val granted = perms.request(setOf(Permission.RECORD_AUDIO, Permission.ACCESS_FINE_LOCATION))
+            val granted = perms.request(RECORDING_PERMISSIONS)
             if (granted[Permission.RECORD_AUDIO] != PermissionStatus.GRANTED) {
-                _state.value = RecordingUiState.Error("Microphone permission required.")
+                permissionError.value = "Microphone permission required."
                 return@launch
             }
-            val id = UUID.randomUUID().toString().also { draftId = it }
-            val target = files.newRecordingFile(id)
-            recordingStartMs = nowMs()
-            recorder.start(target)
-            _state.value = RecordingUiState.Recording(0L, 0f, GpsStatus.Acquiring, false)
-
-            locationJob = viewModelScope.launch { fix = location.getCurrent(locationTimeoutMs) }
-            tickJob = viewModelScope.launch { tickLoop() }
-            rmsJob = viewModelScope.launch {
-                recorder.rmsLevel.collect { rms ->
-                    val cur = _state.value as? RecordingUiState.Recording ?: return@collect
-                    _state.value = cur.copy(rms = rms)
-                }
-            }
-        }
-    }
-
-    private suspend fun tickLoop() {
-        while (true) {
-            delay(tickIntervalMs)
-            val cur = _state.value as? RecordingUiState.Recording ?: return
-            val elapsed = nowMs() - recordingStartMs
-            val gps = fix?.let { GpsStatus.Fix(it.latitude, it.longitude, it.accuracyMeters) }
-                ?: if (elapsed >= locationTimeoutMs) GpsStatus.NoFix else GpsStatus.Acquiring
-            val soft = elapsed >= softLimitMs
-            if (elapsed >= hardLimitMs) {
-                stopInternal()
-                return
-            }
-            _state.value = cur.copy(elapsedMs = elapsed, gps = gps, warningSoftLimit = soft)
+            permissionError.value = null
+            launcher.start(appContext)
         }
     }
 
     fun stop() {
-        viewModelScope.launch { stopInternal() }
-    }
-
-    private suspend fun stopInternal() {
-        val id = draftId ?: return
-        val result = recorder.stop()
-        cancelJobs()
-        drafts.create(
-            id = id,
-            audioPath = result.audioPath,
-            recordedAtUtcMs = recordingStartMs,
-            durationMs = result.durationMs,
-            latitude = fix?.latitude,
-            longitude = fix?.longitude,
-            accuracyMeters = fix?.accuracyMeters,
-        )
-        _state.value = RecordingUiState.Done(id)
+        launcher.stop(appContext)
     }
 
     fun cancel() {
-        recorder.cancel()
-        cancelJobs()
-        _state.value = RecordingUiState.Idle
+        launcher.cancel(appContext)
     }
 
-    private fun cancelJobs() {
-        tickJob?.cancel()
-        tickJob = null
-        rmsJob?.cancel()
-        rmsJob = null
-        locationJob?.cancel()
-        locationJob = null
+    private fun RecordingSessionState.toUiState(): RecordingUiState = when (this) {
+        RecordingSessionState.Idle -> RecordingUiState.Idle
+        is RecordingSessionState.Recording -> RecordingUiState.Recording(
+            elapsedMs = elapsedMs,
+            rms = rms,
+            gps = gps,
+            warningSoftLimit = warningSoftLimit,
+            liveCards = liveCards,
+            backlogWindows = backlogWindows,
+        )
+        is RecordingSessionState.Done -> RecordingUiState.Done(draftId)
+        is RecordingSessionState.Error -> RecordingUiState.Error(message)
     }
 
-    companion object {
-        const val SOFT_LIMIT_MS = 5L * 60_000L
-        const val HARD_LIMIT_MS = 10L * 60_000L
-        const val TICK_INTERVAL_MS = 100L
-        const val LOCATION_TIMEOUT_MS = 15_000L
+    private companion object {
+        val RECORDING_PERMISSIONS = setOf(
+            Permission.RECORD_AUDIO,
+            Permission.ACCESS_FINE_LOCATION,
+            Permission.POST_NOTIFICATIONS,
+        )
     }
 }
 
 @HiltViewModel
 class RecordingViewModelHilt @Inject constructor(
-    private val recorder: Recorder,
-    private val location: LocationProvider,
-    private val files: WavFileStore,
-    private val drafts: DraftRepository,
+    private val controller: RecordingController,
+    private val launcher: RecordingServiceLauncher,
+    @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
-    // PermissionsController depends on the host ComponentActivity, so it's not Hilt-singleton.
-    // The screen creates the delegate after collecting LocalPermissionsController.
     val factory = { perms: PermissionsController ->
-        RecordingViewModel(perms, recorder, location, files, drafts)
+        RecordingViewModel(
+            perms = perms,
+            controller = controller,
+            launcher = launcher,
+            appContext = appContext,
+        )
     }
 }

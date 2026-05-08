@@ -3,7 +3,7 @@ package com.sound2inat.storage
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-enum class DraftStatus { PENDING_INFERENCE, PENDING_REVIEW, REVIEWED }
+enum class DraftStatus { PENDING_INFERENCE, PENDING_REVIEW, REVIEWED, UPLOADED }
 
 @Entity(tableName = "drafts")
 data class DraftEntity(
@@ -19,4 +19,7 @@ data class DraftEntity(
     val modelVersion: String?,
     val createdAtUtcMs: Long,
     val updatedAtUtcMs: Long,
+    val inatObservationId: Long? = null,
+    val inatObservationUrl: String? = null,
+    val inatLastError: String? = null,
 )
