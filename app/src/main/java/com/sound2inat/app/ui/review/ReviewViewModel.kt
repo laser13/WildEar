@@ -14,6 +14,7 @@ import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.FragmentRanges
 import com.sound2inat.inference.InferenceJob
 import com.sound2inat.inference.InferenceOutcome
+import com.sound2inat.inference.InferenceUseCase
 import com.sound2inat.inference.PerchAnalysisJob
 import com.sound2inat.inference.PerchAnalysisOutcome
 import com.sound2inat.inference.RegionalStatus
@@ -893,7 +894,7 @@ class ReviewViewModelFactory @Inject constructor(
     private val inatObservationsDao: InatObservationDao,
     private val inatClient: INaturalistClient,
     private val regionFilter: RegionFilter,
-    private val inferenceUseCase: com.sound2inat.inference.InferenceUseCase,
+    private val inferenceUseCase: InferenceUseCase,
     private val inatAuth: com.sound2inat.inat.INatAuthRepository,
     private val modelManager: ModelManager,
 ) {

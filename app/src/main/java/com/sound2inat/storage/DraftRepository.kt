@@ -73,7 +73,7 @@ class DraftRepository(
     /**
      * Atomic equivalent of [create] + [attachDetections] for the live recording
      * path. Inserts a draft that is already in [DraftStatus.PENDING_REVIEW]
-     * with the given live detections, so the offline [ProductionInferenceJob]
+     * with the given live detections, so the offline [com.sound2inat.inference.InferenceJob]
      * never picks it up. Use this only when detections were produced inline
      * (RecordingViewModel + LiveInferenceEngine); offline flows still call
      * [create] then [attachDetections].

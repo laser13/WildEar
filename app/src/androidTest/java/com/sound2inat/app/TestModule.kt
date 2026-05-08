@@ -81,6 +81,16 @@ object TestSwappableModule {
     @Provides
     fun provideLiveInferenceEngineFactory(): LiveInferenceEngineFactory? = null
 
+    /**
+     * Deliberately wires the full [DefaultInferenceUseCase] production pipeline rather than
+     * a canned-outcome stub. The swap point exists so instrumented tests exercise the real
+     * priors-application + aggregation + region-filter logic with deterministic inputs:
+     * [FakeBioacousticModel] returns fixed predictions, [FakeModelManager] always reports
+     * Ready, and YAMNet/BirdNET-Meta are both null so the pipeline is gate-free.
+     *
+     * This is an intentional integration-test choice — do not replace with a lambda stub
+     * unless no test in this suite depends on aggregation or confidence filtering behaviour.
+     */
     @Provides @Singleton
     @Suppress("LongParameterList")
     fun provideInferenceUseCase(
