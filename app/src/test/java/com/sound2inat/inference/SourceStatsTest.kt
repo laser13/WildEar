@@ -57,4 +57,34 @@ class SourceStatsTest {
         val encoded = SourceStats.encode(input)!!
         assertThat(encoded.indexOf("birdnet")).isLessThan(encoded.indexOf("perch"))
     }
+
+    @Test fun `encode rejects key containing equals sign`() {
+        val stat = SourceStat(0.8f, 1, 0L, 3_000L)
+        try {
+            SourceStats.encode(mapOf("bad=key" to stat))
+            error("Expected IllegalArgumentException")
+        } catch (e: IllegalArgumentException) {
+            assertThat(e.message).contains("bad=key")
+        }
+    }
+
+    @Test fun `encode rejects key containing semicolon`() {
+        val stat = SourceStat(0.8f, 1, 0L, 3_000L)
+        try {
+            SourceStats.encode(mapOf("bad;key" to stat))
+            error("Expected IllegalArgumentException")
+        } catch (e: IllegalArgumentException) {
+            assertThat(e.message).contains("bad;key")
+        }
+    }
+
+    @Test fun `encode rejects key containing colon`() {
+        val stat = SourceStat(0.8f, 1, 0L, 3_000L)
+        try {
+            SourceStats.encode(mapOf("bad:key" to stat))
+            error("Expected IllegalArgumentException")
+        } catch (e: IllegalArgumentException) {
+            assertThat(e.message).contains("bad:key")
+        }
+    }
 }

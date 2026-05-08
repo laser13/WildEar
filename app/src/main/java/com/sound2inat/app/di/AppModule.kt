@@ -124,10 +124,12 @@ object AppModule {
         client: INaturalistClient,
         drafts: DraftDao,
         inatObservations: com.sound2inat.storage.InatObservationDao,
+        db: Sound2iNatDb,
     ): INatSubmitter = INatSubmitter(
         client = client,
         drafts = drafts,
         inatObservations = inatObservations,
         tmpRoot = ctx.cacheDir,
+        db = db,
     )
 }

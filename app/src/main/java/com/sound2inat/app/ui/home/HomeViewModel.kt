@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 class HomeViewModel(
@@ -143,9 +142,7 @@ class HomeViewModelHilt @Inject constructor(
 
     fun bulkDelete(ids: List<String>) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                ids.forEach { repo.delete(it) }
-            }
+            ids.forEach { repo.delete(it) }
             selectedIds.value = emptySet()
         }
     }
