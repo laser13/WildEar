@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Room
 import com.sound2inat.app.data.Settings
 import com.sound2inat.inat.INatSubmitter
+import com.sound2inat.inat.INatTokenStorage
+import com.sound2inat.inat.INatTokenStore
 import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inat.RegionLookup
@@ -82,6 +84,9 @@ object AppModule {
 
     @Provides @Singleton
     fun provideSettings(@ApplicationContext ctx: Context): Settings = Settings(ctx)
+
+    @Provides @Singleton
+    fun provideTokenStore(impl: INatTokenStorage): INatTokenStore = impl
 
     @Provides @Singleton
     fun provideHttp(): OkHttpClient = OkHttpClient.Builder()

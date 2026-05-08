@@ -8,6 +8,16 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Minimal contract used by [INatAuthRepository]; allows in-memory fakes in unit tests. */
+interface INatTokenStore {
+    val token: String?
+    val tokenFetchedAtUtcMs: Long
+    val login: String?
+    val userId: Long?
+    fun save(token: String, login: String?, userId: Long?, fetchedAtUtcMs: Long)
+    fun clear()
+}
+
 /**
  * Encrypted-at-rest storage for the iNaturalist API token + login. Uses
  * Jetpack `security-crypto` (`EncryptedSharedPreferences`, AES256-GCM, key
@@ -21,7 +31,7 @@ import javax.inject.Singleton
 @Singleton
 class INatTokenStorage @Inject constructor(
     @ApplicationContext context: Context,
-) {
+) : INatTokenStore {
     private val prefs: SharedPreferences = EncryptedSharedPreferences.create(
         context,
         FILE_NAME,
@@ -31,18 +41,18 @@ class INatTokenStorage @Inject constructor(
     )
 
     /** Last token returned by `/users/api_token`, or null when absent. */
-    val token: String? get() = prefs.getString(KEY_TOKEN, null)?.takeIf(String::isNotBlank)
+    override val token: String? get() = prefs.getString(KEY_TOKEN, null)?.takeIf(String::isNotBlank)
 
     /** Authenticated login (e.g. "@semen") if known, null otherwise. */
-    val login: String? get() = prefs.getString(KEY_LOGIN, null)?.takeIf(String::isNotBlank)
+    override val login: String? get() = prefs.getString(KEY_LOGIN, null)?.takeIf(String::isNotBlank)
 
     /** Numeric iNaturalist user id, or null if unknown (e.g. legacy migration). */
-    val userId: Long? get() = prefs.getLong(KEY_USER_ID, -1L).takeIf { it > 0 }
+    override val userId: Long? get() = prefs.getLong(KEY_USER_ID, -1L).takeIf { it > 0 }
 
     /** When [token] was last refreshed (epoch ms). 0 means "never". */
-    val tokenFetchedAtUtcMs: Long get() = prefs.getLong(KEY_FETCHED_AT, 0L)
+    override val tokenFetchedAtUtcMs: Long get() = prefs.getLong(KEY_FETCHED_AT, 0L)
 
-    fun save(token: String, login: String?, userId: Long?, fetchedAtUtcMs: Long) {
+    override fun save(token: String, login: String?, userId: Long?, fetchedAtUtcMs: Long) {
         prefs.edit().apply {
             putString(KEY_TOKEN, token)
             if (login != null) putString(KEY_LOGIN, login) else remove(KEY_LOGIN)
@@ -52,7 +62,7 @@ class INatTokenStorage @Inject constructor(
         }
     }
 
-    fun clear() {
+    override fun clear() {
         prefs.edit().clear().apply()
     }
 

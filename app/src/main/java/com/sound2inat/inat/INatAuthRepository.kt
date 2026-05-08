@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,9 +36,9 @@ import kotlin.coroutines.resume
  *     scrubbed from DataStore.
  */
 @Singleton
-class INatAuthRepository @Inject constructor(
+open class INatAuthRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val storage: INatTokenStorage,
+    private val storage: INatTokenStore,
     private val settings: Settings,
     private val client: INaturalistClient,
 ) {
@@ -52,7 +54,8 @@ class INatAuthRepository @Inject constructor(
     /** Convenience: snapshot of [userIdState]. */
     val userId: Long? get() = _userIdState.value
 
-    @Volatile private var migrationChecked = false
+    private val migrationMutex = Mutex()
+    private var migrationChecked = false
 
     /**
      * Returns a usable api_token, attempting a silent refresh first if the
@@ -64,10 +67,10 @@ class INatAuthRepository @Inject constructor(
         val cached = storage.token
         val age = System.currentTimeMillis() - storage.tokenFetchedAtUtcMs
         if (cached != null && age in 0..TOKEN_TTL_MS) return cached
-        // Stale or missing — try silent refresh, fall through to caller-driven
-        // interactive login if WebView session cookies have also expired.
-        val refreshed = trySilentRefresh(refreshDispatcher)
-        return refreshed ?: cached
+        // Stale or missing: attempt silent WebView refresh. Return null on failure
+        // so the caller surfaces an interactive login prompt instead of silently
+        // sending a stale token that will 401.
+        return trySilentRefresh(refreshDispatcher)
     }
 
     /**
@@ -108,6 +111,13 @@ class INatAuthRepository @Inject constructor(
     }
 
     /**
+     * Override point for tests: replace with a stub that does not spin a WebView.
+     * Production code calls [trySilentRefreshWebView].
+     */
+    internal open suspend fun trySilentRefresh(dispatcher: CoroutineDispatcher): String? =
+        trySilentRefreshWebView(dispatcher)
+
+    /**
      * Headless variant of [INatWebLoginActivity]'s flow — spins a hidden
      * [android.webkit.WebView] on the main thread, navigates to
      * `/users/api_token`, and waits for [parseTokenJson] to extract the
@@ -118,7 +128,7 @@ class INatAuthRepository @Inject constructor(
      * `WebView` requires a Looper, so the work is forced onto
      * [mainDispatcher] regardless of the caller's coroutine context.
      */
-    private suspend fun trySilentRefresh(mainDispatcher: CoroutineDispatcher): String? =
+    private suspend fun trySilentRefreshWebView(mainDispatcher: CoroutineDispatcher): String? =
         withContext(mainDispatcher) {
             suspendCancellableCoroutine<String?> { cont ->
                 var resolved = false
@@ -153,27 +163,40 @@ class INatAuthRepository @Inject constructor(
      * Imports a legacy plain-DataStore token from earlier app versions
      * into encrypted storage exactly once per process. The DataStore copy
      * is cleared so a future leak only exposes the encrypted blob.
+     *
+     * Guarded by [migrationMutex] to prevent the check-then-act from racing
+     * under concurrent coroutine calls (e.g. two simultaneous API requests).
      */
-    private suspend fun ensureMigrated() {
-        if (migrationChecked) return
+    private suspend fun ensureMigrated() = migrationMutex.withLock {
+        if (migrationChecked) return@withLock
         migrationChecked = true
-        if (storage.token != null) return
-        val legacy = runCatching { settings.inatToken.first() }.getOrNull() ?: return
-        if (legacy.isBlank()) return
-        val legacyLogin = runCatching { settings.inatLogin.first() }.getOrNull()
+        if (storage.token != null) return@withLock
+        val (legacy, legacyLogin) = readLegacyToken() ?: return@withLock
         // Mark fetched-at = "now" so the freshness check at least gives the
         // legacy token one normal TTL window before triggering refresh —
         // we don't actually know how old it was.
         storage.save(legacy, legacyLogin, null, System.currentTimeMillis())
         _tokenState.value = legacy
         _loginState.value = legacyLogin
+        clearLegacyToken()
+    }
+
+    /** Override in tests to avoid DataStore dependency. */
+    internal open suspend fun readLegacyToken(): Pair<String, String?>? {
+        val legacy = runCatching { settings.inatToken.first() }.getOrNull() ?: return null
+        if (legacy.isBlank()) return null
+        return legacy to runCatching { settings.inatLogin.first() }.getOrNull()
+    }
+
+    /** Override in tests to avoid DataStore dependency. */
+    internal open suspend fun clearLegacyToken() {
         runCatching {
             settings.setInatToken(null)
             settings.setInatLogin(null)
         }
     }
 
-    private companion object {
+    internal companion object {
         /** iNat api_tokens are JWTs with a 24h `exp`; refresh just before. */
         const val TOKEN_TTL_MS = 23L * 60 * 60 * 1000
 
