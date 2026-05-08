@@ -1,14 +1,18 @@
 package com.sound2inat.inat
 
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.recorder.WavWriter
 import com.sound2inat.storage.DetectionEntity
 import com.sound2inat.storage.DraftDao
 import com.sound2inat.storage.DraftEntity
+import com.sound2inat.storage.DraftObservationCount
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.DraftWithDetections
 import com.sound2inat.storage.InatObservationDao
 import com.sound2inat.storage.InatObservationEntity
+import com.sound2inat.storage.Sound2iNatDb
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -313,6 +317,89 @@ class INatSubmitterTest {
         val put2Body = server.takeRequest().body.readUtf8()
         assertThat(put2Body).contains("Sibling observations from the same recording:")
         assertThat(put2Body).contains(" - Parus major →")
+    }
+
+    /**
+     * Verifies that when [Sound2iNatDb] is injected, the delete+insertAll is
+     * wrapped in a single transaction: if insert throws mid-way the prior rows
+     * must be rolled back and preserved.
+     *
+     * Uses an in-memory Room DB and a DAO decorator that throws on the second
+     * insert, simulating a partial-write failure.
+     */
+    @Test fun `persistObservations is atomic — insert failure preserves prior rows`() = runTest {
+        val db = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(),
+            Sound2iNatDb::class.java,
+        ).allowMainThreadQueries().build()
+
+        // The draft "d-1" must exist in the Room DB because inat_observations has
+        // a foreign-key constraint on draftId → drafts(id).
+        val draft = draftWith(listOf("Parus major", "Sylvia"))
+        db.drafts().insert(draft.draft)
+
+        // Pre-seed two "old" observation rows that must survive a failed re-submit.
+        val oldA = InatObservationEntity(
+            draftId = draft.draft.id,
+            taxonScientificName = "Old A",
+            taxonInatId = 1L,
+            observationId = 100L,
+            observationUrl = "https://x/100",
+            createdAtUtcMs = 0L,
+        )
+        val oldB = oldA.copy(
+            taxonScientificName = "Old B",
+            observationId = 101L,
+            observationUrl = "https://x/101",
+        )
+        db.inatObservations().insert(oldA)
+        db.inatObservations().insert(oldB)
+        assertThat(db.inatObservations().listForDraft(draft.draft.id)).hasSize(2)
+
+        // DAO wrapper that throws on the second insert call.
+        val throwingDao = object : InatObservationDao by db.inatObservations() {
+            var callCount = 0
+            override fun insert(row: InatObservationEntity): Long {
+                if (++callCount >= 2) error("simulated insert failure")
+                return db.inatObservations().insert(row)
+            }
+        }
+
+        val throwingSubmitter = INatSubmitter(
+            client = client,
+            drafts = db.drafts(),
+            inatObservations = throwingDao,
+            tmpRoot = tmp.newFolder("cache2"),
+            ioDispatcher = UnconfinedTestDispatcher(),
+            nowMs = { 0L },
+            db = db,
+        )
+
+        // Two HTTP species so two inserts are attempted.
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":1,"iconic_taxon_name":"Aves"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":700,"uuid":"u-A"}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":555}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":11}"""))
+        server.enqueue(MockResponse().setBody("""{"id":12}"""))
+        server.enqueue(MockResponse().setBody("""{"id":21}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":2,"iconic_taxon_name":"Aves"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":701,"uuid":"u-B"}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":556}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":13}"""))
+        server.enqueue(MockResponse().setBody("""{"id":14}"""))
+        server.enqueue(MockResponse().setBody("""{"id":22}"""))
+
+        val result = runCatching {
+            throwingSubmitter.submit("jwt", draft)
+        }
+
+        // The transaction must roll back, preserving the original two rows.
+        assertThat(result.isFailure).isTrue()
+        val remaining = db.inatObservations().listForDraft(draft.draft.id)
+        assertThat(remaining).hasSize(2)
+        assertThat(remaining.map { it.taxonScientificName }).containsExactly("Old A", "Old B")
+
+        db.close()
     }
 }
 

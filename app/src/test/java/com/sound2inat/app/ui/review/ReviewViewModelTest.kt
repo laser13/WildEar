@@ -20,6 +20,7 @@ import com.sound2inat.storage.DraftEntity
 import com.sound2inat.storage.DraftRepository
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.WavFileStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -651,7 +652,7 @@ class ReviewViewModelTest {
             detections = detections,
             files = files,
             nowMs = { 0L },
-            ioDispatcher = UnconfinedTestDispatcher(),
+            ioDispatcher = Dispatchers.Unconfined,
         )
     }
 

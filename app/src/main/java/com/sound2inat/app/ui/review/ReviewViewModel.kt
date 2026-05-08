@@ -395,7 +395,7 @@ class ReviewViewModel(
     }
 
     fun toggle(detectionId: Long, selected: Boolean) {
-        scope.launch(ioDispatcher) { repo.setSelection(detectionId, selected) }
+        scope.launch { repo.setSelection(detectionId, selected) }
     }
 
     fun loadObservationDetail(detectionId: Long, observationId: Long) {
@@ -579,14 +579,14 @@ class ReviewViewModel(
 
     fun save(onSaved: () -> Unit = {}) {
         scope.launch {
-            withContext(ioDispatcher) { repo.markReviewed(draftId) }
+            repo.markReviewed(draftId)
             onSaved()
         }
     }
 
     fun delete(onDeleted: () -> Unit = {}) {
         scope.launch {
-            withContext(ioDispatcher) { repo.delete(draftId) }
+            repo.delete(draftId)
             onDeleted()
         }
     }

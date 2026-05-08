@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.inference.AggregatedDetection
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Before
@@ -39,6 +40,7 @@ class DraftRepositoryTest {
             detections = db.detections(),
             files = WavFileStore(tmp.root),
             nowMs = { 0L },
+            ioDispatcher = UnconfinedTestDispatcher(),
             runInTransaction = { block -> db.runInTransaction(block) },
         )
     }
@@ -127,5 +129,18 @@ class DraftRepositoryTest {
         repo.attachDetections("d1", "m", "1.0", emptyList())
         repo.markReviewed("d1")
         assertThat(db.drafts().getById("d1")!!.status).isEqualTo(DraftStatus.REVIEWED)
+    }
+
+    /**
+     * Mutating methods dispatch to [ioDispatcher] internally, so they can be
+     * called from any coroutine context without triggering Room's main-thread guard.
+     */
+    @Test
+    fun `mutating methods callable without crashing`() = runTest {
+        repo.create("main-test", "/tmp/x.wav", 1L, 1000L, null, null, null)
+        repo.attachDetections("main-test", "m", "1.0", emptyList())
+        repo.markReviewed("main-test")
+        repo.delete("main-test")
+        assertThat(db.drafts().getById("main-test")).isNull()
     }
 }

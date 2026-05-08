@@ -1,5 +1,6 @@
 package com.sound2inat.inat
 
+import androidx.room.withTransaction
 import com.sound2inat.inference.SourceStats
 import com.sound2inat.modelmanager.KnownModels
 import com.sound2inat.storage.DetectionEntity
@@ -8,6 +9,7 @@ import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.DraftWithDetections
 import com.sound2inat.storage.InatObservationDao
 import com.sound2inat.storage.InatObservationEntity
+import com.sound2inat.storage.Sound2iNatDb
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -49,6 +51,7 @@ class INatSubmitter(
     private val tmpRoot: File,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
+    private val db: Sound2iNatDb? = null,
 ) {
 
     sealed interface Result {
@@ -68,12 +71,8 @@ class INatSubmitter(
         val srcAudio = File(draft.draft.audioPath)
         if (!srcAudio.exists()) return@withContext Result.Failure("Audio file missing on disk")
 
-        // Wipe any previous observations for this draft so re-submit starts clean.
-        // (The user re-submits on Review when something failed mid-flow last time.)
-        inatObservations.deleteForDraft(draft.draft.id)
-
         val cropDir = File(tmpRoot, "inat_uploads").apply { mkdirs() }
-        val createdRows = mutableListOf<InatObservationEntity>()
+        val pendingRows = mutableListOf<InatObservationEntity>()
         val createdPairs = mutableListOf<Pair<InatObservationEntity, DetectionEntity>>()
         val failures = mutableListOf<String>()
 
@@ -85,7 +84,7 @@ class INatSubmitter(
                         LOG_TAG,
                         "Uploaded ${det.taxonScientificName} -> ${row.observationUrl}",
                     )
-                    createdRows += row
+                    pendingRows += row
                     createdPairs += row to det
                 } else {
                     android.util.Log.w(LOG_TAG, "No iNat match for ${det.taxonScientificName}")
@@ -103,7 +102,7 @@ class INatSubmitter(
             runCatching { File(cropDir, cropFileName(draft.draft.id, det)).delete() }
         }
 
-        if (createdRows.isEmpty()) {
+        if (pendingRows.isEmpty()) {
             val msg = "All species failed: ${failures.joinToString(" | ")}"
             drafts.update(
                 draft.draft.copy(inatLastError = msg, updatedAtUtcMs = nowMs()),
@@ -116,6 +115,11 @@ class INatSubmitter(
             crossLink(token, createdPairs)
         }
 
+        // Atomic wipe-and-replace: delete any prior rows for this draft, then
+        // insert the freshly created observations in a single transaction so a
+        // mid-insert failure never leaves the table in a torn state.
+        val createdRows = persistObservations(draft.draft.id, pendingRows)
+
         val primary = createdRows.first()
         drafts.update(
             draft.draft.copy(
@@ -127,6 +131,26 @@ class INatSubmitter(
             ),
         )
         Result.Ok(primary.observationUrl, createdRows.map { it.observationUrl })
+    }
+
+    /**
+     * Atomically deletes all prior iNat observation rows for [draftId] and
+     * inserts [rows]. When a [Sound2iNatDb] reference is available the two
+     * operations run inside a single [withTransaction] block; otherwise they
+     * execute sequentially (test paths with fake DAOs).
+     */
+    private suspend fun persistObservations(
+        draftId: String,
+        rows: List<InatObservationEntity>,
+    ): List<InatObservationEntity> {
+        fun doInsert(): List<InatObservationEntity> {
+            inatObservations.deleteForDraft(draftId)
+            return rows.map { row ->
+                val savedId = inatObservations.insert(row)
+                row.copy(id = savedId)
+            }
+        }
+        return if (db != null) db.withTransaction { doInsert() } else doInsert()
     }
 
     /**
@@ -188,7 +212,7 @@ class INatSubmitter(
         }.onFailure {
             android.util.Log.w(LOG_TAG, "addIdentification on ${created.id} failed", it)
         }
-        val row = InatObservationEntity(
+        return InatObservationEntity(
             draftId = draft.draft.id,
             taxonScientificName = det.taxonScientificName,
             taxonInatId = genusId,
@@ -196,8 +220,6 @@ class INatSubmitter(
             observationUrl = created.url,
             createdAtUtcMs = nowMs(),
         )
-        val savedId = inatObservations.insert(row)
-        return row.copy(id = savedId)
     }
 
     private fun cropPerSpecies(
