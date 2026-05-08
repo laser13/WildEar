@@ -17,7 +17,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -68,6 +67,12 @@ interface RecordingController {
 
 @Suppress("LongParameterList", "TooManyFunctions")
 class DefaultRecordingController(
+    /**
+     * Long-lived application-scoped scope. Owned by Hilt at the SingletonComponent
+     * level; outlives [com.sound2inat.app.recording.RecordingService] so a service
+     * teardown does not orphan or kill in-flight engine cleanup.
+     */
+    private val applicationScope: CoroutineScope,
     private val recorder: Recorder,
     private val location: LocationProvider,
     private val files: WavFileStore,
@@ -84,8 +89,16 @@ class DefaultRecordingController(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : RecordingController {
 
-    private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
+    private val scope: CoroutineScope = applicationScope
     private val startMutex = Mutex()
+    /**
+     * Tracks the in-flight tear-down launched by [cancel]. Subsequent [start]
+     * calls join this job under [startMutex] before constructing a new engine,
+     * which closes the cancel→start race that otherwise lets two BirdNET
+     * interpreters run in parallel for a brief window. Cleared once the job
+     * completes (see [cancel]).
+     */
+    @Volatile private var pendingStopJob: Job? = null
 
     private val _state = MutableStateFlow<RecordingSessionState>(RecordingSessionState.Idle)
     override val state: StateFlow<RecordingSessionState> = _state
@@ -125,6 +138,12 @@ class DefaultRecordingController(
     override suspend fun start() {
         startMutex.withLock {
             if (_state.value is RecordingSessionState.Recording) return@withLock
+            // If a previous cancel() is still tearing down its engine, wait for
+            // it to fully complete before standing up a new one. Otherwise two
+            // BirdNET interpreters can run in parallel for the duration of the
+            // overlap.
+            pendingStopJob?.join()
+            pendingStopJob = null
             val id = UUID.randomUUID().toString().also { draftId = it }
             val target = files.newRecordingFile(id)
             recordingStartMs = nowMs()
@@ -250,16 +269,28 @@ class DefaultRecordingController(
     override fun cancel() {
         recorder.cancel()
         cancelJobs()
+        // Snapshot + clear references synchronously so a follow-up start() that
+        // races with the launched tear-down can't observe the stale engine.
         val engine = activeEngine
-        if (engine != null) {
-            scope.launch { engine.stop() }
-            activeEngine = null
-            activeAggregator = null
-        }
+        activeEngine = null
+        activeAggregator = null
         regionalStatusCache.clear()
         annotationInFlight.clear()
         pendingDisplay.clear()
+        // Flip to Idle synchronously so observers (UI, RecordingService) see
+        // the session end immediately. The engine is torn down asynchronously
+        // because stop() can be slow (BirdNET interpreter close, queue drain).
+        // start() joins [pendingStopJob] under [startMutex] before creating a
+        // new engine, which is what closes the cancel→start race.
         _state.value = RecordingSessionState.Idle
+        if (engine == null) return
+        val job = scope.launch { engine.stop() }
+        pendingStopJob = job
+        job.invokeOnCompletion {
+            // Compare-and-clear so we don't stomp on a newer pendingStopJob set
+            // by a subsequent cancel().
+            if (pendingStopJob === job) pendingStopJob = null
+        }
     }
 
     private fun cancelJobs() {

@@ -18,6 +18,7 @@ import com.sound2inat.storage.DraftRepository
 import com.sound2inat.storage.WavFileStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,7 +59,9 @@ class RecordingControllerTest {
         location: LocationProvider = FakeLocation(Fix(34.7, 33.04, 5f, 1L)),
         engineFactory: LiveInferenceEngineFactory? = null,
         nowMs: () -> Long = { 0L },
+        applicationScope: CoroutineScope = CoroutineScope(SupervisorJob() + dispatcher),
     ): DefaultRecordingController = DefaultRecordingController(
+        applicationScope = applicationScope,
         recorder = recorder,
         location = location,
         files = files,

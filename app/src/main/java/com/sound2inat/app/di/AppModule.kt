@@ -19,12 +19,30 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import okhttp3.OkHttpClient
 import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
+
+    /**
+     * Long-lived scope shared across @Singleton components. Used by
+     * [com.sound2inat.app.recording.DefaultRecordingController] for engine
+     * tear-down jobs that must outlive the foreground RecordingService — the
+     * service is destroyed as soon as it calls stopSelf(), which would
+     * otherwise orphan the running coroutines that finalize a session.
+     *
+     * SupervisorJob so a failure in one consumer doesn't poison the rest;
+     * Dispatchers.Default because the scope is not bound to IO — individual
+     * launches that need IO can wrap in withContext(ioDispatcher) themselves.
+     */
+    @Provides @Singleton
+    fun provideApplicationScope(): CoroutineScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Provides @Singleton
     fun provideDb(@ApplicationContext ctx: Context): Sound2iNatDb =

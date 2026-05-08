@@ -13,13 +13,16 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineScope
 import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object RecordingModule {
     @Provides @Singleton
+    @Suppress("LongParameterList")
     fun provideRecordingController(
+        applicationScope: CoroutineScope,
         recorder: Recorder,
         location: LocationProvider,
         files: WavFileStore,
@@ -28,6 +31,7 @@ object RecordingModule {
         regionFilter: RegionFilter,
         settings: Settings,
     ): RecordingController = DefaultRecordingController(
+        applicationScope = applicationScope,
         recorder = recorder,
         location = location,
         files = files,
