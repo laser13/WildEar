@@ -22,6 +22,8 @@ import com.sound2inat.inference.PerchAnalysisOutcome
 import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.inference.SourceStats
 import com.sound2inat.inference.WavReader
+import com.sound2inat.inference.denoiseFull
+import com.sound2inat.recorder.WavWriter
 import com.sound2inat.inference.WindowPrediction
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
@@ -202,6 +204,9 @@ class ReviewViewModel(
     /** Last result of [perchInstalledProbe]; folded into [ReviewUiState.canAnalyzeWithPerch]. */
     private var perchInstalled: Boolean = false
     private var perchJob: Job? = null
+
+    private var denoisedPath: String? = null
+    private var denoiseJob: Job? = null
 
     init {
         scope.launch {
@@ -681,7 +686,42 @@ class ReviewViewModel(
     fun pause() { player.pause() }
     fun seekTo(ms: Long) { player.seekTo(ms) }
 
-    private fun effectivePlaybackPath(): String? = _state.value.audioPath
+    fun toggleDenoisePlayback() {
+        val newValue = !_state.value.denoisePlayback
+        _state.value = _state.value.copy(denoisePlayback = newValue)
+        if (newValue && denoisedPath == null) ensureDenoised()
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private fun ensureDenoised() {
+        val path = _state.value.audioPath ?: return
+        denoiseJob = scope.launch {
+            try {
+                val outPath = withContext(ioDispatcher) {
+                    val (samples, sampleRateHz) = WavReader.readMono16(File(path))
+                    val floats = FloatArray(samples.size) { samples[it] / 32768f }
+                    val denoised = denoiseFull(floats, sampleRateHz)
+                    val out = File(File(path).parent!!, "denoised_$draftId.wav")
+                    val writer = WavWriter(out, sampleRateHz, 1, 16)
+                    writer.open()
+                    val shorts = ShortArray(denoised.size) {
+                        (denoised[it].coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt().toShort()
+                    }
+                    writer.writeShorts(shorts, 0, shorts.size)
+                    writer.close()
+                    out.absolutePath
+                }
+                denoisedPath = outPath
+            } catch (t: Throwable) {
+                Log.w("ReviewViewModel", "ensureDenoised failed for draft $draftId", t)
+            }
+        }
+    }
+
+    private fun effectivePlaybackPath(): String? {
+        val s = _state.value
+        return if (s.denoisePlayback && denoisedPath != null) denoisedPath else s.audioPath
+    }
 
     /**
      * Sets [_highlight] to [id] and auto-clears it after [HighlightDurationMs] ms.

@@ -578,6 +578,12 @@ private fun PlayerControls(state: ReviewUiState, vm: ReviewViewModel) {
                 Text(if (isPlaying) stringResource(R.string.btn_pause) else stringResource(R.string.btn_play))
             }
             Text("${formatMs(positionMs)} / ${formatMs(state.durationMs)}")
+            TextButton(onClick = vm::toggleDenoisePlayback) {
+                Text(
+                    if (state.denoisePlayback) stringResource(R.string.review_denoise_on)
+                    else stringResource(R.string.review_denoise_off)
+                )
+            }
         }
         if (state.playback is PlaybackState.Error) {
             Text(state.playback.message, color = MaterialTheme.colorScheme.error)
@@ -631,27 +637,38 @@ private fun SpeciesListItem(
             .background(containerColor),
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         leadingContent = {
-            Box(
-                modifier = Modifier
-                    .size(PHOTO_SIZE_DP.dp)
-                    .clip(RoundedCornerShape(PHOTO_CORNER_DP.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                if (row.taxonPhotoUrl != null) {
-                    AsyncImage(
-                        model = row.taxonPhotoUrl,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
+                if (uploadedUrl == null) {
+                    Checkbox(
+                        checked = row.isSelected,
+                        onCheckedChange = onCheckedChange,
                     )
-                } else {
-                    Icon(
-                        Icons.Outlined.MicNone,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp),
-                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(PHOTO_SIZE_DP.dp)
+                        .clip(RoundedCornerShape(PHOTO_CORNER_DP.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (row.taxonPhotoUrl != null) {
+                        AsyncImage(
+                            model = row.taxonPhotoUrl,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                        )
+                    } else {
+                        Icon(
+                            Icons.Outlined.MicNone,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
                 }
             }
         },
@@ -681,11 +698,6 @@ private fun SpeciesListItem(
                         contentDescription = stringResource(R.string.cd_uploaded_to_inat),
                         tint = INAT_GREEN,
                         modifier = Modifier.size(20.dp),
-                    )
-                } else {
-                    Checkbox(
-                        checked = row.isSelected,
-                        onCheckedChange = onCheckedChange,
                     )
                 }
             }
