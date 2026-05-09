@@ -27,6 +27,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import okhttp3.OkHttpClient
+import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
@@ -69,7 +70,10 @@ object AppModule {
 
     @Provides @Singleton
     fun providePhotoFileStore(@ApplicationContext ctx: Context): PhotoFileStore =
-        PhotoFileStore(ctx.getExternalFilesDir("habitat_photos")!!)
+        PhotoFileStore(
+            ctx.getExternalFilesDir("habitat_photos")
+                ?: File(ctx.filesDir, "habitat_photos"),
+        )
 
     @Provides fun provideInatObservationDao(db: Sound2iNatDb): com.sound2inat.storage.InatObservationDao =
         db.inatObservations()

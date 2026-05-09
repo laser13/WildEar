@@ -210,10 +210,9 @@ class DraftRepository(
     }
 
     suspend fun delete(draftId: String) = withContext(ioDispatcher) {
-        photosDao?.deleteByDraftId(draftId)
-        photoStore?.deletePhotosFor(draftId)
-        drafts.deleteById(draftId)
+        drafts.deleteById(draftId)               // cascade removes draft_photos rows automatically
         files.deleteAllFor(draftId)
+        photoStore?.deletePhotosFor(draftId)     // files last — best-effort, irreversible
     }
 
     /**

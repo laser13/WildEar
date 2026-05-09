@@ -62,4 +62,12 @@ class DraftPhotoDaoTest {
         dao.deleteByDraftId("d1")
         assertThat(dao.photosForDraft("d1").first()).isEmpty()
     }
+
+    @Test
+    fun `listForDraft returns photos ordered by takenAtMs`() = runTest {
+        dao.insert(DraftPhotoEntity("p2", "d1", "/b.jpg", 2L))
+        dao.insert(DraftPhotoEntity("p1", "d1", "/a.jpg", 1L))
+        val list = dao.listForDraft("d1")
+        assertThat(list.map { it.id }).containsExactly("p1", "p2").inOrder()
+    }
 }
