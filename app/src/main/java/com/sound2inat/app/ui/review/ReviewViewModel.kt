@@ -260,7 +260,6 @@ class ReviewViewModel(
                             perchProgress     = (status as? JobStatus.Running)?.perchProgress,
                             queuePosition     = (status as? JobStatus.Queued)?.position,
                             estimatedWaitMs   = (status as? JobStatus.Queued)?.estimatedWaitMs,
-                            queueError        = (status as? JobStatus.Failed)?.message,
                             inferenceError    = if (status is JobStatus.Failed) status.message
                                                 else s.inferenceError,
                         )

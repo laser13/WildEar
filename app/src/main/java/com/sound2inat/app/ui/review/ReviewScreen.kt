@@ -301,15 +301,6 @@ private fun ReviewPage(
                         )
                     }
                 }
-                state.queueError?.let { err ->
-                    item {
-                        Text(
-                            err,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        )
-                    }
-                }
                 if (state.inatSubmission is InatSubmissionState.Failed) {
                     item {
                         Text(

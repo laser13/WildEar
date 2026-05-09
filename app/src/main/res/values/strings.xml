@@ -84,8 +84,8 @@
     <string name="review_denoise_off">Denoise off</string>
     <string name="review_denoise_on">Denoise on</string>
     <string name="label_include_habitat_photo">Include habitat photo</string>
-    <string name="inference_queued_next">Следующий в очереди</string>
-    <string name="inference_queued_position">В очереди · позиция %d · ~%d мин</string>
+    <string name="inference_queued_next">Next in queue</string>
+    <string name="inference_queued_position">Queued · position %d · ~%d min</string>
 
     <!-- Species details sheet -->
     <string name="sheet_model_scores">Model scores</string>
