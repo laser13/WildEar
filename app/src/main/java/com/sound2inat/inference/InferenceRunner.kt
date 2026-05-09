@@ -69,6 +69,7 @@ class InferenceRunner(
         require(win > 0 && hop > 0) { "Invalid window/hop: win=$win hop=$hop" }
         val frames = if (normalized.size < win) 0 else 1 + (normalized.size - win) / hop
         if (frames == 0) {
+            models.forEach { runCatching { it.close() } }
             _progress.value = 1f
             return emptyList()
         }

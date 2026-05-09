@@ -296,4 +296,71 @@ class InferenceUseCaseTest {
         assertThat(closedFlags).hasSize(2)
         assertThat(closedFlags.all { it }).isTrue()
     }
+
+    @Test
+    fun `ProductionPerchAnalysisJob load failure closes already-loaded instances`() = runTest {
+        val modelFile = tmp.newFile("pf_model.tflite").apply { writeBytes(byteArrayOf(0)) }
+        val labelsFile = tmp.newFile("pf_labels.csv").apply {
+            writeText("inat2024_fsd50k\nRana temporaria\n")
+        }
+
+        var loadCount = 0
+        var firstClosed = false
+        var secondClosed = false
+
+        val secondInstance = object : BioacousticModel {
+            override val modelId = ModelIds.PERCH
+            override val modelVersion = "2"
+            override val expectedSampleRateHz = 32_000
+            override val windowMs = 5_000L
+            override suspend fun load(modelFile: File, labelsFile: File) {
+                throw RuntimeException("OOM on second load")
+            }
+            override suspend fun predict(
+                pcmFloat32: FloatArray, sampleRateHz: Int, latitude: Double?,
+                longitude: Double?, observedAtMillis: Long,
+                windowStartMs: Long, windowEndMs: Long,
+            ) = emptyList<WindowPrediction>()
+            override fun close() { secondClosed = true }
+            override fun newInstance(): BioacousticModel = this
+        }
+
+        val root = object : BioacousticModel {
+            override val modelId = ModelIds.PERCH
+            override val modelVersion = "2"
+            override val expectedSampleRateHz = 32_000
+            override val windowMs = 5_000L
+            override suspend fun load(modelFile: File, labelsFile: File) { loadCount++ }
+            override suspend fun predict(
+                pcmFloat32: FloatArray, sampleRateHz: Int, latitude: Double?,
+                longitude: Double?, observedAtMillis: Long,
+                windowStartMs: Long, windowEndMs: Long,
+            ) = emptyList<WindowPrediction>()
+            override fun close() { firstClosed = true }
+            override fun newInstance(): BioacousticModel = secondInstance
+        }
+
+        val job = ProductionPerchAnalysisJob(
+            models = listOf(root),
+            modelManager = fakeModelManager(modelFile, labelsFile),
+            settings = fakeSettings(),
+            yamNetGate = null,
+            parallelism = 2,
+        )
+
+        // Use any valid WAV — even a short silent one, since we never get to inference.
+        val shortWav = tmp.newFile("short.wav").also { f ->
+            val w = WavWriter(f, sampleRate = 32_000, channels = 1, bitsPerSample = 16)
+            w.open()
+            w.writeShorts(ShortArray(320), 0, 320)
+            w.close()
+        }
+
+        val outcome = job.run(shortWav.absolutePath, null, null, 0L) {}
+
+        assertThat(outcome).isInstanceOf(PerchAnalysisOutcome.Failure::class.java)
+        assertThat(loadCount).isEqualTo(1)  // first instance loaded
+        assertThat(firstClosed).isTrue()    // first instance closed in guard
+        assertThat(secondClosed).isFalse()  // second instance never loaded, so not closed
+    }
 }
