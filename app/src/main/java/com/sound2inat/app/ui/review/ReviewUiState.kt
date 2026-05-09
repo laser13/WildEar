@@ -3,6 +3,7 @@ package com.sound2inat.app.ui.review
 import com.sound2inat.inat.ObservationDetail
 import com.sound2inat.inference.FragmentRange
 import com.sound2inat.inference.RegionalStatus
+import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.DraftStatus
 
 data class SpeciesRow(
@@ -23,6 +24,8 @@ data class SpeciesRow(
     val observationDetailState: ObservationDetailLoadState = ObservationDetailLoadState.NotLoaded,
     /** Per-window detection time ranges, sorted by startMs. Empty for legacy rows. */
     val fragmentRanges: List<FragmentRange> = emptyList(),
+    /** Whether the habitat photo strip should be included for this species in the iNat submission. */
+    val includeHabitatPhoto: Boolean = true,
 )
 
 data class InatObsEntry(
@@ -63,6 +66,8 @@ data class ReviewUiState(
     val perchError: String? = null,
     /** Whether playback uses the denoised audio file instead of the raw recording. */
     val denoisePlayback: Boolean = false,
+    /** Habitat photos attached to this draft, ordered by capture time. */
+    val habitatPhotos: List<DraftPhotoEntity> = emptyList(),
 )
 
 sealed interface PlaybackState {

@@ -1,5 +1,7 @@
 package com.sound2inat.app.ui.review
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
@@ -16,13 +18,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
+import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -84,11 +90,14 @@ import com.sound2inat.app.ui.theme.detectionCardLikelyLight
 import com.sound2inat.app.ui.theme.detectionCardUnlikelyDark
 import com.sound2inat.app.ui.theme.detectionCardUnlikelyLight
 import com.sound2inat.inference.RegionalStatus
+import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.DraftStatus
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 /**
  * Outer Review screen — owns the [HorizontalPager] over every saved draft
@@ -157,7 +166,6 @@ private fun ReviewPage(
     val state by vm.state.collectAsStateWithLifecycle()
     val spectrogramFile by vm.spectrogramFile.collectAsStateWithLifecycle()
     val waveformPeaks by vm.waveformPeaks.collectAsStateWithLifecycle()
-    val windowPreds by vm.windowPreds.collectAsStateWithLifecycle()
     val highlight by vm.highlight.collectAsStateWithLifecycle()
 
     LaunchedEffect(state.audioPath) {
@@ -216,11 +224,14 @@ private fun ReviewPage(
                         spectrogramPath = spectrogramFile?.takeIf { it.exists() }?.absolutePath,
                         durationMs = state.durationMs,
                         positionFlow = vm.playerPosition,
-                        windowPreds = windowPreds,
-                        species = state.species,
-                        highlight = highlight,
-                        onWindowTap = vm::onWindowTapped,
                         onSeek = vm::seekTo,
+                    )
+                }
+                item {
+                    HabitatPhotoStrip(
+                        draftId = state.draftId,
+                        photos = state.habitatPhotos,
+                        vm = vm,
                     )
                 }
                 if (state.inferenceProgress != null) {
@@ -301,6 +312,8 @@ private fun ReviewPage(
                         uploadedUrl = uploadedUrls[row.taxonScientificName],
                         onRowClick = { detailsRow = row },
                         onCheckedChange = { checked -> vm.toggle(row.detectionId, checked) },
+                        hasHabitatPhotos = state.habitatPhotos.isNotEmpty(),
+                        onToggleHabitatPhoto = { vm.toggleHabitatPhoto(row.detectionId) },
                     )
                     HorizontalDivider()
                 }
@@ -331,6 +344,8 @@ private fun ReviewPage(
                             uploadedUrl = uploadedUrls[row.taxonScientificName],
                             onRowClick = { detailsRow = row },
                             onCheckedChange = { checked -> vm.toggle(row.detectionId, checked) },
+                            hasHabitatPhotos = state.habitatPhotos.isNotEmpty(),
+                            onToggleHabitatPhoto = { vm.toggleHabitatPhoto(row.detectionId) },
                         )
                         HorizontalDivider()
                     }
@@ -656,6 +671,8 @@ private fun SpeciesListItem(
     uploadedUrl: String?,
     onRowClick: () -> Unit,
     onCheckedChange: (Boolean) -> Unit,
+    hasHabitatPhotos: Boolean = false,
+    onToggleHabitatPhoto: () -> Unit = {},
 ) {
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val tintColor = if (row.regionalStatus == RegionalStatus.NOT_CONFIRMED)
@@ -716,6 +733,18 @@ private fun SpeciesListItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 row.regionalStatus?.let { RegionalStatusIcon(it) }
+                if (hasHabitatPhotos) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = row.includeHabitatPhoto,
+                            onCheckedChange = { onToggleHabitatPhoto() },
+                        )
+                        Text(
+                            stringResource(R.string.label_include_habitat_photo),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
             }
         },
         trailingContent = {
@@ -736,6 +765,102 @@ private fun SpeciesListItem(
             }
         },
     )
+}
+
+@Suppress("FunctionNaming", "LongMethod")
+@Composable
+private fun HabitatPhotoStrip(
+    draftId: String,
+    photos: List<DraftPhotoEntity>,
+    vm: ReviewViewModel,
+) {
+    val context = LocalContext.current
+    var pendingPhotoId by remember { mutableStateOf<String?>(null) }
+    var pendingUri by remember { mutableStateOf<android.net.Uri?>(null) }
+
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val id = pendingPhotoId
+        val uri = pendingUri
+        if (success && id != null && uri != null) {
+            val path = photoStore(context, draftId, id)
+            vm.onPhotoTaken(draftId, id, path)
+        }
+        pendingPhotoId = null
+        pendingUri = null
+    }
+
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // "Add photo" button is always shown first
+        item {
+            Box(
+                modifier = Modifier
+                    .size(HABITAT_PHOTO_SIZE_DP.dp)
+                    .clip(RoundedCornerShape(PHOTO_CORNER_DP.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable {
+                        val newId = UUID.randomUUID().toString()
+                        val uri = vm.preparePhotoCapture(context, draftId, newId)
+                        pendingPhotoId = newId
+                        pendingUri = uri
+                        launcher.launch(uri)
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.AddAPhoto,
+                    contentDescription = stringResource(R.string.cd_take_habitat_photo),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+        }
+        // Existing photos
+        items(photos, key = { it.id }) { photo ->
+            Box(
+                modifier = Modifier
+                    .size(HABITAT_PHOTO_SIZE_DP.dp)
+                    .clip(RoundedCornerShape(PHOTO_CORNER_DP.dp)),
+            ) {
+                AsyncImage(
+                    model = File(photo.photoPath),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+                // Delete button overlay
+                IconButton(
+                    onClick = { vm.onPhotoDeleted(photo.id, photo.photoPath) },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(24.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = OVERLAY_ALPHA),
+                            shape = CircleShape,
+                        ),
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = stringResource(R.string.cd_delete),
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Returns the absolute path for the photo file that was just captured. */
+private fun photoStore(context: android.content.Context, draftId: String, photoId: String): String {
+    val photosDir = context.getExternalFilesDir("habitat_photos")
+        ?: File(context.filesDir, "habitat_photos")
+    val dir = File(photosDir, draftId).apply { mkdirs() }
+    return File(dir, "$photoId.jpg").absolutePath
 }
 
 internal fun speciesRowTrailingLabel(confidence: Float, detectedWindows: Int): String =
@@ -765,4 +890,6 @@ private const val DENOISE_HELP_SIZE_DP = 24
 private const val DENOISE_HELP_ICON_SIZE_DP = 18
 private const val PHOTO_SIZE_DP = 48
 private const val PHOTO_CORNER_DP = 8
+private const val HABITAT_PHOTO_SIZE_DP = 80
+private const val OVERLAY_ALPHA = 0.7f
 private val INAT_GREEN = Color(0xFF74AC00)

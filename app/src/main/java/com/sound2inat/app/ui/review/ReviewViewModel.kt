@@ -27,9 +27,12 @@ import com.sound2inat.recorder.WavWriter
 import com.sound2inat.inference.WindowPrediction
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
+import com.sound2inat.storage.DraftPhotoDao
+import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.DraftRepository
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.InatObservationDao
+import com.sound2inat.storage.PhotoFileStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
@@ -149,6 +152,17 @@ class ReviewViewModel(
      * recording locations do not collide. Null in unit tests that don't need it.
      */
     private val regionalStatusRepository: RegionalStatusRepository? = null,
+    /**
+     * Emits the list of habitat photos for this draft. Default is an empty flow
+     * (no photos). Injected from [DraftPhotoDao.photosForDraft] in production
+     * and from a [FakeDraftPhotoDao] in unit tests.
+     */
+    private val habitatPhotosFlow: kotlinx.coroutines.flow.Flow<List<DraftPhotoEntity>> =
+        kotlinx.coroutines.flow.flowOf(emptyList()),
+    /** DAO used to persist and delete habitat photos. Null in tests that don't need it. */
+    private val photosDao: DraftPhotoDao? = null,
+    /** File store used to create photo files for camera capture. Null in tests. */
+    private val photoStore: PhotoFileStore? = null,
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -221,6 +235,11 @@ class ReviewViewModel(
         scope.launch {
             inatObservationsFlow.collect { rows ->
                 _state.value = _state.value.copy(inatObservations = rows)
+            }
+        }
+        scope.launch {
+            habitatPhotosFlow.collect { photos ->
+                _state.update { it.copy(habitatPhotos = photos) }
             }
         }
         // Lazily fetch iNat taxon photos for each species as the list is populated.
@@ -484,6 +503,45 @@ class ReviewViewModel(
         }
     }
 
+    /** Toggles whether the habitat photo strip is included for the given species row. */
+    fun toggleHabitatPhoto(detectionId: Long) {
+        _state.update { cur ->
+            cur.copy(
+                species = cur.species.map { row ->
+                    if (row.detectionId == detectionId) row.copy(includeHabitatPhoto = !row.includeHabitatPhoto)
+                    else row
+                },
+            )
+        }
+    }
+
+    /**
+     * Creates a new photo file and returns a content URI suitable for
+     * [ActivityResultContracts.TakePicture]. Requires [photoStore] to be set.
+     */
+    fun preparePhotoCapture(context: android.content.Context, draftId: String, photoId: String): android.net.Uri {
+        checkNotNull(photoStore) { "Camera not available" }
+        val file = photoStore.newPhotoFile(draftId, photoId)
+        return androidx.core.content.FileProvider.getUriForFile(
+            context, "com.sound2inat.app.fileprovider", file,
+        )
+    }
+
+    /** Persists a newly captured photo entity to the database. */
+    fun onPhotoTaken(draftId: String, photoId: String, photoPath: String) {
+        scope.launch(Dispatchers.IO) {
+            photosDao?.insert(DraftPhotoEntity(id = photoId, draftId = draftId, photoPath = photoPath, takenAtMs = System.currentTimeMillis()))
+        }
+    }
+
+    /** Removes a photo from the database and deletes the file from disk. */
+    fun onPhotoDeleted(photoId: String, photoPath: String) {
+        scope.launch(Dispatchers.IO) {
+            photosDao?.deleteById(photoId)
+            java.io.File(photoPath).delete()
+        }
+    }
+
     /**
      * User-triggered re-analysis. Skips the YAMNet gate (the gate adds overhead
      * without skipping model inference — see InferenceRunner). Runs the selected
@@ -504,6 +562,9 @@ class ReviewViewModel(
         inferenceStarted = true
         _windowPreds.value = emptyList()
         inferenceJob = scope.launch {
+            // Accumulate window predictions and publish only once at the end so
+            // the overlay doesn't turn rainbow while the second model is running.
+            var pendingWindows = emptyList<WindowPrediction>()
             if (runBirdnet) {
                 _state.value = _state.value.copy(inferenceError = null, inferenceProgress = 0f)
                 try {
@@ -519,7 +580,7 @@ class ReviewViewModel(
                                 freshDetections = outcome.detections,
                                 promoteToReviewed = true,
                             )
-                            _windowPreds.value = outcome.windows
+                            pendingWindows = outcome.windows
                         }
                         is InferenceOutcome.Failure -> {
                             _state.value = _state.value.copy(inferenceError = outcome.message)
@@ -563,6 +624,7 @@ class ReviewViewModel(
                     recomputePerchEligibility()
                 }
             }
+            _windowPreds.value = pendingWindows
             launchAnnotationIfIdle()
         }
     }
@@ -893,6 +955,8 @@ class ReviewViewModelFactory @Inject constructor(
     private val inferenceUseCase: InferenceUseCase,
     private val inatAuth: com.sound2inat.inat.INatAuthRepository,
     private val modelManager: ModelManager,
+    private val photosDao: DraftPhotoDao,
+    private val photoStore: PhotoFileStore,
 ) {
     /** Cache root used by the screen's `ensureVisuals` call. */
     val filesDir: File get() = context.filesDir
@@ -928,6 +992,9 @@ class ReviewViewModelFactory @Inject constructor(
         regionRadiusKmProvider = { settings.regionRadiusKm.first() },
         observationFetcher = { id -> inatClient.getObservation(id) },
         regionalStatusRepository = regionalStatusRepository,
+        habitatPhotosFlow = photosDao.photosForDraft(draftId),
+        photosDao = photosDao,
+        photoStore = photoStore,
     )
 }
 

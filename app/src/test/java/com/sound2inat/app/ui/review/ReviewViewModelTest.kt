@@ -17,6 +17,8 @@ import com.sound2inat.storage.DetectionDao
 import com.sound2inat.storage.DetectionEntity
 import com.sound2inat.storage.DraftDao
 import com.sound2inat.storage.DraftEntity
+import com.sound2inat.storage.DraftPhotoDao
+import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.DraftRepository
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.WavFileStore
@@ -926,6 +928,31 @@ class ReviewViewModelTest {
         }
 
     @Test
+    fun `habitat photos from DAO appear in state`() = runTest(UnconfinedTestDispatcher()) {
+        val draftId = "photo-test"
+        val draftDao = FakeDraftDao().apply {
+            insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+        }
+        val detectionDao = FakeDetectionDao()
+        val photoDao = FakeDraftPhotoDao(
+            mutableListOf(
+                DraftPhotoEntity(id = "p1", draftId = draftId, photoPath = "/a.jpg", takenAtMs = 1L),
+            ),
+        )
+        val vm = ReviewViewModel(
+            draftId = draftId,
+            repo = repo(draftDao, detectionDao),
+            player = FakeAudioPlayer(),
+            inference = noopInference(),
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+            habitatPhotosFlow = photoDao.photosForDraft(draftId),
+            externalScope = backgroundScope,
+        )
+        assertThat(vm.state.value.habitatPhotos).hasSize(1)
+        assertThat(vm.state.value.habitatPhotos[0].id).isEqualTo("p1")
+    }
+
+    @Test
     fun `collapseObservationDetail resets state to NotLoaded`() =
         runTest(UnconfinedTestDispatcher()) {
             val draftId = "obs4"
@@ -1057,6 +1084,16 @@ private class FakeDraftDao : DraftDao {
         }
 
     fun byId(id: String): DraftEntity? = rows[id]
+}
+
+private class FakeDraftPhotoDao(private val rows: MutableList<DraftPhotoEntity> = mutableListOf()) : DraftPhotoDao {
+    private val emitter = MutableStateFlow(rows.toList())
+    override fun insert(photo: DraftPhotoEntity) { rows += photo; emitter.value = rows.toList() }
+    override fun deleteById(id: String): Int { val removed = rows.removeAll { it.id == id }; emitter.value = rows.toList(); return if (removed) 1 else 0 }
+    override fun deleteByDraftId(draftId: String): Int { val before = rows.size; rows.removeAll { it.draftId == draftId }; emitter.value = rows.toList(); return before - rows.size }
+    override fun photosForDraft(draftId: String): kotlinx.coroutines.flow.Flow<List<DraftPhotoEntity>> =
+        emitter.map { all -> all.filter { it.draftId == draftId } }
+    override fun listForDraft(draftId: String): List<DraftPhotoEntity> = rows.filter { it.draftId == draftId }
 }
 
 private class FakeDetectionDao : DetectionDao {

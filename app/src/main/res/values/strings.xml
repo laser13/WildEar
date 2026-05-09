@@ -83,6 +83,7 @@
     <string name="cd_region_unverified">Regional check unavailable</string>
     <string name="review_denoise_off">Denoise off</string>
     <string name="review_denoise_on">Denoise on</string>
+    <string name="label_include_habitat_photo">Include habitat photo</string>
 
     <!-- Species details sheet -->
     <string name="sheet_model_scores">Model scores</string>
