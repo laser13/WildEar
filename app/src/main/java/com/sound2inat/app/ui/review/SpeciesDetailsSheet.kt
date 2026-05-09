@@ -79,16 +79,6 @@ internal fun SpeciesDetailsSheet(
                 Spacer(Modifier.height(12.dp))
             }
 
-            // Model scores
-            item {
-                Text(
-                    text = stringResource(R.string.sheet_model_scores),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(6.dp))
-            }
-
             val birdnetConf = row.confidenceBySource[ModelIds.BIRDNET]
             val perchConf = row.confidenceBySource[ModelIds.PERCH]
 
@@ -115,11 +105,6 @@ internal fun SpeciesDetailsSheet(
                         value = "${(row.maxConfidence * SHEET_PERCENT).toInt()}%",
                     )
                 }
-            }
-
-            // YAMNet gate — not stored in SpeciesRow yet (Task 7 adds it)
-            item {
-                DetailRow(label = stringResource(R.string.sheet_label_yamnet_gate), value = stringResource(R.string.sheet_yamnet_na))
             }
 
             item {
@@ -155,8 +140,10 @@ internal fun SpeciesDetailsSheet(
 
             // Use per-window fragment ranges when available; fall back to the
             // firstSeenMs/lastSeenMs bounds for pre-v5 (legacy) rows.
+            // Ranges are sorted and merged so overlapping 3-second windows from
+            // multiple models collapse into a single continuous interval.
             val timeRanges = if (row.fragmentRanges.isNotEmpty()) {
-                row.fragmentRanges.map { SpeciesTimeRange(it.startMs, it.endMs) }
+                mergeRanges(row.fragmentRanges.map { SpeciesTimeRange(it.startMs, it.endMs) })
             } else {
                 listOf(SpeciesTimeRange(startMs = row.firstSeenMs, endMs = row.lastSeenMs))
             }
@@ -332,6 +319,28 @@ internal fun formatSheetMs(ms: Long): String {
     val minutes = totalSeconds / SHEET_SECONDS_PER_MINUTE
     val seconds = totalSeconds % SHEET_SECONDS_PER_MINUTE
     return "%d:%02d".format(minutes, seconds)
+}
+
+/**
+ * Sorts ranges by start time and merges overlapping or adjacent ones into
+ * continuous intervals. Detections from multiple models arrive interleaved
+ * and each window is 3 s wide with a 1 s hop, so consecutive detections
+ * produce ranges like 0:18–0:21, 0:19–0:22, … that should collapse to a
+ * single span.
+ */
+internal fun mergeRanges(ranges: List<SpeciesTimeRange>): List<SpeciesTimeRange> {
+    if (ranges.size <= 1) return ranges
+    val sorted = ranges.sortedBy { it.startMs }
+    val result = mutableListOf(sorted[0])
+    for (r in sorted.drop(1)) {
+        val last = result.last()
+        if (r.startMs <= last.endMs) {
+            result[result.lastIndex] = last.copy(endMs = maxOf(last.endMs, r.endMs))
+        } else {
+            result += r
+        }
+    }
+    return result
 }
 
 private const val SHEET_PERCENT = 100f
