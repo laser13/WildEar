@@ -108,7 +108,6 @@
     <string name="section_appearance">Appearance</string>
     <string name="section_models">Models</string>
     <string name="section_inference">Inference</string>
-    <string name="section_noise_reduction">Noise reduction</string>
     <string name="section_regional_filter">Regional filter</string>
     <string name="section_inat">iNaturalist</string>
     <string name="section_about">About</string>
