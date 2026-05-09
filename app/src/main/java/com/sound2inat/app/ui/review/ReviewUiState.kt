@@ -68,6 +68,12 @@ data class ReviewUiState(
     val denoisePlayback: Boolean = false,
     /** Habitat photos attached to this draft, ordered by capture time. */
     val habitatPhotos: List<DraftPhotoEntity> = emptyList(),
+    /** Position in the inference queue (0 = next up). Null when not queued. */
+    val queuePosition: Int? = null,
+    /** Estimated wait time in ms before this job starts. Null when not queued. */
+    val estimatedWaitMs: Long? = null,
+    /** Last error message from a queued inference job. Null when no error. */
+    val queueError: String? = null,
 )
 
 sealed interface PlaybackState {
