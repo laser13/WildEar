@@ -38,7 +38,7 @@ class AudioNormalizerTest {
         val input = shortArrayOf(Short.MAX_VALUE, -16383)
         val result = AudioNormalizer.normalizeSamples(input)
         assertEquals(Short.MAX_VALUE.toInt(), result[0].toInt())
-        assertTrue(result[1] <= 0)
+        assertEquals(-16383, result[1].toInt())  // scale=1.0 so input is unchanged
     }
 
     @Test
@@ -59,22 +59,5 @@ class AudioNormalizerTest {
         assertTrue(samples.all { it == 0.toShort() })
     }
 
-    /** Read WAV samples using the same logic as WavReader for round-trip verification. */
-    private fun readWavForTest(f: File): Pair<ShortArray, Int> {
-        val bytes = f.readBytes()
-        val sampleRate = (bytes[24].toInt() and 0xFF) or
-            ((bytes[25].toInt() and 0xFF) shl 8) or
-            ((bytes[26].toInt() and 0xFF) shl 16) or
-            ((bytes[27].toInt() and 0xFF) shl 24)
-        val dataSize = (bytes[40].toInt() and 0xFF) or
-            ((bytes[41].toInt() and 0xFF) shl 8) or
-            ((bytes[42].toInt() and 0xFF) shl 16) or
-            ((bytes[43].toInt() and 0xFF) shl 24)
-        val samples = ShortArray(dataSize / 2) { i ->
-            val lo = bytes[44 + 2 * i].toInt() and 0xFF
-            val hi = bytes[44 + 2 * i + 1].toInt()
-            ((hi shl 8) or lo).toShort()
-        }
-        return samples to sampleRate
-    }
+    private fun readWavForTest(f: File) = WavReader.readMono16(f)
 }

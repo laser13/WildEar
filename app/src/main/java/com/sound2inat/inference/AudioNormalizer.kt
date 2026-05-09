@@ -32,7 +32,7 @@ object AudioNormalizer {
 
 /**
  * Write [samples] as a mono 16-bit PCM WAV to [dst].
- * Used internally by [AudioNormalizer] and [PostRecordingProcessor].
+ * Used internally by [AudioNormalizer] and PostRecordingProcessor (to be created).
  */
 internal fun writeWav(samples: ShortArray, sampleRateHz: Int, dst: File) {
     val dataSize = samples.size * 2
