@@ -1,12 +1,16 @@
 package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.app.inference.InferenceQueue
+import com.sound2inat.app.inference.JobStatus
+import com.sound2inat.app.inference.QueuedJob
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inat.RegionLookup
 import com.sound2inat.inat.RegionalStatusRepository
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.InferenceJob
 import com.sound2inat.inference.InferenceOutcome
+import com.sound2inat.inference.InferenceUseCase
 import com.sound2inat.inference.PerchAnalysisJob
 import com.sound2inat.inference.PerchAnalysisOutcome
 import com.sound2inat.inference.RegionalStatus
@@ -22,14 +26,17 @@ import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.DraftRepository
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.WavFileStore
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
@@ -64,11 +71,13 @@ class ReviewViewModelTest {
                 onProgress(1f).also { progressEmissions += 1f }
                 InferenceOutcome.Success("birdnet_v2_4", "2.4", listOf(agg))
             }
+            val queue = makeQueue(FakeInferenceUseCase(birdnetJob = inference), repo)
             val vm = ReviewViewModel(
                 draftId = draftId,
                 repo = repo,
                 player = FakeAudioPlayer(),
                 inference = inference,
+                queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
             )
@@ -111,11 +120,14 @@ class ReviewViewModelTest {
             inferenceCalls++
             InferenceOutcome.Success("birdnet_v2_4", "2.4", emptyList())
         }
+        val repo = repo(draftDao, detectionDao)
+        val queue = makeQueue(FakeInferenceUseCase(birdnetJob = inference), repo)
         val vm = ReviewViewModel(
             draftId = draftId,
-            repo = repo(draftDao, detectionDao),
+            repo = repo,
             player = FakeAudioPlayer(),
             inference = inference,
+            queue = queue,
             ioDispatcher = UnconfinedTestDispatcher(testScheduler),
             externalScope = backgroundScope,
         )
@@ -149,11 +161,14 @@ class ReviewViewModelTest {
                     ),
                 )
             }
+            val repo = repo(draftDao, detectionDao)
+            val queue = makeQueue(draftRepo = repo)
             val vm = ReviewViewModel(
                 draftId = draftId,
-                repo = repo(draftDao, detectionDao),
+                repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
+                queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
             )
@@ -170,11 +185,14 @@ class ReviewViewModelTest {
             insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
         }
         val detectionDao = FakeDetectionDao()
+        val repo = repo(draftDao, detectionDao)
+        val queue = makeQueue(draftRepo = repo)
         val vm = ReviewViewModel(
             draftId = draftId,
-            repo = repo(draftDao, detectionDao),
+            repo = repo,
             player = FakeAudioPlayer(),
             inference = noopInference(),
+            queue = queue,
             ioDispatcher = UnconfinedTestDispatcher(testScheduler),
             externalScope = backgroundScope,
         )
@@ -192,11 +210,14 @@ class ReviewViewModelTest {
             insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
         }
         val detectionDao = FakeDetectionDao()
+        val repo = repo(draftDao, detectionDao)
+        val queue = makeQueue(draftRepo = repo)
         val vm = ReviewViewModel(
             draftId = draftId,
-            repo = repo(draftDao, detectionDao),
+            repo = repo,
             player = FakeAudioPlayer(),
             inference = noopInference(),
+            queue = queue,
             ioDispatcher = UnconfinedTestDispatcher(testScheduler),
             externalScope = backgroundScope,
         )
@@ -220,12 +241,15 @@ class ReviewViewModelTest {
                 calls++
                 Visuals(spectrogramFile = expectedPng, waveformPeaks = expectedPeaks)
             }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(draftRepo = repo)
             val vm = ReviewViewModel(
                 draftId = draftId,
-                repo = repo(draftDao, FakeDetectionDao()),
+                repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
                 visuals = provider,
+                queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
             )
@@ -244,17 +268,21 @@ class ReviewViewModelTest {
             val draftDao = FakeDraftDao().apply {
                 insert(draftFor(draftId, status = DraftStatus.PENDING_INFERENCE))
             }
-            val inference = InferenceJob { _, _, _, _, _ ->
+            val failingJob = InferenceJob { _, _, _, _, _ ->
                 InferenceOutcome.Failure("Model not installed")
             }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(FakeInferenceUseCase(birdnetJob = failingJob), repo)
             val vm = ReviewViewModel(
                 draftId = draftId,
-                repo = repo(draftDao, FakeDetectionDao()),
+                repo = repo,
                 player = FakeAudioPlayer(),
-                inference = inference,
+                inference = failingJob,
+                queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
             )
+            advanceUntilIdle()
             assertThat(vm.state.value.inferenceError).isEqualTo("Model not installed")
             assertThat(vm.state.value.inferenceProgress).isNull()
             assertThat(vm.state.value.status).isEqualTo(DraftStatus.PENDING_INFERENCE)
@@ -265,16 +293,25 @@ class ReviewViewModelTest {
         runTest(UnconfinedTestDispatcher()) {
             val draftId = "d8"
             val draftDao = FakeDraftDao().apply {
-                insert(draftFor(draftId, status = DraftStatus.PENDING_INFERENCE))
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
             }
-            val agg = AggregatedDetection(
-                taxonScientificName = "Turdus merula",
-                taxonCommonName = "Common Blackbird",
-                maxConfidence = 0.81f,
-                detectedWindows = 1,
-                firstSeenMs = 0L,
-                lastSeenMs = 3_000L,
-            )
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 88L,
+                            draftId = draftId,
+                            taxonScientificName = "Turdus merula",
+                            taxonCommonName = "Common Blackbird",
+                            maxConfidence = 0.81f,
+                            detectedWindows = 1,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 3_000L,
+                            isSelectedByUser = false,
+                        ),
+                    ),
+                )
+            }
             val window = WindowPrediction(
                 startMs = 1_500L,
                 endMs = 4_500L,
@@ -282,26 +319,21 @@ class ReviewViewModelTest {
                 taxonCommonName = "Common Blackbird",
                 confidence = 0.81f,
             )
-            val inference = InferenceJob { _, _, _, _, _ ->
-                InferenceOutcome.Success(
-                    "birdnet_v2_4",
-                    "2.4",
-                    listOf(agg),
-                    windows = listOf(window),
-                )
-            }
             val player = FakeAudioPlayer()
+            val repo = repo(draftDao, detectionDao)
+            val queue = makeQueue(draftRepo = repo)
             val vm = ReviewViewModel(
                 draftId = draftId,
-                repo = repo(draftDao, FakeDetectionDao()),
+                repo = repo,
                 player = player,
-                inference = inference,
+                inference = noopInference(),
+                queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
             )
-            // Inference completed -> windows surfaced + species persisted.
-            assertThat(vm.windowPreds.value).containsExactly(window)
+            // Species are loaded from DB.
             val rowId = vm.state.value.species.first().detectionId
+            assertThat(rowId).isEqualTo(88L)
 
             vm.onWindowTapped(window)
 
@@ -332,11 +364,14 @@ class ReviewViewModelTest {
                 ),
             )
         }
+        val repo = repo(draftDao, detectionDao)
+        val queue = makeQueue(draftRepo = repo)
         val vm = ReviewViewModel(
             draftId = draftId,
-            repo = repo(draftDao, detectionDao),
+            repo = repo,
             player = FakeAudioPlayer(),
             inference = noopInference(),
+            queue = queue,
             ioDispatcher = UnconfinedTestDispatcher(testScheduler),
             externalScope = backgroundScope,
         )
@@ -359,11 +394,14 @@ class ReviewViewModelTest {
             val draftDao = FakeDraftDao().apply {
                 insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
             }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(draftRepo = repo)
             val vm = ReviewViewModel(
                 draftId = draftId,
-                repo = repo(draftDao, FakeDetectionDao()),
+                repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
+                queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
             )
@@ -406,11 +444,14 @@ class ReviewViewModelTest {
                     ),
                 )
             }
+            val repo = repo(draftDao, detectionDao)
+            val queue = makeQueue(draftRepo = repo)
             val vm = ReviewViewModel(
                 draftId = draftId,
-                repo = repo(draftDao, detectionDao),
+                repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
+                queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 perchInstalledProbe = { true },
                 externalScope = backgroundScope,
@@ -447,11 +488,14 @@ class ReviewViewModelTest {
                     ),
                 )
             }
+            val repo = repo(draftDao, detectionDao)
+            val queue = makeQueue(draftRepo = repo)
             val vm = ReviewViewModel(
                 draftId = draftId,
-                repo = repo(draftDao, detectionDao),
+                repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
+                queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 perchInstalledProbe = { true },
                 externalScope = backgroundScope,
@@ -498,11 +542,14 @@ class ReviewViewModelTest {
                 onProgress(1f)
                 PerchAnalysisOutcome.Success(listOf(perchAgg))
             }
+            val repo = repo(draftDao, detectionDao)
+            val queue = makeQueue(FakeInferenceUseCase(perchReanalysisJob = perchJob), repo)
             val vm = ReviewViewModel(
                 draftId = draftId,
-                repo = repo(draftDao, detectionDao),
+                repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
+                queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 perchReanalysis = perchJob,
                 perchInstalledProbe = { true },
@@ -557,11 +604,14 @@ class ReviewViewModelTest {
                 ),
             )
         }
+        val repo = repo(draftDao, detectionDao)
+        val queue = makeQueue(draftRepo = repo)
         val vm = ReviewViewModel(
             draftId = draftId,
-            repo = repo(draftDao, detectionDao),
+            repo = repo,
             player = FakeAudioPlayer(),
             inference = noopInference(),
+            queue = queue,
             ioDispatcher = UnconfinedTestDispatcher(testScheduler),
             minWindowsProvider = { 2 },
             externalScope = backgroundScope,
@@ -615,11 +665,14 @@ class ReviewViewModelTest {
             )
             statusRepo.storeResult("Parus major", 40.0, -3.0, RegionalStatus.CONFIRMED)
 
+            val repo = repo(draftDao, detectionDao)
+            val queue = makeQueue(draftRepo = repo)
             ReviewViewModel(
                 draftId = draftId,
-                repo = repo(draftDao, detectionDao),
+                repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
+                queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 regionFilter = filter,
                 regionalStatusRepository = statusRepo,
@@ -649,12 +702,18 @@ class ReviewViewModelTest {
                 noGateCalls++
                 InferenceOutcome.Success("birdnet_v2_4", "2.4", emptyList())
             }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(
+                FakeInferenceUseCase(birdnetJob = inference, birdnetReanalysisJob = inferenceReanalysis),
+                repo,
+            )
             val vm = ReviewViewModel(
                 draftId = draftId,
-                repo = repo(draftDao, FakeDetectionDao()),
+                repo = repo,
                 player = FakeAudioPlayer(),
                 inference = inference,
                 inferenceReanalysis = inferenceReanalysis,
+                queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
             )
@@ -675,11 +734,14 @@ class ReviewViewModelTest {
                 perchReanalysisCalls++
                 PerchAnalysisOutcome.Success(emptyList())
             }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(FakeInferenceUseCase(perchReanalysisJob = perchReanalysis), repo)
             val vm = ReviewViewModel(
                 draftId = draftId,
-                repo = repo(draftDao, FakeDetectionDao()),
+                repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
+                queue = queue,
                 perchReanalysis = perchReanalysis,
                 perchInstalledProbe = { true },
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
@@ -707,11 +769,17 @@ class ReviewViewModelTest {
                 order += "perch"
                 PerchAnalysisOutcome.Success(emptyList())
             }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(
+                FakeInferenceUseCase(birdnetReanalysisJob = inferenceReanalysis, perchReanalysisJob = perchReanalysis),
+                repo,
+            )
             val vm = ReviewViewModel(
                 draftId = draftId,
-                repo = repo(draftDao, FakeDetectionDao()),
+                repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
+                queue = queue,
                 inferenceReanalysis = inferenceReanalysis,
                 perchReanalysis = perchReanalysis,
                 perchInstalledProbe = { true },
@@ -752,6 +820,64 @@ class ReviewViewModelTest {
         InferenceOutcome.Success("birdnet_v2_4", "2.4", emptyList())
     }
 
+    private fun TestScope.makeQueue(
+        useCase: InferenceUseCase = FakeInferenceUseCase(),
+        draftRepo: DraftRepository,
+    ): InferenceQueue = InferenceQueue(
+        scope = backgroundScope,
+        inferenceUseCase = useCase,
+        repo = draftRepo,
+    )
+
+    @Test
+    fun `queue status Queued flows into queuePosition on ReviewUiState`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "queue1"
+            val otherId = "queue_blocker"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+                insert(draftFor(otherId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+
+            val latch = CompletableDeferred<Unit>()
+            val blockingJob = InferenceJob { _, _, _, _, _ ->
+                latch.await()
+                InferenceOutcome.Success("birdnet_v2_4", "2.4", emptyList())
+            }
+            val queue = makeQueue(
+                FakeInferenceUseCase(birdnetReanalysisJob = blockingJob),
+                repo,
+            )
+
+            // Occupy the worker with a different draft.
+            queue.enqueue(QueuedJob(otherId, "/tmp/other.wav", null, null, 0L, true, false, true))
+            runCurrent()
+
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+
+            // Enqueue our draftId — it goes pending (worker is busy with otherId).
+            vm.reanalyze(runBirdnet = true, runPerch = false)
+            runCurrent()
+
+            assertThat(vm.state.value.queuePosition).isNotNull()
+            assertThat(vm.state.value.inferenceProgress).isNull()
+
+            latch.complete(Unit)
+            advanceUntilIdle()
+
+            assertThat(vm.state.value.queuePosition).isNull()
+            assertThat(vm.state.value.inferenceProgress).isNull()
+        }
+
     @Test
     fun `loadObservationDetail sets Loaded state on successful fetch`() =
         runTest(UnconfinedTestDispatcher()) {
@@ -777,6 +903,7 @@ class ReviewViewModelTest {
                 )
             }
             val repo = repo(draftDao, detectionDao)
+            val queue = makeQueue(draftRepo = repo)
             val expectedDetail = com.sound2inat.inat.ObservationDetail(
                 qualityGrade = "research",
                 agreeingIdCount = 3,
@@ -787,7 +914,8 @@ class ReviewViewModelTest {
                 draftId = draftId,
                 repo = repo,
                 player = FakeAudioPlayer(),
-                inference = InferenceJob { _, _, _, _, _ -> InferenceOutcome.Failure("skip") },
+                inference = noopInference(),
+                queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
                 observationFetcher = { expectedDetail },
@@ -827,11 +955,13 @@ class ReviewViewModelTest {
                 )
             }
             val repo = repo(draftDao, detectionDao)
+            val queue = makeQueue(draftRepo = repo)
             val vm = ReviewViewModel(
                 draftId = draftId,
                 repo = repo,
                 player = FakeAudioPlayer(),
-                inference = InferenceJob { _, _, _, _, _ -> InferenceOutcome.Failure("skip") },
+                inference = noopInference(),
+                queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
                 observationFetcher = { throw com.sound2inat.inat.INatException(500, "Server error") },
@@ -868,12 +998,14 @@ class ReviewViewModelTest {
                 )
             }
             val repo = repo(draftDao, detectionDao)
+            val queue = makeQueue(draftRepo = repo)
             var fetchCount = 0
             val vm = ReviewViewModel(
                 draftId = draftId,
                 repo = repo,
                 player = FakeAudioPlayer(),
-                inference = InferenceJob { _, _, _, _, _ -> InferenceOutcome.Failure("skip") },
+                inference = noopInference(),
+                queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
                 observationFetcher = {
@@ -934,6 +1066,8 @@ class ReviewViewModelTest {
             insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
         }
         val detectionDao = FakeDetectionDao()
+        val repo = repo(draftDao, detectionDao)
+        val queue = makeQueue(draftRepo = repo)
         val photoDao = FakeDraftPhotoDao(
             mutableListOf(
                 DraftPhotoEntity(id = "p1", draftId = draftId, photoPath = "/a.jpg", takenAtMs = 1L),
@@ -941,9 +1075,10 @@ class ReviewViewModelTest {
         )
         val vm = ReviewViewModel(
             draftId = draftId,
-            repo = repo(draftDao, detectionDao),
+            repo = repo,
             player = FakeAudioPlayer(),
             inference = noopInference(),
+            queue = queue,
             ioDispatcher = UnconfinedTestDispatcher(testScheduler),
             habitatPhotosFlow = photoDao.photosForDraft(draftId),
             externalScope = backgroundScope,
@@ -977,11 +1112,13 @@ class ReviewViewModelTest {
                 )
             }
             val repo = repo(draftDao, detectionDao)
+            val queue = makeQueue(draftRepo = repo)
             val vm = ReviewViewModel(
                 draftId = draftId,
                 repo = repo,
                 player = FakeAudioPlayer(),
-                inference = InferenceJob { _, _, _, _, _ -> InferenceOutcome.Failure("skip") },
+                inference = noopInference(),
+                queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
                 observationFetcher = {
@@ -1129,4 +1266,18 @@ private class FakeDetectionDao : DetectionDao {
     }
     override fun observeCountsByDraft(): kotlinx.coroutines.flow.Flow<List<com.sound2inat.storage.DraftDetectionCount>> =
         kotlinx.coroutines.flow.flowOf(emptyList())
+}
+
+private class FakeInferenceUseCase(
+    birdnetJob: InferenceJob = InferenceJob { _, _, _, _, _ ->
+        InferenceOutcome.Success("birdnet_v2_4", "2.4", emptyList())
+    },
+    birdnetReanalysisJob: InferenceJob = birdnetJob,
+    perchJob: PerchAnalysisJob = PerchAnalysisJob { _, _, _, _, _ -> PerchAnalysisOutcome.NotInstalled },
+    perchReanalysisJob: PerchAnalysisJob = perchJob,
+) : InferenceUseCase {
+    override val inference: InferenceJob = birdnetJob
+    override val inferenceReanalysis: InferenceJob = birdnetReanalysisJob
+    override val perchAnalysis: PerchAnalysisJob = perchJob
+    override val perchReanalysis: PerchAnalysisJob = perchReanalysisJob
 }
