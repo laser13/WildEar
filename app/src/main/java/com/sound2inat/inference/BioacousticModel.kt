@@ -37,9 +37,9 @@ interface BioacousticModel {
     ): List<WindowPrediction>
 
     /**
-     * Returns a new, unloaded instance of the same model type backed by the
-     * same [InterpreterFactory]. The caller must call [load] before [predict]
-     * and [close] when done. Does not copy interpreter state.
+     * Returns a new, unloaded instance of the same model type.
+     * The caller must call [load] before [predict] and [close] when done.
+     * Does not copy interpreter state.
      */
     fun newInstance(): BioacousticModel
 
