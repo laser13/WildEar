@@ -171,7 +171,7 @@ class ReviewViewModel(
     private val photosDao: DraftPhotoDao? = null,
     /** File store used to create photo files for camera capture. Null in tests. */
     private val photoStore: PhotoFileStore? = null,
-    private val queue: InferenceQueue? = null,
+    private val queue: InferenceQueue,
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -250,10 +250,10 @@ class ReviewViewModel(
             }
         }
         scope.launch {
-            queue?.status
-                ?.map { it[draftId] }
-                ?.distinctUntilChanged()
-                ?.collect { status ->
+            queue.status
+                .map { it[draftId] }
+                .distinctUntilChanged()
+                .collect { status ->
                     _state.update { s ->
                         s.copy(
                             inferenceProgress = (status as? JobStatus.Running)?.birdnetProgress,
@@ -409,7 +409,7 @@ class ReviewViewModel(
 
     private fun startInference(path: String, lat: Double?, lon: Double?, recordedAt: Long) {
         scope.launch {
-            queue?.enqueue(
+            queue.enqueue(
                 QueuedJob(
                     draftId = draftId,
                     audioPath = path,
@@ -420,33 +420,7 @@ class ReviewViewModel(
                     runPerch = false,
                     skipYamNetGate = false,
                 )
-            ) ?: run {
-                // Fallback for tests where queue is not injected — use legacy inference directly.
-                _state.value = _state.value.copy(inferenceProgress = 0f, inferenceError = null)
-                val outcome = inference.run(path, lat, lon, recordedAt) { p ->
-                    _state.value = _state.value.copy(inferenceProgress = p)
-                }
-                when (outcome) {
-                    is InferenceOutcome.Success -> {
-                        repo.mergeAndPersist(
-                            draftId = draftId,
-                            newModelId = outcome.modelId,
-                            newModelVersion = outcome.modelVersion,
-                            freshDetections = outcome.detections,
-                            promoteToReviewed = true,
-                        )
-                        _windowPreds.value = outcome.windows
-                        _state.value = _state.value.copy(inferenceProgress = null)
-                        launchAnnotationIfIdle()
-                    }
-                    is InferenceOutcome.Failure -> {
-                        _state.value = _state.value.copy(
-                            inferenceProgress = null,
-                            inferenceError = outcome.message,
-                        )
-                    }
-                }
-            }
+            )
         }
     }
 
@@ -606,7 +580,7 @@ class ReviewViewModel(
         val path = s.audioPath ?: return
         inferenceStarted = true
         scope.launch {
-            queue?.enqueue(
+            queue.enqueue(
                 QueuedJob(
                     draftId = draftId,
                     audioPath = path,
@@ -617,75 +591,7 @@ class ReviewViewModel(
                     runPerch = runPerch,
                     skipYamNetGate = true,
                 )
-            ) ?: run {
-                // Fallback for tests where queue is not injected — use legacy inference directly.
-                val lat = s.latitude
-                val lon = s.longitude
-                val recordedAt = s.recordedAtUtcMs
-                _windowPreds.value = emptyList()
-                var pendingWindows = emptyList<WindowPrediction>()
-                if (runBirdnet) {
-                    _state.value = _state.value.copy(inferenceError = null, inferenceProgress = 0f)
-                    try {
-                        val outcome = inferenceReanalysis.run(path, lat, lon, recordedAt) { p ->
-                            _state.value = _state.value.copy(inferenceProgress = p.coerceIn(0f, 1f))
-                        }
-                        when (outcome) {
-                            is InferenceOutcome.Success -> {
-                                repo.mergeAndPersist(
-                                    draftId = draftId,
-                                    newModelId = outcome.modelId,
-                                    newModelVersion = outcome.modelVersion,
-                                    freshDetections = outcome.detections,
-                                    promoteToReviewed = true,
-                                )
-                                pendingWindows = outcome.windows
-                            }
-                            is InferenceOutcome.Failure -> {
-                                _state.value = _state.value.copy(inferenceError = outcome.message)
-                            }
-                        }
-                    } finally {
-                        _state.value = _state.value.copy(inferenceProgress = null)
-                    }
-                }
-                if (runPerch) {
-                    _state.value = _state.value.copy(perchProgress = 0f, perchError = null)
-                    try {
-                        val outcome = perchReanalysis.run(path, lat, lon, recordedAt) { p ->
-                            _state.value = _state.value.copy(perchProgress = p.coerceIn(0f, 1f))
-                        }
-                        when (outcome) {
-                            is PerchAnalysisOutcome.Success -> {
-                                repo.mergeAndPersist(
-                                    draftId = draftId,
-                                    newModelId = ModelIds.PERCH,
-                                    newModelVersion = "perch",
-                                    freshDetections = outcome.detections,
-                                )
-                            }
-                            is PerchAnalysisOutcome.Failure -> {
-                                _state.value = _state.value.copy(perchError = outcome.message)
-                            }
-                            PerchAnalysisOutcome.NotInstalled -> {
-                                _state.value = _state.value.copy(
-                                    perchError = "Perch model is not installed",
-                                )
-                            }
-                        }
-                    } catch (t: Throwable) {
-                        _state.value = _state.value.copy(
-                            perchError = t.message ?: t::class.simpleName.orEmpty(),
-                        )
-                    } finally {
-                        _state.value = _state.value.copy(perchProgress = null)
-                        perchInstalled = runCatching { perchInstalledProbe() }.getOrDefault(perchInstalled)
-                        recomputePerchEligibility()
-                    }
-                }
-                _windowPreds.value = pendingWindows
-                launchAnnotationIfIdle()
-            }
+            )
         }
     }
 
