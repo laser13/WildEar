@@ -31,7 +31,7 @@ import java.io.IOException
  * Tokens expire after ~24 h — callers should treat HTTP 401 as
  * "re-paste the token in Settings".
  */
-class INaturalistClient(
+open class INaturalistClient(
     private val http: OkHttpClient,
     private val baseUrl: String = DEFAULT_BASE_URL,
     /**
@@ -192,6 +192,42 @@ class INaturalistClient(
                 resp.getLong("id")
             }
         }
+
+    /**
+     * Uploads [photoFile] (JPEG) and links it to the observation identified by
+     * [observationUuid]. Returns the iNat observation_photo id.
+     *
+     * Best-effort: callers should catch exceptions and log rather than rolling
+     * back the parent observation — a missing photo is far less harmful than a
+     * missing observation record.
+     */
+    open suspend fun uploadObservationPhoto(
+        token: String,
+        observationUuid: String,
+        photoFile: File,
+    ): Long = withContext(ioDispatcher) {
+        require(observationUuid.isNotBlank()) { "uploadObservationPhoto requires observation UUID" }
+        require(photoFile.exists() && photoFile.length() > 0) {
+            "Photo file missing or empty: ${photoFile.absolutePath}"
+        }
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("observation_photo[observation_id]", observationUuid)
+            .addFormDataPart(
+                name = "file",
+                filename = photoFile.name,
+                body = photoFile.asRequestBody(JPEG_MEDIA_TYPE),
+            )
+            .build()
+        val req = Request.Builder()
+            .url("$baseUrl/observation_photos")
+            .header("Authorization", token)
+            .header("Accept", "application/json")
+            .post(body)
+            .build()
+        val resp = executeJson(req)
+        resp.optLong("id", -1L).also { if (it < 0) error("uploadObservationPhoto: no id in response") }
+    }
 
     /**
      * Deletes an observation. Used to roll back orphan observations when
@@ -689,6 +725,7 @@ class INaturalistClient(
         const val DEFAULT_BASE_URL = "https://api.inaturalist.org/v1"
         private val JSON = "application/json; charset=utf-8".toMediaType()
         private val WAV_MEDIA_TYPE = "audio/wav".toMediaType()
+        private val JPEG_MEDIA_TYPE = "image/jpeg".toMediaType()
         private const val MAX_ERR_LEN = 200
         private const val LOG_TAG = "INatHttp"
         private const val LOG_BODY_LEN = 1000

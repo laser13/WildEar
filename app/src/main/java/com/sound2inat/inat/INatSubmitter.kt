@@ -64,6 +64,8 @@ class INatSubmitter(
     suspend fun submit(
         token: String,
         draft: DraftWithDetections,
+        habitatPhotos: List<File> = emptyList(),
+        includeHabitatPhotoByTaxon: Map<String, Boolean> = emptyMap(),
     ): Result = withContext(ioDispatcher) {
         if (token.isBlank()) return@withContext Result.Failure("No iNaturalist token in Settings")
         val selected = draft.detections.filter { it.isSelectedByUser }
@@ -77,7 +79,9 @@ class INatSubmitter(
         val failures = mutableListOf<String>()
 
         for (det in selected) {
-            val outcome = runCatching { submitOne(token, draft, srcAudio, cropDir, det) }
+            val outcome = runCatching {
+                submitOne(token, draft, srcAudio, cropDir, det, habitatPhotos, includeHabitatPhotoByTaxon)
+            }
             outcome.onSuccess { row ->
                 if (row != null) {
                     android.util.Log.i(
@@ -165,6 +169,8 @@ class INatSubmitter(
         srcAudio: File,
         cropDir: File,
         det: DetectionEntity,
+        habitatPhotos: List<File> = emptyList(),
+        includeHabitatPhotoByTaxon: Map<String, Boolean> = emptyMap(),
     ): InatObservationEntity? {
         val genusId = client.resolveGenus(det.taxonScientificName, token) ?: return null
         val cropFile = File(cropDir, cropFileName(draft.draft.id, det))
@@ -211,6 +217,15 @@ class INatSubmitter(
             client.addIdentification(token, created.id, genusId, identificationComment(det))
         }.onFailure {
             android.util.Log.w(LOG_TAG, "addIdentification on ${created.id} failed", it)
+        }
+        // Best-effort habitat photo upload — failure doesn't roll back the observation.
+        if (includeHabitatPhotoByTaxon[det.taxonScientificName] == true) {
+            for (photo in habitatPhotos.filter { it.exists() }) {
+                runCatching { client.uploadObservationPhoto(token, created.uuid, photo) }
+                    .onFailure {
+                        android.util.Log.w(LOG_TAG, "Photo upload failed for ${created.id}", it)
+                    }
+            }
         }
         return InatObservationEntity(
             draftId = draft.draft.id,
