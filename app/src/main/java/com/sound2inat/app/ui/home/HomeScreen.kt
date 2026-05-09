@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.Mic
@@ -45,7 +44,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -77,7 +75,7 @@ import java.util.Date
 import java.util.Locale
 
 @Suppress("FunctionNaming", "LongMethod")
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     onRecord: () -> Unit,
@@ -132,13 +130,11 @@ fun HomeScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.app_name)) },
-                actions = {
-                    IconButton(onClick = onSettings) {
-                        Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.cd_settings))
-                    }
-                },
+            HomeTopBar(
+                filterMode = filterMode,
+                onFilterChange = { vm.setFilterMode(it) },
+                onSettings = onSettings,
+                showFilterChips = enrichedDrafts.isNotEmpty(),
             )
         },
         floatingActionButton = {
@@ -170,10 +166,8 @@ fun HomeScreen(
                     )
                 }
             }
-            if (enrichedDrafts.isNotEmpty()) {
-                RecordingFilterBar(
-                    filterMode = filterMode,
-                    onFilterChange = { vm.setFilterMode(it) },
+            if (filterMode == FilterMode.NOTHING_DETECTED && filteredDrafts.isNotEmpty()) {
+                BulkActionsRow(
                     selectedCount = selectedIds.size,
                     totalVisible = filteredDrafts.size,
                     onSelectAll = { vm.selectAllVisible() },
@@ -206,16 +200,22 @@ fun HomeScreen(
                         val groups = remember(filteredDrafts) { groupDraftsByDate(filteredDrafts) }
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            contentPadding = PaddingValues(start = 16.dp, top = 0.dp, end = 16.dp, bottom = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
+                            item(key = "large_header") {
+                                LargeHeader()
+                            }
                             groups.forEach { group ->
-                                item(key = "header_${group.label}") {
+                                stickyHeader(key = "header_${group.label}") {
                                     Text(
                                         group.label,
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(MaterialTheme.colorScheme.background)
+                                            .padding(top = 8.dp, bottom = 4.dp),
                                     )
                                 }
                                 items(group.drafts, key = { it.id }) { d ->
@@ -526,76 +526,6 @@ private fun startOfDay(ms: Long, cal: Calendar): Long {
     cal.set(Calendar.SECOND, 0)
     cal.set(Calendar.MILLISECOND, 0)
     return cal.timeInMillis
-}
-
-@Suppress("FunctionNaming")
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun RecordingFilterBar(
-    filterMode: FilterMode,
-    onFilterChange: (FilterMode) -> Unit,
-    selectedCount: Int,
-    totalVisible: Int,
-    onSelectAll: () -> Unit,
-    onClearSelection: () -> Unit,
-    onDeleteSelected: () -> Unit,
-) {
-    val allSelected = filterMode == FilterMode.NOTHING_DETECTED &&
-        selectedCount > 0 && selectedCount == totalVisible
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            FilterChip(
-                selected = filterMode == FilterMode.UPLOADED,
-                onClick = {
-                    onFilterChange(if (filterMode == FilterMode.UPLOADED) FilterMode.ALL else FilterMode.UPLOADED)
-                },
-                label = {
-                    Icon(Icons.Filled.Eco, contentDescription = stringResource(R.string.cd_filter_uploaded), modifier = Modifier.size(18.dp))
-                },
-            )
-            FilterChip(
-                selected = filterMode == FilterMode.NOTHING_DETECTED,
-                onClick = {
-                    onFilterChange(
-                        if (filterMode == FilterMode.NOTHING_DETECTED) FilterMode.ALL else FilterMode.NOTHING_DETECTED,
-                    )
-                },
-                label = {
-                    Icon(Icons.Filled.SearchOff, contentDescription = stringResource(R.string.cd_filter_nothing_detected), modifier = Modifier.size(18.dp))
-                },
-            )
-        }
-        if (filterMode == FilterMode.NOTHING_DETECTED && totalVisible > 0) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(onClick = if (allSelected) onClearSelection else onSelectAll) {
-                    Text(if (allSelected) stringResource(R.string.filter_deselect_all) else stringResource(R.string.filter_select_all))
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                if (selectedCount > 0) {
-                    TextButton(
-                        onClick = onDeleteSelected,
-                        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error,
-                        ),
-                    ) {
-                        Text(stringResource(R.string.filter_delete_selected, selectedCount))
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Suppress("FunctionNaming")
