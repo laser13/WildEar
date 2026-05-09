@@ -1,33 +1,39 @@
 package com.sound2inat.inference
 
+import android.util.Log
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 import java.io.RandomAccessFile
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Slices a mono 16-bit WAV into fixed windows hopped by [hopSeconds], optionally
- * applies a YAMNet biological gate, and calls [model] per window that passes the gate.
+ * applies a YAMNet biological gate, and calls each model per window that passes the gate.
  *
- * Pipeline per run:
- *   1. Read + resample to model rate (ShortArray).
- *   2. Normalize to [-1, 1] (FloatArray).
- *   3. Per window: YamNetGate check → model.predict().
+ * Sequential path ([models].size == 1): existing per-window loop, unchanged behaviour.
+ * Parallel path ([models].size > 1): windows split evenly across models and processed
+ * in parallel coroutines; results merged and sorted by windowStartMs.
  *
- * Pass null for [yamNetGate] to skip the gate step.
- * Fail-open: the gate's own error handling returns true on any exception.
+ * [run] closes every model it receives (sequential: try/finally on models[0];
+ * parallel: async finally blocks per model). Callers must NOT close models after [run].
  */
 class InferenceRunner(
-    private val model: BioacousticModel,
+    private val models: List<BioacousticModel>,
     private val hopSeconds: Float = 1f,
     private val yamNetGate: YamNetGate? = null,
     /**
-     * When true, a DOWNRANK gate decision skips [model.predict] entirely (true pre-filter).
-     * When false (default), the gate is a soft post-filter: predict always runs, DOWNRANK only
-     * drops results when no prediction exceeds [HIGH_CONFIDENCE_OVERRIDE].
+     * When true, a DOWNRANK gate decision skips [BioacousticModel.predict] entirely.
+     * When false (default), DOWNRANK is a soft post-filter that drops results only
+     * when no prediction exceeds [HIGH_CONFIDENCE_OVERRIDE].
      */
     val hardGate: Boolean = false,
 ) {
+    init { require(models.isNotEmpty()) { "models must not be empty" } }
+
     private val _progress = MutableStateFlow(0f)
     val progress: StateFlow<Float> = _progress
 
@@ -38,6 +44,7 @@ class InferenceRunner(
         observedAtMillis: Long,
     ): List<WindowPrediction> {
         _progress.value = 0f
+        val model = models.first()
         val t0 = System.currentTimeMillis()
         val (rawSamples, nativeRate) = WavReader.readMono16(wavFile)
         val targetRate = model.expectedSampleRateHz
@@ -46,13 +53,12 @@ class InferenceRunner(
         } else {
             Resampler.resample(rawSamples, nativeRate, targetRate)
         }
-        android.util.Log.d(
+        Log.d(
             "InferenceTiming",
             "${model.modelId}: WAV read+resample ${System.currentTimeMillis() - t0}ms " +
                 "(${rawSamples.size}→${resampled.size} samples, ${nativeRate}→${targetRate}Hz)",
         )
 
-        // Normalize to [-1, 1].
         val normalized = FloatArray(resampled.size) { i -> resampled[i] / Short.MAX_VALUE.toFloat() }
 
         val windowSeconds = model.windowMs / MS_PER_SECOND
@@ -64,55 +70,127 @@ class InferenceRunner(
             _progress.value = 1f
             return emptyList()
         }
+
+        return if (models.size == 1) {
+            runSequential(normalized, targetRate, frames, win, hop, model, latitude, longitude, observedAtMillis)
+        } else {
+            runParallel(normalized, targetRate, frames, win, hop, latitude, longitude, observedAtMillis)
+        }
+    }
+
+    private suspend fun runSequential(
+        normalized: FloatArray,
+        targetRate: Int,
+        frames: Int,
+        win: Int,
+        hop: Int,
+        model: BioacousticModel,
+        latitude: Double?,
+        longitude: Double?,
+        observedAtMillis: Long,
+    ): List<WindowPrediction> {
         val out = ArrayList<WindowPrediction>(frames * 5)
         val loopStart = System.currentTimeMillis()
         var batchStart = loopStart
-        for (f in 0 until frames) {
-            val s = f * hop
-            val window = normalized.copyOfRange(s, s + win)
-            _progress.value = (f + 1).toFloat() / frames
-            val gateResult = yamNetGate?.classify(window, targetRate) // null = fail-open → PASS
-            // Hard pre-filter: skip predict entirely when YAMNet finds no biological signal.
-            if (hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) continue
-            val startMs = (s.toLong() * MS_PER_SECOND_LONG) / targetRate
-            val endMs = ((s + win).toLong() * MS_PER_SECOND_LONG) / targetRate
-            val predictions = model.predict(
-                pcmFloat32 = window,
-                sampleRateHz = targetRate,
-                latitude = latitude,
-                longitude = longitude,
-                observedAtMillis = observedAtMillis,
-                windowStartMs = startMs,
-                windowEndMs = endMs,
-            )
-            if (f == 0 || (f + 1) % 50 == 0 || f == frames - 1) {
-                val now = System.currentTimeMillis()
-                android.util.Log.d(
-                    "InferenceTiming",
-                    "${model.modelId}: window ${f + 1}/$frames " +
-                        "${now - batchStart}ms batch / ${now - loopStart}ms total",
+        try {
+            for (f in 0 until frames) {
+                val s = f * hop
+                val window = normalized.copyOfRange(s, s + win)
+                _progress.value = (f + 1).toFloat() / frames
+                val gateResult = yamNetGate?.classify(window, targetRate)
+                if (hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) continue
+                val startMs = (s.toLong() * MS_PER_SECOND_LONG) / targetRate
+                val endMs = ((s + win).toLong() * MS_PER_SECOND_LONG) / targetRate
+                val predictions = model.predict(
+                    pcmFloat32 = window,
+                    sampleRateHz = targetRate,
+                    latitude = latitude,
+                    longitude = longitude,
+                    observedAtMillis = observedAtMillis,
+                    windowStartMs = startMs,
+                    windowEndMs = endMs,
                 )
-                batchStart = now
+                if (f == 0 || (f + 1) % 50 == 0 || f == frames - 1) {
+                    val now = System.currentTimeMillis()
+                    Log.d(
+                        "InferenceTiming",
+                        "${model.modelId}: window ${f + 1}/$frames " +
+                            "${now - batchStart}ms batch / ${now - loopStart}ms total",
+                    )
+                    batchStart = now
+                }
+                if (!hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) {
+                    if (predictions.none { it.confidence >= HIGH_CONFIDENCE_OVERRIDE }) continue
+                }
+                out += predictions
             }
-            // Soft post-filter (hardGate=false only): DOWNRANK drops results when no high-confidence hit.
-            if (!hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) {
-                val hasHighConfidence = predictions.any { it.confidence >= HIGH_CONFIDENCE_OVERRIDE }
-                if (!hasHighConfidence) continue
-            }
-            out += predictions
+        } finally {
+            model.close()
         }
-        android.util.Log.d(
+        Log.d(
             "InferenceTiming",
             "${model.modelId}: loop done — $frames windows in ${System.currentTimeMillis() - loopStart}ms",
         )
         return out
     }
 
+    private suspend fun runParallel(
+        normalized: FloatArray,
+        targetRate: Int,
+        frames: Int,
+        win: Int,
+        hop: Int,
+        latitude: Double?,
+        longitude: Double?,
+        observedAtMillis: Long,
+    ): List<WindowPrediction> {
+        val counter = AtomicInteger(0)
+        val results = coroutineScope {
+            models.indices.map { i ->
+                val chunkStart = i * frames / models.size
+                val chunkEnd = if (i == models.size - 1) frames else (i + 1) * frames / models.size
+                async {
+                    val chunkOut = ArrayList<WindowPrediction>()
+                    try {
+                        for (f in chunkStart until chunkEnd) {
+                            val s = f * hop
+                            val window = normalized.copyOfRange(s, s + win)
+                            val gateResult = yamNetGate?.classify(window, targetRate)
+                            if (hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) {
+                                _progress.value = counter.incrementAndGet().toFloat() / frames
+                                continue
+                            }
+                            val startMs = (s.toLong() * MS_PER_SECOND_LONG) / targetRate
+                            val endMs = ((s + win).toLong() * MS_PER_SECOND_LONG) / targetRate
+                            val predictions = models[i].predict(
+                                pcmFloat32 = window,
+                                sampleRateHz = targetRate,
+                                latitude = latitude,
+                                longitude = longitude,
+                                observedAtMillis = observedAtMillis,
+                                windowStartMs = startMs,
+                                windowEndMs = endMs,
+                            )
+                            _progress.value = counter.incrementAndGet().toFloat() / frames
+                            if (!hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) {
+                                if (predictions.none { it.confidence >= HIGH_CONFIDENCE_OVERRIDE }) continue
+                            }
+                            chunkOut += predictions
+                        }
+                    } finally {
+                        models[i].close()
+                    }
+                    chunkOut
+                }
+            }.awaitAll()
+        }
+        _progress.value = 1f
+        return results.flatten().sortedBy { it.startMs }
+    }
+
     private companion object {
         const val MS_PER_SECOND = 1_000f
         const val MS_PER_SECOND_LONG = 1_000L
-
-        /** If any prediction has confidence >= this, override a DOWNRANK gate decision. */
         const val HIGH_CONFIDENCE_OVERRIDE = 0.7f
     }
 }

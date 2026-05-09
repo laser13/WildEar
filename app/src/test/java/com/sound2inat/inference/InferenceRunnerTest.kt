@@ -81,7 +81,7 @@ class InferenceRunnerTest {
     fun `slices 5s WAV into three 3s windows at 1s hop`() = runTest {
         val wav = writeSilentWav(durationSeconds = 5)
         val model = RecordingFakeModel()
-        val runner = InferenceRunner(model, hopSeconds = 1f)
+        val runner = InferenceRunner(listOf(model), hopSeconds = 1f)
 
         val out = runner.run(wav, latitude = null, longitude = null, observedAtMillis = 0L)
 
@@ -100,7 +100,7 @@ class InferenceRunnerTest {
     fun `WAV shorter than window yields no predictions but progress still 1`() = runTest {
         val wav = writeSilentWav(durationSeconds = 2) // shorter than 3 s window
         val model = RecordingFakeModel()
-        val runner = InferenceRunner(model)
+        val runner = InferenceRunner(listOf(model))
 
         val out = runner.run(wav, null, null, 0L)
 
@@ -113,7 +113,7 @@ class InferenceRunnerTest {
     fun `48k WAV is resampled to model's 32k expected rate before slicing`() = runTest {
         val wav = writeSilentWav(durationSeconds = 6, sampleRate = 48_000)
         val model = RecordingFakeModel(expectedSampleRateHz = 32_000, windowMs = 5_000L)
-        val runner = InferenceRunner(model, hopSeconds = 1f)
+        val runner = InferenceRunner(listOf(model), hopSeconds = 1f)
 
         val out = runner.run(wav, null, null, 0L)
 
@@ -139,7 +139,7 @@ class InferenceRunnerTest {
                 recommendation = GateRecommendation.DOWNRANK,
             )
         }
-        val runner = InferenceRunner(model, hopSeconds = 1f, yamNetGate = alwaysDownrankGate)
+        val runner = InferenceRunner(listOf(model), hopSeconds = 1f, yamNetGate = alwaysDownrankGate)
 
         val out = runner.run(wav, latitude = null, longitude = null, observedAtMillis = 0L)
 

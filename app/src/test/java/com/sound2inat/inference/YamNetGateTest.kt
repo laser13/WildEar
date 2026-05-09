@@ -178,10 +178,11 @@ class YamNetGateTest {
                 )
             )
             override fun close() = Unit
+            override fun newInstance(): BioacousticModel = this
         }
 
         val runner = InferenceRunner(
-            model = highConfidenceModel,
+            models = listOf(highConfidenceModel),
             hopSeconds = 3f,
             yamNetGate = downrankGate,
         )
@@ -229,10 +230,11 @@ class YamNetGateTest {
                 )
             )
             override fun close() = Unit
+            override fun newInstance(): BioacousticModel = this
         }
 
         val runner = InferenceRunner(
-            model = lowConfidenceModel,
+            models = listOf(lowConfidenceModel),
             hopSeconds = 3f,
             yamNetGate = downrankGate,
         )

@@ -90,6 +90,7 @@ class InferenceUseCaseTest {
             windowEndMs: Long,
         ): List<WindowPrediction> = predictions(windowStartMs, windowEndMs)
         override fun close() = Unit
+        override fun newInstance(): BioacousticModel = this
     }
 
     private fun makeJob(

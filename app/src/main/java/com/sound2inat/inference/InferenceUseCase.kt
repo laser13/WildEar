@@ -144,7 +144,7 @@ internal class ProductionInferenceJob(
                 val modelStartMs = System.currentTimeMillis()
                 model.load(state.modelFile, state.labelsFile)
                 val runner = InferenceRunner(
-                    model,
+                    listOf(model),
                     yamNetGate = activeGate,
                 )
                 val perModel = coroutineScope {
@@ -293,7 +293,7 @@ internal class ProductionPerchAnalysisJob(
             perch.load(state.modelFile, state.labelsFile)
             val gate = if (hardGate || settings.yamNetGateEnabled.first()) yamNetGate else null
             val runner = InferenceRunner(
-                model = perch,
+                models = listOf(perch),
                 yamNetGate = gate,
                 hardGate = hardGate,
             )

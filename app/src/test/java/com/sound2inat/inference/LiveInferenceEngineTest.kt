@@ -41,6 +41,7 @@ class LiveInferenceEngineTest {
             ),
         )
         override fun close() {}
+        override fun newInstance(): BioacousticModel = this
     }
 
     @Test
@@ -122,6 +123,7 @@ class LiveInferenceEngineTest {
                 )
             )
             override fun close() {}
+            override fun newInstance(): BioacousticModel = this
         }
         // Gate returns DOWNRANK — low-confidence predictions should be suppressed
         val downrankGate = YamNetGate { _, _ ->
@@ -378,6 +380,7 @@ class LiveInferenceEngineTest {
                 return emptyList()
             }
             override fun close() {}
+            override fun newInstance(): BioacousticModel = this
         }
         val engine = LiveInferenceEngine(
             model = slowModel,
