@@ -10,6 +10,9 @@ import com.sound2inat.app.recording.FakeRecordingController
 import com.sound2inat.app.recording.RecordingController
 import com.sound2inat.app.recording.RecordingServiceLauncher
 import com.sound2inat.app.recording.RecordingSessionState
+import com.sound2inat.storage.DraftPhotoDao
+import com.sound2inat.storage.DraftPhotoEntity
+import com.sound2inat.storage.PhotoFileStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +24,9 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
@@ -35,6 +40,9 @@ class RecordingViewModelTest {
     private lateinit var fakeController: FakeRecordingController
     private lateinit var fakeLauncher: FakeRecordingServiceLauncher
     private val fakeContext: Context get() = RuntimeEnvironment.getApplication()
+
+    @get:Rule
+    val tmp = TemporaryFolder()
 
     @Before
     fun setUp() {
@@ -52,11 +60,16 @@ class RecordingViewModelTest {
         perms: PermissionsController = grantedPerms(),
         controller: RecordingController = fakeController,
         launcher: RecordingServiceLauncher = fakeLauncher,
+        photoDao: DraftPhotoDao? = null,
+        photoStore: PhotoFileStore? = null,
     ) = RecordingViewModel(
         perms = perms,
         controller = controller,
         launcher = launcher,
         appContext = fakeContext,
+        photoDao = photoDao,
+        photoStore = photoStore,
+        ioDispatcher = dispatcher,
     )
 
     @Test
@@ -146,6 +159,29 @@ class RecordingViewModelTest {
         assertThat(vm.state.value).isEqualTo(RecordingUiState.Done("d2"))
     }
 
+    @Test
+    fun `onPhotoTaken inserts DraftPhotoEntity for current draft`() = runTest {
+        val photoRows = mutableListOf<DraftPhotoEntity>()
+        val fakePhotoDao = FakeDraftPhotoDao(photoRows)
+        val photoStore = PhotoFileStore(tmp.root)
+        // Simulate controller in Recording state with a draft id.
+        fakeController.setState(
+            RecordingSessionState.Recording(
+                draftId = "d1", recordingStartMs = 0L, elapsedMs = 1000L,
+                rms = 0f, gps = GpsStatus.NoFix, warningSoftLimit = false,
+                backlogWindows = 0, liveCards = emptyList(), lastDetection = null,
+            ),
+        )
+        val vm = buildVm(photoDao = fakePhotoDao, photoStore = photoStore)
+        runCurrent()
+        val photoId = "photo-uuid"
+        vm.onPhotoTaken(draftId = "d1", photoId = photoId, photoPath = "/tmp/a.jpg")
+        runCurrent()
+        assertThat(photoRows).hasSize(1)
+        assertThat(photoRows[0].draftId).isEqualTo("d1")
+        assertThat(photoRows[0].photoPath).isEqualTo("/tmp/a.jpg")
+    }
+
     private fun grantedPerms() = FakePerms(
         mapOf(
             Permission.RECORD_AUDIO to PermissionStatus.GRANTED,
@@ -187,4 +223,20 @@ private class FakeRecordingServiceLauncher : RecordingServiceLauncher {
     override fun cancel(context: Context) {
         cancelCalled = true
     }
+}
+
+private class FakeDraftPhotoDao(
+    private val rows: MutableList<DraftPhotoEntity> = mutableListOf(),
+) : DraftPhotoDao {
+    override fun insert(photo: DraftPhotoEntity) { rows += photo }
+    override fun deleteById(id: String): Int = rows.removeAll { it.id == id }.let { if (it) 1 else 0 }
+    override fun deleteByDraftId(draftId: String): Int {
+        val before = rows.size
+        rows.removeAll { it.draftId == draftId }
+        return before - rows.size
+    }
+    override fun photosForDraft(draftId: String): kotlinx.coroutines.flow.Flow<List<DraftPhotoEntity>> =
+        kotlinx.coroutines.flow.flowOf(rows.filter { it.draftId == draftId })
+    override fun listForDraft(draftId: String): List<DraftPhotoEntity> =
+        rows.filter { it.draftId == draftId }
 }

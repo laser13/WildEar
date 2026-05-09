@@ -1,6 +1,8 @@
 package com.sound2inat.app.ui.recording
 
 import android.content.Context
+import android.net.Uri
+import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sound2inat.app.permissions.Permission
@@ -9,9 +11,15 @@ import com.sound2inat.app.permissions.PermissionsController
 import com.sound2inat.app.recording.RecordingController
 import com.sound2inat.app.recording.RecordingServiceLauncher
 import com.sound2inat.app.recording.RecordingSessionState
+import com.sound2inat.storage.DraftPhotoDao
+import com.sound2inat.storage.DraftPhotoEntity
+import com.sound2inat.storage.PhotoFileStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -25,9 +33,15 @@ class RecordingViewModel(
     private val controller: RecordingController,
     private val launcher: RecordingServiceLauncher,
     private val appContext: Context,
+    private val photoDao: DraftPhotoDao? = null,
+    private val photoStore: PhotoFileStore? = null,
+    private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
+    val hasCamera: Boolean = photoStore != null
+
     private val permissionError = MutableStateFlow<String?>(null)
+    private val _photoCount = MutableStateFlow(0)
 
     // True once this VM instance has observed at least one Recording state, meaning
     // the controller is running a session we started. Without this guard, a stale
@@ -38,9 +52,10 @@ class RecordingViewModel(
     val state: StateFlow<RecordingUiState> = combine(
         controller.state,
         permissionError,
-    ) { session, error ->
+        _photoCount,
+    ) { session, error, photoCount ->
         if (session is RecordingSessionState.Recording) hasSeenRecording = true
-        val uiState = error?.let { RecordingUiState.Error(it) } ?: session.toUiState()
+        val uiState = error?.let { RecordingUiState.Error(it) } ?: session.toUiState(photoCount)
         if (!hasSeenRecording && uiState is RecordingUiState.Done) RecordingUiState.Idle else uiState
     }.stateIn(viewModelScope, SharingStarted.Eagerly, RecordingUiState.Idle)
 
@@ -68,15 +83,49 @@ class RecordingViewModel(
         launcher.cancel(appContext)
     }
 
-    private fun RecordingSessionState.toUiState(): RecordingUiState = when (this) {
+    data class PreparedCapture(val uri: Uri, val filePath: String)
+
+    fun preparePhotoCapture(draftId: String, photoId: String): PreparedCapture {
+        val file = photoStore!!.newPhotoFile(draftId, photoId)
+        val uri = FileProvider.getUriForFile(
+            appContext,
+            "com.sound2inat.app.fileprovider",
+            file,
+        )
+        return PreparedCapture(uri = uri, filePath = file.absolutePath)
+    }
+
+    fun onPhotoTaken(draftId: String, photoId: String, photoPath: String) {
+        viewModelScope.launch {
+            withContext(ioDispatcher) {
+                photoDao?.insert(
+                    DraftPhotoEntity(
+                        id = photoId,
+                        draftId = draftId,
+                        photoPath = photoPath,
+                        takenAtMs = System.currentTimeMillis(),
+                    ),
+                )
+            }
+            _photoCount.value++
+        }
+    }
+
+    fun onPhotoCancelled(draftId: String, photoId: String) {
+        photoStore?.newPhotoFile(draftId, photoId)?.delete()
+    }
+
+    private fun RecordingSessionState.toUiState(photoCount: Int = 0): RecordingUiState = when (this) {
         RecordingSessionState.Idle -> RecordingUiState.Idle
         is RecordingSessionState.Recording -> RecordingUiState.Recording(
+            draftId = draftId,
             elapsedMs = elapsedMs,
             rms = rms,
             gps = gps,
             warningSoftLimit = warningSoftLimit,
             liveCards = liveCards,
             backlogWindows = backlogWindows,
+            habitatPhotoCount = photoCount,
         )
         is RecordingSessionState.Done -> RecordingUiState.Done(draftId)
         is RecordingSessionState.Error -> RecordingUiState.Error(message)
@@ -96,6 +145,8 @@ class RecordingViewModelHilt @Inject constructor(
     private val controller: RecordingController,
     private val launcher: RecordingServiceLauncher,
     @ApplicationContext private val appContext: Context,
+    private val photoDao: DraftPhotoDao,
+    private val photoStore: PhotoFileStore,
 ) : ViewModel() {
     val factory = { perms: PermissionsController ->
         RecordingViewModel(
@@ -103,6 +154,8 @@ class RecordingViewModelHilt @Inject constructor(
             controller = controller,
             launcher = launcher,
             appContext = appContext,
+            photoDao = photoDao,
+            photoStore = photoStore,
         )
     }
 }

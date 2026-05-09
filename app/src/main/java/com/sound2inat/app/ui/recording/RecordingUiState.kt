@@ -30,12 +30,14 @@ data class LiveCard(
 sealed interface RecordingUiState {
     data object Idle : RecordingUiState
     data class Recording(
+        val draftId: String,
         val elapsedMs: Long,
         val rms: Float,
         val gps: GpsStatus,
         val warningSoftLimit: Boolean,
         val liveCards: List<LiveCard> = emptyList(),
         val backlogWindows: Int = 0,
+        val habitatPhotoCount: Int = 0,
     ) : RecordingUiState
     data class Done(val draftId: String) : RecordingUiState
     data class Error(val message: String) : RecordingUiState

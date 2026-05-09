@@ -15,11 +15,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -34,8 +39,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.util.UUID
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -100,6 +108,7 @@ fun RecordingScreen(
                     audioBlocks = vm.audioBlocks,
                     sampleRateHz = vm.sampleRateHz,
                     onStop = { vm.stop() },
+                    vm = vm,
                 )
                 is RecordingUiState.Done -> LaunchedEffect(s.draftId) { onDone(s.draftId) }
                 is RecordingUiState.Error -> Box(
@@ -126,7 +135,23 @@ private fun RecordingBody(
     audioBlocks: SharedFlow<FloatArray>,
     sampleRateHz: Int,
     onStop: () -> Unit,
+    vm: RecordingViewModel,
 ) {
+    // Pending photo state: (photoId, filePath) captured before launching camera.
+    var pendingPhoto by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val pending = pendingPhoto
+        if (pending != null) {
+            val (pid, filePath) = pending
+            if (success) {
+                vm.onPhotoTaken(draftId = s.draftId, photoId = pid, photoPath = filePath)
+            } else {
+                vm.onPhotoCancelled(draftId = s.draftId, photoId = pid)
+            }
+            pendingPhoto = null
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -134,13 +159,36 @@ private fun RecordingBody(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // Header strip: elapsed time + GPS status
+        // Header strip: elapsed time + camera button + GPS status
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(formatElapsed(s.elapsedMs), style = MaterialTheme.typography.headlineMedium)
+            if (vm.hasCamera) {
+                BadgedBox(
+                    badge = {
+                        if (s.habitatPhotoCount > 0) {
+                            Badge { Text("${s.habitatPhotoCount}") }
+                        }
+                    },
+                ) {
+                    IconButton(
+                        onClick = {
+                            val pid = UUID.randomUUID().toString()
+                            val prepared = vm.preparePhotoCapture(s.draftId, pid)
+                            pendingPhoto = pid to prepared.filePath
+                            cameraLauncher.launch(prepared.uri)
+                        },
+                    ) {
+                        Icon(
+                            Icons.Filled.CameraAlt,
+                            contentDescription = stringResource(R.string.cd_take_habitat_photo),
+                        )
+                    }
+                }
+            }
             GpsIndicator(s.gps)
         }
 

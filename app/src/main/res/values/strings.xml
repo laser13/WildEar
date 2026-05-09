@@ -17,6 +17,7 @@
     <string name="cd_cancel">Cancel</string>
     <string name="cd_delete">Delete</string>
     <string name="cd_stop">Stop</string>
+    <string name="cd_take_habitat_photo">Take habitat photo</string>
     <string name="cd_uploaded_to_inat">Uploaded to iNaturalist</string>
 
     <!-- Home screen -->
