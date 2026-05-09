@@ -47,6 +47,7 @@ class AndroidAudioRecordSource(
          * Factory seam: replaceable in unit tests to inject fake [AudioRecord] instances.
          * Parameters: audioSource, sampleRate, bufferSizeInBytes → AudioRecord.
          */
+        @SuppressLint("MissingPermission")
         internal var audioRecordFactory: (source: Int, sampleRate: Int, bufferSize: Int) -> AudioRecord =
             { source, sr, buf ->
                 AudioRecord(source, sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, buf)

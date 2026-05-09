@@ -79,7 +79,7 @@ class INatObservationsRepository internal constructor(
         internal fun now() = System.currentTimeMillis()
         internal fun Int.daysAsMs() = this * 24L * 60 * 60 * 1000
         internal fun isoDate(epochMs: Long): String =
-            LocalDate.ofInstant(java.time.Instant.ofEpochMilli(epochMs), ZoneOffset.UTC)
+            java.time.Instant.ofEpochMilli(epochMs).atOffset(ZoneOffset.UTC).toLocalDate()
                 .format(DateTimeFormatter.ISO_LOCAL_DATE)
     }
 }
