@@ -8,7 +8,9 @@ import com.sound2inat.inference.DetectionAggregator
 import com.sound2inat.inference.LiveInferenceEngine
 import com.sound2inat.inference.LiveInferenceEngineFactory
 import com.sound2inat.inference.ModelIds
+import com.sound2inat.inference.PostRecordingProcessor
 import com.sound2inat.inference.RegionalStatus
+import java.io.File
 import com.sound2inat.location.Fix
 import com.sound2inat.location.LocationProvider
 import com.sound2inat.recorder.Recorder
@@ -87,6 +89,7 @@ class DefaultRecordingController(
     private val tickIntervalMs: Long = TICK_INTERVAL_MS,
     private val softLimitMs: Long = SOFT_LIMIT_MS,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val processor: PostRecordingProcessor? = null,
 ) : RecordingController {
 
     private val scope: CoroutineScope = applicationScope
@@ -232,6 +235,7 @@ class DefaultRecordingController(
         }
         val result = recorder.stop()
         cancelJobs()
+        processor?.process(File(result.audioPath))
         if (engine != null && finalDetections.isNotEmpty()) {
             drafts.createWithDetections(
                 id = id,
