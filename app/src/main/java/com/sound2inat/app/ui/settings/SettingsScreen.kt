@@ -85,9 +85,6 @@ fun SettingsScreen(onBack: () -> Unit) {
             SectionCard(title = stringResource(R.string.section_inference)) {
                 InferenceSection(state, vm)
             }
-            SectionCard(title = stringResource(R.string.section_noise_reduction)) {
-                NoiseReductionSection(state, vm)
-            }
             SectionCard(title = stringResource(R.string.section_regional_filter)) {
                 RegionalFilterSection(state, vm)
             }
@@ -190,7 +187,58 @@ private fun ModelSectionRow(sec: ModelSection, vm: SettingsViewModel) {
 
 @Suppress("FunctionNaming")
 @Composable
+private fun ToggleRow(
+    label: String,
+    subtitle: String? = null,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label)
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
 private fun InferenceSection(state: SettingsUiState, vm: SettingsViewModel) {
+    ToggleRow(
+        label = stringResource(R.string.label_audio_source_raw),
+        subtitle = stringResource(R.string.label_audio_source_raw_sub),
+        checked = state.audioSourceRaw,
+        onCheckedChange = { vm.setAudioSourceRaw(it) },
+    )
+    ToggleRow(
+        label = stringResource(R.string.label_normalize_audio),
+        subtitle = stringResource(R.string.label_normalize_audio_sub),
+        checked = state.normalizeAudio,
+        onCheckedChange = { vm.setNormalizeAudio(it) },
+    )
+    ToggleRow(
+        label = stringResource(R.string.label_spectral_noise_reduction),
+        subtitle = stringResource(R.string.label_spectral_noise_reduction_sub),
+        checked = state.spectralSubtractionEnabled,
+        onCheckedChange = { vm.setSpectralSubtractionEnabled(it) },
+    )
+    ToggleRow(
+        label = stringResource(R.string.label_yamnet_gate),
+        checked = state.yamNetGateEnabled,
+        onCheckedChange = { vm.setYamNetGateEnabled(it) },
+    )
+    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
     Text(stringResource(R.string.label_min_confidence, "%.2f".format(state.minConfidenceDisplay)))
     Slider(
         value = state.minConfidenceDisplay,
@@ -204,33 +252,6 @@ private fun InferenceSection(state: SettingsUiState, vm: SettingsViewModel) {
         valueRange = MIN_MIN_WINDOWS.toFloat()..MAX_MIN_WINDOWS.toFloat(),
         steps = MAX_MIN_WINDOWS - MIN_MIN_WINDOWS - 1,
     )
-}
-
-@Suppress("FunctionNaming")
-@Composable
-private fun NoiseReductionSection(state: SettingsUiState, vm: SettingsViewModel) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(stringResource(R.string.label_spectral_noise_reduction))
-        Switch(
-            checked = state.spectralSubtractionEnabled,
-            onCheckedChange = { vm.setSpectralSubtractionEnabled(it) },
-        )
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(stringResource(R.string.label_yamnet_gate))
-        Switch(
-            checked = state.yamNetGateEnabled,
-            onCheckedChange = { vm.setYamNetGateEnabled(it) },
-        )
-    }
 }
 
 @Suppress("FunctionNaming", "LongMethod")

@@ -134,8 +134,14 @@
     <string name="label_min_confidence">Min display confidence: %1$s</string>
     <!-- %1$d = window count -->
     <string name="label_min_windows">Min detected windows: %1$d</string>
+    <!-- Audio source / normalization toggles -->
+    <string name="label_audio_source_raw">Raw audio source</string>
+    <string name="label_audio_source_raw_sub">Skips AGC and noise suppression</string>
+    <string name="label_normalize_audio">Normalize recorded audio</string>
+    <string name="label_normalize_audio_sub">Peak-normalizes the WAV after recording stops</string>
     <!-- Noise reduction / gate toggles -->
     <string name="label_spectral_noise_reduction">Spectral noise reduction</string>
+    <string name="label_spectral_noise_reduction_sub">Applies spectral denoising live and post-recording</string>
     <string name="label_yamnet_gate">YAMNet biological gate</string>
     <!-- iNaturalist section. %1$s = username -->
     <string name="inat_logged_in_as">Logged in as %1$s</string>

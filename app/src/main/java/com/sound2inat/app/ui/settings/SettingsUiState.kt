@@ -29,6 +29,8 @@ data class SettingsUiState(
     val regionalFilterEnabled: Boolean = true,
     val regionRadiusKm: Int = 200,
     val minWindows: Int = 2,
+    val audioSourceRaw: Boolean = true,
+    val normalizeAudio: Boolean = true,
     val spectralSubtractionEnabled: Boolean = true,
     val yamNetGateEnabled: Boolean = true,
     val birdNetMetaEnabled: Boolean = true,

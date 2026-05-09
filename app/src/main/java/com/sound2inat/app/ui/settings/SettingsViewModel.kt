@@ -45,6 +45,10 @@ class SettingsViewModel(
     private val writeAllowDeleteUploaded: suspend (Boolean) -> Unit,
     private val themeModeFlow: Flow<ThemeMode> = kotlinx.coroutines.flow.flowOf(ThemeMode.SYSTEM),
     private val writeThemeMode: suspend (ThemeMode) -> Unit = {},
+    private val audioSourceRawFlow: Flow<Boolean> = kotlinx.coroutines.flow.flowOf(true),
+    private val writeAudioSourceRaw: suspend (Boolean) -> Unit = {},
+    private val normalizeAudioFlow: Flow<Boolean> = kotlinx.coroutines.flow.flowOf(true),
+    private val writeNormalizeAudio: suspend (Boolean) -> Unit = {},
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -115,6 +119,16 @@ class SettingsViewModel(
         }
         scope.launch {
             themeModeFlow.collect { v -> _state.value = _state.value.copy(themeMode = v) }
+        }
+        scope.launch {
+            audioSourceRawFlow.collect { v ->
+                _state.value = _state.value.copy(audioSourceRaw = v)
+            }
+        }
+        scope.launch {
+            normalizeAudioFlow.collect { v ->
+                _state.value = _state.value.copy(normalizeAudio = v)
+            }
         }
     }
 
@@ -196,6 +210,8 @@ class SettingsViewModel(
     fun setBirdNetMetaEnabled(v: Boolean) { scope.launch { writeBirdNetMetaEnabled(v) } }
     fun setAllowDeleteUploaded(v: Boolean) { scope.launch { writeAllowDeleteUploaded(v) } }
     fun setThemeMode(v: ThemeMode) { scope.launch { writeThemeMode(v) } }
+    fun setAudioSourceRaw(v: Boolean) { scope.launch { writeAudioSourceRaw(v) } }
+    fun setNormalizeAudio(v: Boolean) { scope.launch { writeNormalizeAudio(v) } }
 
     private fun updateSection(modelId: String, transform: (ModelSection) -> ModelSection) {
         _state.value = _state.value.copy(
@@ -239,5 +255,9 @@ class SettingsViewModelHilt @Inject constructor(
         writeAllowDeleteUploaded = { settings.setAllowDeleteUploaded(it) },
         themeModeFlow = settings.themeMode,
         writeThemeMode = { settings.setThemeMode(it) },
+        audioSourceRawFlow = settings.audioSourceRaw,
+        writeAudioSourceRaw = { settings.setAudioSourceRaw(it) },
+        normalizeAudioFlow = settings.normalizeAudio,
+        writeNormalizeAudio = { settings.setNormalizeAudio(it) },
     )
 }
