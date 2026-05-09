@@ -25,7 +25,7 @@ class Settings(private val ctx: Context) {
         val LAST_KNOWN_LAT = doublePreferencesKey("last_known_lat")
         val LAST_KNOWN_LON = doublePreferencesKey("last_known_lon")
         val MIN_WINDOWS = intPreferencesKey("min_windows")
-        val SPECTRAL_SUBTRACTION_ENABLED = booleanPreferencesKey("spectral_subtraction_enabled")
+        // spectral_subtraction_enabled key intentionally removed — denoising disabled
         val YAMNET_GATE_ENABLED = booleanPreferencesKey("yamnet_gate_enabled")
         val BIRDNET_META_ENABLED = booleanPreferencesKey("birdnet_meta_enabled")
         val RADAR_RADIUS_KM = intPreferencesKey("radar_radius_km")
@@ -45,8 +45,7 @@ class Settings(private val ctx: Context) {
     val lastKnownLat: Flow<Double?> = ctx.dataStore.data.map { it[K.LAST_KNOWN_LAT] }
     val lastKnownLon: Flow<Double?> = ctx.dataStore.data.map { it[K.LAST_KNOWN_LON] }
     val minWindows: Flow<Int> = ctx.dataStore.data.map { it[K.MIN_WINDOWS] ?: DEFAULT_MIN_WINDOWS }
-    val spectralSubtractionEnabled: Flow<Boolean> =
-        ctx.dataStore.data.map { it[K.SPECTRAL_SUBTRACTION_ENABLED] ?: false }
+    val spectralSubtractionEnabled: Flow<Boolean> = kotlinx.coroutines.flow.flowOf(false)
     val yamNetGateEnabled: Flow<Boolean> =
         ctx.dataStore.data.map { it[K.YAMNET_GATE_ENABLED] ?: true }
     val birdNetMetaEnabled: Flow<Boolean> =
@@ -58,7 +57,7 @@ class Settings(private val ctx: Context) {
     val allowDeleteUploaded: Flow<Boolean> =
         ctx.dataStore.data.map { it[K.ALLOW_DELETE_UPLOADED] ?: false }
     val audioSourceRaw: Flow<Boolean> =
-        ctx.dataStore.data.map { it[K.AUDIO_SOURCE_RAW] ?: true }
+        ctx.dataStore.data.map { it[K.AUDIO_SOURCE_RAW] ?: false }
     /** Consumed by PostRecordingProcessor — applied after recording stops. */
     val normalizeAudio: Flow<Boolean> =
         ctx.dataStore.data.map { it[K.NORMALIZE_AUDIO] ?: true }
@@ -88,9 +87,6 @@ class Settings(private val ctx: Context) {
     suspend fun setRegionalFilterEnabled(v: Boolean) { ctx.dataStore.edit { it[K.REGION_FILTER_ENABLED] = v } }
     suspend fun setRegionRadiusKm(v: Int) { ctx.dataStore.edit { it[K.REGION_RADIUS_KM] = v } }
     suspend fun setMinWindows(v: Int) { ctx.dataStore.edit { it[K.MIN_WINDOWS] = v } }
-    suspend fun setSpectralSubtractionEnabled(v: Boolean) {
-        ctx.dataStore.edit { it[K.SPECTRAL_SUBTRACTION_ENABLED] = v }
-    }
     suspend fun setYamNetGateEnabled(v: Boolean) {
         ctx.dataStore.edit { it[K.YAMNET_GATE_ENABLED] = v }
     }

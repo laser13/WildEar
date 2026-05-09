@@ -228,12 +228,6 @@ private fun InferenceSection(state: SettingsUiState, vm: SettingsViewModel) {
         onCheckedChange = { vm.setNormalizeAudio(it) },
     )
     ToggleRow(
-        label = stringResource(R.string.label_spectral_noise_reduction),
-        subtitle = stringResource(R.string.label_spectral_noise_reduction_sub),
-        checked = state.spectralSubtractionEnabled,
-        onCheckedChange = { vm.setSpectralSubtractionEnabled(it) },
-    )
-    ToggleRow(
         label = stringResource(R.string.label_yamnet_gate),
         checked = state.yamNetGateEnabled,
         onCheckedChange = { vm.setYamNetGateEnabled(it) },

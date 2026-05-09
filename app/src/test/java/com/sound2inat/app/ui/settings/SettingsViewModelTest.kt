@@ -82,9 +82,7 @@ class SettingsViewModelTest {
             writeRegionRadiusKm = {},
             minWindowsFlow = MutableStateFlow(2),
             writeMinWindows = {},
-            spectralSubtractionEnabledFlow = MutableStateFlow(true),
-            writeSpectralSubtractionEnabled = {},
-            yamNetGateEnabledFlow = MutableStateFlow(true),
+                yamNetGateEnabledFlow = MutableStateFlow(true),
             writeYamNetGateEnabled = {},
             birdNetMetaEnabledFlow = MutableStateFlow(true),
             writeBirdNetMetaEnabled = {},
@@ -157,24 +155,6 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `setSpectralSubtractionEnabled propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
-        val captured = mutableListOf<Boolean>()
-        val flow = MutableStateFlow(true)
-        val vm = build(
-            initial = ModelInstallState.NotInstalled,
-            spectralSubtractionEnabledFlow = flow,
-            writeSpectralSubtractionEnabled = {
-                captured += it
-                flow.value = it
-            },
-            scope = backgroundScope,
-        )
-        vm.setSpectralSubtractionEnabled(false)
-        assertThat(captured).containsExactly(false)
-        assertThat(vm.state.value.spectralSubtractionEnabled).isFalse()
-    }
-
-    @Test
     fun `setYamNetGateEnabled propagates via setter`() = runTest(UnconfinedTestDispatcher()) {
         val captured = mutableListOf<Boolean>()
         val flow = MutableStateFlow(true)
@@ -219,8 +199,6 @@ class SettingsViewModelTest {
         writeRegionRadiusKm: suspend (Int) -> Unit = {},
         minWindowsFlow: MutableStateFlow<Int> = MutableStateFlow(2),
         writeMinWindows: suspend (Int) -> Unit = {},
-        spectralSubtractionEnabledFlow: MutableStateFlow<Boolean> = MutableStateFlow(true),
-        writeSpectralSubtractionEnabled: suspend (Boolean) -> Unit = {},
         yamNetGateEnabledFlow: MutableStateFlow<Boolean> = MutableStateFlow(true),
         writeYamNetGateEnabled: suspend (Boolean) -> Unit = {},
         birdNetMetaEnabledFlow: MutableStateFlow<Boolean> = MutableStateFlow(true),
@@ -243,8 +221,6 @@ class SettingsViewModelTest {
         writeRegionRadiusKm = writeRegionRadiusKm,
         minWindowsFlow = minWindowsFlow,
         writeMinWindows = writeMinWindows,
-        spectralSubtractionEnabledFlow = spectralSubtractionEnabledFlow,
-        writeSpectralSubtractionEnabled = writeSpectralSubtractionEnabled,
         yamNetGateEnabledFlow = yamNetGateEnabledFlow,
         writeYamNetGateEnabled = writeYamNetGateEnabled,
         birdNetMetaEnabledFlow = birdNetMetaEnabledFlow,

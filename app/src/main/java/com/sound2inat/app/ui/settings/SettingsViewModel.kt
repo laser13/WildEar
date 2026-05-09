@@ -35,8 +35,6 @@ class SettingsViewModel(
     private val writeRegionRadiusKm: suspend (Int) -> Unit,
     private val minWindowsFlow: Flow<Int>,
     private val writeMinWindows: suspend (Int) -> Unit,
-    private val spectralSubtractionEnabledFlow: Flow<Boolean>,
-    private val writeSpectralSubtractionEnabled: suspend (Boolean) -> Unit,
     private val yamNetGateEnabledFlow: Flow<Boolean>,
     private val writeYamNetGateEnabled: suspend (Boolean) -> Unit,
     private val birdNetMetaEnabledFlow: Flow<Boolean>,
@@ -45,7 +43,7 @@ class SettingsViewModel(
     private val writeAllowDeleteUploaded: suspend (Boolean) -> Unit,
     private val themeModeFlow: Flow<ThemeMode> = kotlinx.coroutines.flow.flowOf(ThemeMode.SYSTEM),
     private val writeThemeMode: suspend (ThemeMode) -> Unit = {},
-    private val audioSourceRawFlow: Flow<Boolean> = kotlinx.coroutines.flow.flowOf(true),
+    private val audioSourceRawFlow: Flow<Boolean> = kotlinx.coroutines.flow.flowOf(false),
     private val writeAudioSourceRaw: suspend (Boolean) -> Unit = {},
     private val normalizeAudioFlow: Flow<Boolean> = kotlinx.coroutines.flow.flowOf(true),
     private val writeNormalizeAudio: suspend (Boolean) -> Unit = {},
@@ -96,11 +94,6 @@ class SettingsViewModel(
         }
         scope.launch {
             minWindowsFlow.collect { v -> _state.value = _state.value.copy(minWindows = v) }
-        }
-        scope.launch {
-            spectralSubtractionEnabledFlow.collect { v ->
-                _state.value = _state.value.copy(spectralSubtractionEnabled = v)
-            }
         }
         scope.launch {
             yamNetGateEnabledFlow.collect { v ->
@@ -203,9 +196,6 @@ class SettingsViewModel(
     fun setRegionalFilterEnabled(v: Boolean) { scope.launch { writeRegionalFilterEnabled(v) } }
     fun setRegionRadiusKm(v: Int) { scope.launch { writeRegionRadiusKm(v) } }
     fun setMinWindows(v: Int) { scope.launch { writeMinWindows(v) } }
-    fun setSpectralSubtractionEnabled(v: Boolean) {
-        scope.launch { writeSpectralSubtractionEnabled(v) }
-    }
     fun setYamNetGateEnabled(v: Boolean) { scope.launch { writeYamNetGateEnabled(v) } }
     fun setBirdNetMetaEnabled(v: Boolean) { scope.launch { writeBirdNetMetaEnabled(v) } }
     fun setAllowDeleteUploaded(v: Boolean) { scope.launch { writeAllowDeleteUploaded(v) } }
@@ -245,8 +235,6 @@ class SettingsViewModelHilt @Inject constructor(
         writeRegionRadiusKm = { settings.setRegionRadiusKm(it) },
         minWindowsFlow = settings.minWindows,
         writeMinWindows = { settings.setMinWindows(it) },
-        spectralSubtractionEnabledFlow = settings.spectralSubtractionEnabled,
-        writeSpectralSubtractionEnabled = { settings.setSpectralSubtractionEnabled(it) },
         yamNetGateEnabledFlow = settings.yamNetGateEnabled,
         writeYamNetGateEnabled = { settings.setYamNetGateEnabled(it) },
         birdNetMetaEnabledFlow = settings.birdNetMetaEnabled,
