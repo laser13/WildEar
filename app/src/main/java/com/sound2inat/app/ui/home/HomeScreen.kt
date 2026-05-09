@@ -214,8 +214,9 @@ fun HomeScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            .padding(start = (-16).dp, end = (-16).dp)
                                             .background(MaterialTheme.colorScheme.background)
-                                            .padding(top = 8.dp, bottom = 4.dp),
+                                            .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 4.dp),
                                     )
                                 }
                                 items(group.drafts, key = { it.id }) { d ->
@@ -657,7 +658,7 @@ private fun LargeHeader() {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
+            .padding(top = 16.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Image(
