@@ -35,5 +35,14 @@
             android:name=".recording.RecordingService"
             android:exported="false"
             android:foregroundServiceType="microphone|location" />
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.sound2inat.app.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>
