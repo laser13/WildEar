@@ -234,7 +234,7 @@ class ReviewViewModel(
         }
         scope.launch {
             inatObservationsFlow.collect { rows ->
-                _state.value = _state.value.copy(inatObservations = rows)
+                _state.update { it.copy(inatObservations = rows) }
             }
         }
         scope.launch {
@@ -525,6 +525,26 @@ class ReviewViewModel(
         return androidx.core.content.FileProvider.getUriForFile(
             context, "com.sound2inat.app.fileprovider", file,
         )
+    }
+
+    /**
+     * Creates a new photo file and returns a content URI plus the absolute file
+     * path as a [Pair]. Unlike [preparePhotoCapture] the caller does not need to
+     * re-derive the path via a separate helper — everything comes from
+     * [PhotoFileStore], which is the single source of truth for the storage
+     * location (including the internal-storage fallback).
+     */
+    fun preparePhotoCaptureWithPath(
+        context: android.content.Context,
+        draftId: String,
+        photoId: String,
+    ): Pair<android.net.Uri, String> {
+        checkNotNull(photoStore) { "Camera not available" }
+        val file = photoStore.newPhotoFile(draftId, photoId)
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context, "com.sound2inat.app.fileprovider", file,
+        )
+        return uri to file.absolutePath
     }
 
     /** Persists a newly captured photo entity to the database. */

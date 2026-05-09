@@ -778,15 +778,17 @@ private fun HabitatPhotoStrip(
     var pendingPhotoId by remember { mutableStateOf<String?>(null) }
     var pendingUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
+    var pendingPhotoPath by remember { mutableStateOf<String?>(null) }
+
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         val id = pendingPhotoId
-        val uri = pendingUri
-        if (success && id != null && uri != null) {
-            val path = photoStore(context, draftId, id)
+        val path = pendingPhotoPath
+        if (success && id != null && path != null) {
             vm.onPhotoTaken(draftId, id, path)
         }
         pendingPhotoId = null
         pendingUri = null
+        pendingPhotoPath = null
     }
 
     LazyRow(
@@ -805,9 +807,10 @@ private fun HabitatPhotoStrip(
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .clickable {
                         val newId = UUID.randomUUID().toString()
-                        val uri = vm.preparePhotoCapture(context, draftId, newId)
+                        val (uri, path) = vm.preparePhotoCaptureWithPath(context, draftId, newId)
                         pendingPhotoId = newId
                         pendingUri = uri
+                        pendingPhotoPath = path
                         launcher.launch(uri)
                     },
                 contentAlignment = Alignment.Center,
@@ -853,14 +856,6 @@ private fun HabitatPhotoStrip(
             }
         }
     }
-}
-
-/** Returns the absolute path for the photo file that was just captured. */
-private fun photoStore(context: android.content.Context, draftId: String, photoId: String): String {
-    val photosDir = context.getExternalFilesDir("habitat_photos")
-        ?: File(context.filesDir, "habitat_photos")
-    val dir = File(photosDir, draftId).apply { mkdirs() }
-    return File(dir, "$photoId.jpg").absolutePath
 }
 
 internal fun speciesRowTrailingLabel(confidence: Float, detectedWindows: Int): String =
