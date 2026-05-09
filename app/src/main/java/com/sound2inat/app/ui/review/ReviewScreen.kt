@@ -175,7 +175,9 @@ private fun ReviewPage(
     var pickerVisible by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var detailsRow by remember { mutableStateOf<SpeciesRow?>(null) }
-    val isAnalysisRunning = state.inferenceProgress != null || state.perchProgress != null
+    val isAnalysisRunning = state.inferenceProgress != null
+        || state.perchProgress != null
+        || state.queuePosition != null
     val uploadedUrls = remember(state.inatObservations) { state.inatObservations.associate { it.scientificName to it.url } }
     val uploadedIds  = remember(state.inatObservations) { state.inatObservations.associate { it.scientificName to it.observationId } }
 
@@ -234,6 +236,31 @@ private fun ReviewPage(
                         vm = vm,
                     )
                 }
+                state.queuePosition?.let { position ->
+                    if (state.inferenceProgress == null) {
+                        item {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                            ) {
+                                Text(
+                                    text = if (position == 0)
+                                        stringResource(R.string.inference_queued_next)
+                                    else
+                                        stringResource(
+                                            R.string.inference_queued_position,
+                                            position,
+                                            (state.estimatedWaitMs ?: 0L) / 60_000L,
+                                        ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    }
+                }
                 if (state.inferenceProgress != null) {
                     item { InferenceProgressBlock(state.inferenceProgress!!) }
                 }
@@ -266,6 +293,15 @@ private fun ReviewPage(
                     }
                 }
                 state.inferenceError?.let { err ->
+                    item {
+                        Text(
+                            err,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+                state.queueError?.let { err ->
                     item {
                         Text(
                             err,
