@@ -3,6 +3,7 @@ package com.sound2inat.app.ui.home
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Autorenew
@@ -57,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -592,6 +595,152 @@ private fun RecordingFilterBar(
                 }
             }
         }
+    }
+}
+
+@Suppress("FunctionNaming")
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FilterChipsRow(
+    filterMode: FilterMode,
+    onFilterChange: (FilterMode) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.padding(horizontal = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FilterChip(
+            selected = filterMode == FilterMode.UPLOADED,
+            onClick = {
+                onFilterChange(if (filterMode == FilterMode.UPLOADED) FilterMode.ALL else FilterMode.UPLOADED)
+            },
+            label = {
+                Icon(
+                    Icons.Filled.Eco,
+                    contentDescription = stringResource(R.string.cd_filter_uploaded),
+                    modifier = Modifier.size(18.dp),
+                )
+            },
+        )
+        FilterChip(
+            selected = filterMode == FilterMode.NOTHING_DETECTED,
+            onClick = {
+                onFilterChange(
+                    if (filterMode == FilterMode.NOTHING_DETECTED) FilterMode.ALL else FilterMode.NOTHING_DETECTED,
+                )
+            },
+            label = {
+                Icon(
+                    Icons.Filled.SearchOff,
+                    contentDescription = stringResource(R.string.cd_filter_nothing_detected),
+                    modifier = Modifier.size(18.dp),
+                )
+            },
+        )
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun BulkActionsRow(
+    selectedCount: Int,
+    totalVisible: Int,
+    onSelectAll: () -> Unit,
+    onClearSelection: () -> Unit,
+    onDeleteSelected: () -> Unit,
+) {
+    val allSelected = selectedCount > 0 && selectedCount == totalVisible
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(onClick = if (allSelected) onClearSelection else onSelectAll) {
+            Text(
+                if (allSelected) stringResource(R.string.filter_deselect_all)
+                else stringResource(R.string.filter_select_all),
+            )
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        if (selectedCount > 0) {
+            TextButton(
+                onClick = onDeleteSelected,
+                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+            ) {
+                Text(stringResource(R.string.filter_delete_selected, selectedCount))
+            }
+        }
+    }
+}
+
+@Suppress("FunctionNaming")
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HomeTopBar(
+    filterMode: FilterMode,
+    onFilterChange: (FilterMode) -> Unit,
+    onSettings: () -> Unit,
+    showFilterChips: Boolean,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Image(
+            painter = painterResource(R.mipmap.ic_launcher_round),
+            contentDescription = null,
+            modifier = Modifier
+                .padding(start = 8.dp)
+                .size(32.dp)
+                .clip(CircleShape),
+        )
+        if (showFilterChips) {
+            FilterChipsRow(
+                filterMode = filterMode,
+                onFilterChange = onFilterChange,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        IconButton(onClick = onSettings) {
+            Icon(
+                Icons.Outlined.Settings,
+                contentDescription = stringResource(R.string.cd_settings),
+            )
+        }
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun LargeHeader() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Image(
+            painter = painterResource(R.mipmap.ic_launcher_round),
+            contentDescription = null,
+            modifier = Modifier
+                .size(72.dp)
+                .clip(CircleShape),
+        )
+        Text(
+            stringResource(R.string.app_name),
+            style = MaterialTheme.typography.headlineMedium,
+        )
     }
 }
 
