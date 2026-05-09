@@ -19,6 +19,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -86,7 +87,8 @@ class RecordingViewModel(
     data class PreparedCapture(val uri: Uri, val filePath: String)
 
     fun preparePhotoCapture(draftId: String, photoId: String): PreparedCapture {
-        val file = photoStore!!.newPhotoFile(draftId, photoId)
+        checkNotNull(photoStore) { "Camera is not available — photoStore is null" }
+        val file = photoStore.newPhotoFile(draftId, photoId)
         val uri = FileProvider.getUriForFile(
             appContext,
             "com.sound2inat.app.fileprovider",
@@ -107,7 +109,7 @@ class RecordingViewModel(
                     ),
                 )
             }
-            _photoCount.value++
+            _photoCount.update { it + 1 }
         }
     }
 
@@ -156,6 +158,7 @@ class RecordingViewModelHilt @Inject constructor(
             appContext = appContext,
             photoDao = photoDao,
             photoStore = photoStore,
+            ioDispatcher = Dispatchers.IO,
         )
     }
 }
