@@ -202,11 +202,11 @@ fun HomeScreen(
                         val groups = remember(filteredDrafts) { groupDraftsByDate(filteredDrafts) }
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 16.dp, top = 0.dp, end = 16.dp, bottom = 8.dp),
+                            contentPadding = PaddingValues(top = 0.dp, bottom = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             item(key = "large_header") {
-                                LargeHeader()
+                                LargeHeader(modifier = Modifier.padding(horizontal = 16.dp))
                             }
                             groups.forEach { group ->
                                 stickyHeader(key = "header_${group.label}") {
@@ -216,13 +216,13 @@ fun HomeScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(start = (-16).dp, end = (-16).dp)
                                             .background(MaterialTheme.colorScheme.background)
                                             .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 4.dp),
                                     )
                                 }
                                 items(group.drafts, key = { it.id }) { d ->
                                     RecordingCard(
+                                        modifier = Modifier.padding(horizontal = 16.dp),
                                         summary = d,
                                         observeTopLabel = vm::observeTopLabel,
                                         observeTopSpecies = vm::observeTopSpecies,
@@ -277,6 +277,7 @@ private fun EmptyState(modifier: Modifier = Modifier) {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun RecordingCard(
+    modifier: Modifier = Modifier,
     summary: DraftSummary,
     observeTopLabel: (String) -> Flow<String?>,
     observeTopSpecies: (String) -> Flow<List<TopSpeciesItem>>,
@@ -309,7 +310,7 @@ private fun RecordingCard(
     val badge = uploadBadge(summary, inatCount)
 
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         colors = CardDefaults.cardColors(
@@ -657,9 +658,9 @@ private fun HomeTopBar(
 
 @Suppress("FunctionNaming")
 @Composable
-private fun LargeHeader() {
+private fun LargeHeader(modifier: Modifier = Modifier) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(top = 16.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
