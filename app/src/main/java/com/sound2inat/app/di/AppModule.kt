@@ -13,7 +13,9 @@ import com.sound2inat.inference.InterpreterFactory
 import com.sound2inat.inference.TfliteInterpreterFactory
 import com.sound2inat.storage.DetectionDao
 import com.sound2inat.storage.DraftDao
+import com.sound2inat.storage.DraftPhotoDao
 import com.sound2inat.storage.DraftRepository
+import com.sound2inat.storage.PhotoFileStore
 import com.sound2inat.storage.Sound2iNatDb
 import com.sound2inat.storage.WavFileStore
 import dagger.Module
@@ -55,12 +57,19 @@ object AppModule {
                 Sound2iNatDb.MIGRATION_2_3,
                 Sound2iNatDb.MIGRATION_3_4,
                 Sound2iNatDb.MIGRATION_4_5,
+                Sound2iNatDb.MIGRATION_5_6,
             )
             .build()
 
     @Provides fun provideDraftDao(db: Sound2iNatDb): DraftDao = db.drafts()
 
     @Provides fun provideDetectionDao(db: Sound2iNatDb): DetectionDao = db.detections()
+
+    @Provides fun provideDraftPhotoDao(db: Sound2iNatDb): DraftPhotoDao = db.photos()
+
+    @Provides @Singleton
+    fun providePhotoFileStore(@ApplicationContext ctx: Context): PhotoFileStore =
+        PhotoFileStore(ctx.getExternalFilesDir("habitat_photos")!!)
 
     @Provides fun provideInatObservationDao(db: Sound2iNatDb): com.sound2inat.storage.InatObservationDao =
         db.inatObservations()
@@ -75,10 +84,14 @@ object AppModule {
         d: DraftDao,
         det: DetectionDao,
         files: WavFileStore,
+        photos: DraftPhotoDao,
+        photoStore: PhotoFileStore,
     ): DraftRepository = DraftRepository(
         drafts = d,
         detections = det,
         files = files,
+        photosDao = photos,
+        photoStore = photoStore,
         runInTransaction = { block -> db.runInTransaction(block) },
     )
 

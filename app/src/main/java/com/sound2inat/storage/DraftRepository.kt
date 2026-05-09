@@ -23,6 +23,8 @@ class DraftRepository(
     private val drafts: DraftDao,
     private val detections: DetectionDao,
     private val files: WavFileStore,
+    private val photosDao: DraftPhotoDao? = null,
+    private val photoStore: PhotoFileStore? = null,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     /**
@@ -208,6 +210,8 @@ class DraftRepository(
     }
 
     suspend fun delete(draftId: String) = withContext(ioDispatcher) {
+        photosDao?.deleteByDraftId(draftId)
+        photoStore?.deletePhotosFor(draftId)
         drafts.deleteById(draftId)
         files.deleteAllFor(draftId)
     }

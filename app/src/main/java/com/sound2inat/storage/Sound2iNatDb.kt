@@ -7,8 +7,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [DraftEntity::class, DetectionEntity::class, InatObservationEntity::class],
-    version = 5,
+    entities = [DraftEntity::class, DetectionEntity::class, InatObservationEntity::class, DraftPhotoEntity::class],
+    version = 6,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -16,6 +16,7 @@ abstract class Sound2iNatDb : RoomDatabase() {
     abstract fun drafts(): DraftDao
     abstract fun detections(): DetectionDao
     abstract fun inatObservations(): InatObservationDao
+    abstract fun photos(): DraftPhotoDao
 
     companion object {
         // v2: iNaturalist submission tracking columns on `drafts`.
@@ -67,6 +68,26 @@ abstract class Sound2iNatDb : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE detections ADD COLUMN fragmentRanges TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE detections ADD COLUMN aggregatedConfidence REAL NOT NULL DEFAULT 0.0")
+            }
+        }
+
+        // v6: habitat photo attachments for iNaturalist observations.
+        val MIGRATION_5_6: Migration = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS draft_photos (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        draftId TEXT NOT NULL,
+                        photoPath TEXT NOT NULL,
+                        takenAtMs INTEGER NOT NULL,
+                        FOREIGN KEY(draftId) REFERENCES drafts(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_draft_photos_draftId ON draft_photos(draftId)",
+                )
             }
         }
     }
