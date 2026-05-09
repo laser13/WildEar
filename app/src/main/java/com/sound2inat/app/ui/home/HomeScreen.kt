@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.outlined.MicNone
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -600,7 +602,7 @@ private fun BulkActionsRow(
         if (selectedCount > 0) {
             TextButton(
                 onClick = onDeleteSelected,
-                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                colors = ButtonDefaults.textButtonColors(
                     contentColor = MaterialTheme.colorScheme.error,
                 ),
             ) {
@@ -622,6 +624,7 @@ private fun HomeTopBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .statusBarsPadding()
             .padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -701,7 +704,7 @@ private fun BulkDeleteDialog(
         confirmButton = {
             TextButton(
                 onClick = onConfirm,
-                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                colors = ButtonDefaults.textButtonColors(
                     contentColor = MaterialTheme.colorScheme.error,
                 ),
             ) { Text(stringResource(R.string.btn_delete)) }
@@ -732,7 +735,7 @@ private fun SingleDeleteDialog(
             if (!blocked) {
                 TextButton(
                     onClick = onConfirm,
-                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                    colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error,
                     ),
                 ) { Text(stringResource(R.string.btn_delete)) }
