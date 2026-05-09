@@ -40,8 +40,11 @@ class DefaultInferenceUseCase(
     private val birdNetMeta: BirdNetMetaModel?,
 ) : InferenceUseCase {
 
+    // Perch runs via its own PerchAnalysisJob; exclude it here to avoid double-run.
+    private val birdNetModels = models.filter { it.modelId != ModelIds.PERCH }
+
     override val inference: InferenceJob = ProductionInferenceJob(
-        models = models,
+        models = birdNetModels,
         descriptors = descriptors,
         modelManager = modelManager,
         settings = settings,
@@ -50,7 +53,7 @@ class DefaultInferenceUseCase(
     )
 
     override val inferenceReanalysis: InferenceJob = ProductionInferenceJob(
-        models = models,
+        models = birdNetModels,
         descriptors = descriptors,
         modelManager = modelManager,
         settings = settings,
@@ -109,7 +112,6 @@ internal class ProductionInferenceJob(
         }
         val minConf = settings.minConfidenceDisplay.first()
         val minWin = settings.minWindows.first()
-        val spectralEnabled = settings.spectralSubtractionEnabled.first()
         val yamNetEnabled = settings.yamNetGateEnabled.first()
         val activeGate = if (yamNetEnabled) yamNetGate else null
         val aggregator = DetectionAggregator(minConfidence = minConf, minWindows = minWin)
@@ -139,13 +141,10 @@ internal class ProductionInferenceJob(
                     "Running ${model.modelId} v${model.modelVersion} " +
                         "(${idx + 1}/$total) on $audioPath",
                 )
+                val modelStartMs = System.currentTimeMillis()
                 model.load(state.modelFile, state.labelsFile)
-                // Fresh SpectralSubtractor per model — its EMA noise profile is sized to
-                // the FFT of this model's window length and must not leak between models.
-                val subtractor = if (spectralEnabled) SpectralSubtractor() else null
                 val runner = InferenceRunner(
                     model,
-                    spectralSubtractor = subtractor,
                     yamNetGate = activeGate,
                 )
                 val perModel = coroutineScope {
@@ -165,6 +164,11 @@ internal class ProductionInferenceJob(
                 }
                 allPreds += rescaled
                 succeeded += model
+                android.util.Log.i(
+                    "InferenceTiming",
+                    "${model.modelId}: ${System.currentTimeMillis() - modelStartMs}ms total " +
+                        "(load+inference, ${perModel.size} raw preds)",
+                )
                 android.util.Log.i(
                     TAG,
                     "${model.modelId} produced ${perModel.size} window predictions" +
@@ -267,6 +271,8 @@ internal class ProductionPerchAnalysisJob(
     private val modelManager: ModelManager,
     private val settings: Settings,
     private val yamNetGate: YamNetGate?,
+    /** When true, YAMNet gate is always active and skips predict on DOWNRANK (hard pre-filter). */
+    private val hardGate: Boolean = false,
 ) : PerchAnalysisJob {
 
     @Suppress("TooGenericExceptionCaught")
@@ -283,17 +289,13 @@ internal class ProductionPerchAnalysisJob(
             as? ModelInstallState.Ready
             ?: return@withContext PerchAnalysisOutcome.NotInstalled
         try {
+            val perchStartMs = System.currentTimeMillis()
             perch.load(state.modelFile, state.labelsFile)
-            val subtractor = if (settings.spectralSubtractionEnabled.first()) {
-                SpectralSubtractor()
-            } else {
-                null
-            }
-            val gate = if (settings.yamNetGateEnabled.first()) yamNetGate else null
+            val gate = if (hardGate || settings.yamNetGateEnabled.first()) yamNetGate else null
             val runner = InferenceRunner(
                 model = perch,
-                spectralSubtractor = subtractor,
                 yamNetGate = gate,
+                hardGate = hardGate,
             )
             val preds = coroutineScope {
                 val collector = launch {
@@ -303,6 +305,10 @@ internal class ProductionPerchAnalysisJob(
                 collector.cancel()
                 result
             }
+            android.util.Log.i(
+                "InferenceTiming",
+                "Perch: ${System.currentTimeMillis() - perchStartMs}ms total (load+inference, ${preds.size} raw preds)",
+            )
             onProgress(1f)
             val minConf = settings.minConfidenceDisplay.first()
             val minWin = settings.minWindows.first()

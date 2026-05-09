@@ -7,31 +7,26 @@ import java.io.RandomAccessFile
 
 /**
  * Slices a mono 16-bit WAV into fixed windows hopped by [hopSeconds], optionally
- * applies spectral subtraction and a YAMNet biological gate, and calls [model]
- * per window that passes the gate.
+ * applies a YAMNet biological gate, and calls [model] per window that passes the gate.
  *
  * Pipeline per run:
  *   1. Read + resample to model rate (ShortArray).
- *   2. Normalize to [-1, 1] (FloatArray). When [usePreprocessing] is true, also
- *      apply a high-pass filter to the full signal before window slicing so the
- *      IIR filter has no edge effects at window boundaries.
- *   3. Per window: when [usePreprocessing] is true apply SpectralSubtractor →
- *      YamNetGate check → model.predict().
+ *   2. Normalize to [-1, 1] (FloatArray).
+ *   3. Per window: YamNetGate check → model.predict().
  *
- * **Default is raw-first**: [usePreprocessing] defaults to `false` so the model
- * receives unprocessed (normalized-only) samples. Set to `true` for the
- * experimental benchmark path that applies high-pass + spectral subtraction.
- *
- * Pass null for [spectralSubtractor] or [yamNetGate] to skip those steps.
+ * Pass null for [yamNetGate] to skip the gate step.
  * Fail-open: the gate's own error handling returns true on any exception.
  */
 class InferenceRunner(
     private val model: BioacousticModel,
     private val hopSeconds: Float = 1f,
-    private val spectralSubtractor: SpectralSubtractor? = null,
     private val yamNetGate: YamNetGate? = null,
-    /** When true, apply high-pass filter + spectral subtraction before inference. Defaults to false (raw-first). */
-    val usePreprocessing: Boolean = false,
+    /**
+     * When true, a DOWNRANK gate decision skips [model.predict] entirely (true pre-filter).
+     * When false (default), the gate is a soft post-filter: predict always runs, DOWNRANK only
+     * drops results when no prediction exceeds [HIGH_CONFIDENCE_OVERRIDE].
+     */
+    val hardGate: Boolean = false,
 ) {
     private val _progress = MutableStateFlow(0f)
     val progress: StateFlow<Float> = _progress
@@ -43,6 +38,7 @@ class InferenceRunner(
         observedAtMillis: Long,
     ): List<WindowPrediction> {
         _progress.value = 0f
+        val t0 = System.currentTimeMillis()
         val (rawSamples, nativeRate) = WavReader.readMono16(wavFile)
         val targetRate = model.expectedSampleRateHz
         val resampled = if (nativeRate == targetRate) {
@@ -50,28 +46,34 @@ class InferenceRunner(
         } else {
             Resampler.resample(rawSamples, nativeRate, targetRate)
         }
+        android.util.Log.d(
+            "InferenceTiming",
+            "${model.modelId}: WAV read+resample ${System.currentTimeMillis() - t0}ms " +
+                "(${rawSamples.size}→${resampled.size} samples, ${nativeRate}→${targetRate}Hz)",
+        )
 
-        // Normalize to [-1, 1]. High-pass filter is applied only in preprocessing mode
-        // so the IIR filter has no edge effects at window boundaries.
+        // Normalize to [-1, 1].
         val normalized = FloatArray(resampled.size) { i -> resampled[i] / Short.MAX_VALUE.toFloat() }
-        val prepared = if (usePreprocessing) highPassFilter(normalized, targetRate) else normalized
 
         val windowSeconds = model.windowMs / MS_PER_SECOND
         val win = (windowSeconds * targetRate).toInt()
         val hop = (hopSeconds * targetRate).toInt()
         require(win > 0 && hop > 0) { "Invalid window/hop: win=$win hop=$hop" }
-        val frames = if (prepared.size < win) 0 else 1 + (prepared.size - win) / hop
+        val frames = if (normalized.size < win) 0 else 1 + (normalized.size - win) / hop
         if (frames == 0) {
             _progress.value = 1f
             return emptyList()
         }
         val out = ArrayList<WindowPrediction>(frames * 5)
+        val loopStart = System.currentTimeMillis()
+        var batchStart = loopStart
         for (f in 0 until frames) {
             val s = f * hop
-            var window = prepared.copyOfRange(s, s + win)
-            window = if (usePreprocessing) spectralSubtractor?.process(window) ?: window else window
+            val window = normalized.copyOfRange(s, s + win)
             _progress.value = (f + 1).toFloat() / frames
             val gateResult = yamNetGate?.classify(window, targetRate) // null = fail-open → PASS
+            // Hard pre-filter: skip predict entirely when YAMNet finds no biological signal.
+            if (hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) continue
             val startMs = (s.toLong() * MS_PER_SECOND_LONG) / targetRate
             val endMs = ((s + win).toLong() * MS_PER_SECOND_LONG) / targetRate
             val predictions = model.predict(
@@ -83,15 +85,26 @@ class InferenceRunner(
                 windowStartMs = startMs,
                 windowEndMs = endMs,
             )
-            // Gate is soft: DOWNRANK only filters when no species has high confidence.
-            // null (fail-open) or PASS always includes results; DOWNRANK is overridden
-            // when at least one prediction has confidence >= HIGH_CONFIDENCE_OVERRIDE.
-            if (gateResult?.recommendation == GateRecommendation.DOWNRANK) {
+            if (f == 0 || (f + 1) % 50 == 0 || f == frames - 1) {
+                val now = System.currentTimeMillis()
+                android.util.Log.d(
+                    "InferenceTiming",
+                    "${model.modelId}: window ${f + 1}/$frames " +
+                        "${now - batchStart}ms batch / ${now - loopStart}ms total",
+                )
+                batchStart = now
+            }
+            // Soft post-filter (hardGate=false only): DOWNRANK drops results when no high-confidence hit.
+            if (!hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) {
                 val hasHighConfidence = predictions.any { it.confidence >= HIGH_CONFIDENCE_OVERRIDE }
                 if (!hasHighConfidence) continue
             }
             out += predictions
         }
+        android.util.Log.d(
+            "InferenceTiming",
+            "${model.modelId}: loop done — $frames windows in ${System.currentTimeMillis() - loopStart}ms",
+        )
         return out
     }
 
