@@ -250,15 +250,15 @@ private fun RecordingBody(
             )
         }
 
-        // Status row: elapsed time + camera button + GPS
+        // Bottom control row: GPS | [camera] | stop | timer
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(formatElapsed(s.elapsedMs), style = MaterialTheme.typography.headlineMedium)
+            GpsIndicator(s.gps)
+            Spacer(Modifier.weight(1f))
             if (vm.hasCamera) {
                 BadgedBox(
                     badge = {
@@ -282,25 +282,23 @@ private fun RecordingBody(
                     }
                 }
             }
-            GpsIndicator(s.gps)
-        }
-
-        FilledIconButton(
-            onClick = onStop,
-            shape = CircleShape,
-            modifier = Modifier
-                .size(STOP_BUTTON_DP.dp)
-                .padding(bottom = 8.dp),
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.error,
-                contentColor = MaterialTheme.colorScheme.onError,
-            ),
-        ) {
-            Icon(
-                Icons.Filled.Stop,
-                contentDescription = stringResource(R.string.cd_stop),
-                modifier = Modifier.size(STOP_ICON_DP.dp),
-            )
+            FilledIconButton(
+                onClick = onStop,
+                shape = CircleShape,
+                modifier = Modifier.size(STOP_BUTTON_DP.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+            ) {
+                Icon(
+                    Icons.Filled.Stop,
+                    contentDescription = stringResource(R.string.cd_stop),
+                    modifier = Modifier.size(STOP_ICON_DP.dp),
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            Text(formatElapsed(s.elapsedMs), style = MaterialTheme.typography.headlineMedium)
         }
     }
 }
@@ -391,8 +389,8 @@ private fun formatElapsed(ms: Long): String {
 
 private const val MS_PER_SECOND = 1000L
 private const val SECONDS_PER_MINUTE = 60L
-private const val STOP_BUTTON_DP = 96
-private const val STOP_ICON_DP = 48
+private const val STOP_BUTTON_DP = 72
+private const val STOP_ICON_DP = 36
 private const val SPECTROGRAM_WEIGHT = 0.3f
 private const val LIVE_CARDS_WEIGHT = 1f
 private const val PERCENT_SCALE = 100f
