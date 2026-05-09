@@ -35,7 +35,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -76,21 +75,7 @@ fun RecordingScreen(
 
     LaunchedEffect(Unit) { vm.start() }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.title_recording)) },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        vm.cancel()
-                        onCancel()
-                    }) {
-                        Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.cd_cancel))
-                    }
-                },
-            )
-        },
-    ) { padding ->
+    Scaffold { padding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -108,6 +93,7 @@ fun RecordingScreen(
                     audioBlocks = vm.audioBlocks,
                     sampleRateHz = vm.sampleRateHz,
                     onStop = { vm.stop() },
+                    onCancel = { vm.cancel(); onCancel() },
                     vm = vm,
                 )
                 is RecordingUiState.Done -> LaunchedEffect(s.draftId) { onDone(s.draftId) }
@@ -135,6 +121,7 @@ private fun RecordingBody(
     audioBlocks: SharedFlow<FloatArray>,
     sampleRateHz: Int,
     onStop: () -> Unit,
+    onCancel: () -> Unit,
     vm: RecordingViewModel,
 ) {
     // Pending photo state: (photoId, filePath) captured before launching camera.
@@ -152,16 +139,55 @@ private fun RecordingBody(
         }
     }
 
+    val spectrogramBg = MaterialTheme.colorScheme.surface
+
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // Header strip: elapsed time + camera button + GPS status
+        // Live spectrogram — pressed to the top, no padding above
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(SPECTROGRAM_WEIGHT),
+        ) {
+            LiveSpectrogramView(
+                audioBlocks = audioBlocks,
+                sampleRateHz = sampleRateHz,
+                backgroundColor = spectrogramBg,
+                modifier = Modifier.fillMaxSize(),
+            )
+            // Close button overlaid on the spectrogram (top-left)
+            IconButton(
+                onClick = onCancel,
+                modifier = Modifier.align(Alignment.TopStart),
+            ) {
+                Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.cd_cancel))
+            }
+            // Backlog delay hint (bottom-left pill)
+            if (s.backlogWindows > BACKLOG_VISIBLE_THRESHOLD) {
+                val delaySeconds = (s.backlogWindows * BACKLOG_SECONDS_PER_WINDOW).roundToInt()
+                Text(
+                    stringResource(R.string.recording_backlog_hint, delaySeconds),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(6.dp)
+                        .background(
+                            color = Color.Black.copy(alpha = BACKLOG_PILL_ALPHA),
+                            shape = RoundedCornerShape(BACKLOG_PILL_RADIUS_DP.dp),
+                        )
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+        }
+
+        // Status row: elapsed time + camera button + GPS
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -192,46 +218,12 @@ private fun RecordingBody(
             GpsIndicator(s.gps)
         }
 
-        // Live spectrogram — Merlin-style scrolling heatmap
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(SPECTROGRAM_WEIGHT),
-        ) {
-            LiveSpectrogramView(
-                audioBlocks = audioBlocks,
-                sampleRateHz = sampleRateHz,
-                modifier = Modifier.fillMaxSize(),
-            )
-            // Overlay the backlog hint inside the spectrogram so its
-            // appearance doesn't reflow the surrounding column. Dark pill
-            // background makes it readable on the white spectrogram.
-            // Threshold > 1 ignores the steady-state 0↔1 oscillation when
-            // inference is roughly at real time (one window in queue while
-            // worker processes the previous one — not a real delay).
-            if (s.backlogWindows > BACKLOG_VISIBLE_THRESHOLD) {
-                val delaySeconds = (s.backlogWindows * BACKLOG_SECONDS_PER_WINDOW).roundToInt()
-                Text(
-                    stringResource(R.string.recording_backlog_hint, delaySeconds),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(6.dp)
-                        .background(
-                            color = Color.Black.copy(alpha = BACKLOG_PILL_ALPHA),
-                            shape = RoundedCornerShape(BACKLOG_PILL_RADIUS_DP.dp),
-                        )
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                )
-            }
-        }
-
         // Live detections list (Merlin per-species cards)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(LIVE_CARDS_WEIGHT),
+                .weight(LIVE_CARDS_WEIGHT)
+                .padding(horizontal = 16.dp),
         ) {
             if (s.liveCards.isEmpty()) {
                 Box(
@@ -289,13 +281,16 @@ private fun RecordingBody(
                 stringResource(R.string.recording_auto_stop),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
         }
 
         FilledIconButton(
             onClick = onStop,
             shape = CircleShape,
-            modifier = Modifier.size(STOP_BUTTON_DP.dp),
+            modifier = Modifier
+                .size(STOP_BUTTON_DP.dp)
+                .padding(bottom = 8.dp),
             colors = IconButtonDefaults.filledIconButtonColors(
                 containerColor = MaterialTheme.colorScheme.error,
                 contentColor = MaterialTheme.colorScheme.onError,

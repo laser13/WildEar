@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import com.sound2inat.audio.Spectrogram
 import com.sound2inat.audio.SpectrogramRingBuffer
@@ -41,20 +42,24 @@ private const val DISPLAY_MAX_HZ = 10_000
 private const val DB_DISPLAY_MIN = 0f
 private const val DB_DISPLAY_MAX = 35f
 
-/**
- * Pre-computed Merlin-style ink LUT: white background, increasing darkness as
- * energy rises. Index 0 = pure white (silence), index LUT_SIZE-1 = near black
- * (loud peak). Quantised to 256 entries — per-pixel work is one int lookup.
- */
 private const val LUT_SIZE = 256
-private val inkLut: IntArray = IntArray(LUT_SIZE) { i ->
-    val t = i / (LUT_SIZE - 1f)
-    // Whitening already lifts mid-range out of the floor; sqrt gamma is
-    // gentle enough to keep contrast between background and tones.
-    val tGamma = sqrt(t)
-    // White → black; alpha stays opaque.
-    val grey = ((1f - tGamma) * 255).toInt().coerceIn(0, 255)
-    Color.rgb(grey, grey, grey)
+
+/**
+ * Builds a Merlin-style ink LUT that blends from [bgArgb] (silence) to near-black
+ * (loud peak). Parameterised so the spectrogram background matches the app theme.
+ */
+private fun buildInkLut(bgArgb: Int): IntArray {
+    val bgR = (bgArgb shr 16) and 0xFF
+    val bgG = (bgArgb shr 8) and 0xFF
+    val bgB = bgArgb and 0xFF
+    return IntArray(LUT_SIZE) { i ->
+        val t = i / (LUT_SIZE - 1f)
+        val tGamma = sqrt(t)
+        val r = (bgR * (1f - tGamma)).toInt().coerceIn(0, 255)
+        val g = (bgG * (1f - tGamma)).toInt().coerceIn(0, 255)
+        val b = (bgB * (1f - tGamma)).toInt().coerceIn(0, 255)
+        Color.rgb(r, g, b)
+    }
 }
 
 /**
@@ -72,11 +77,15 @@ fun LiveSpectrogramView(
     audioBlocks: SharedFlow<FloatArray>,
     sampleRateHz: Int,
     modifier: Modifier = Modifier,
+    backgroundColor: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.White,
 ) {
+    val bgArgb = backgroundColor.toArgb()
+    val lut = remember(bgArgb) { buildInkLut(bgArgb) }
+
     val bitmap = remember {
         Bitmap.createBitmap(BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS, Bitmap.Config.ARGB_8888)
     }
-    val pixels = remember { IntArray(BITMAP_WIDTH_COLS * BITMAP_HEIGHT_BINS) { Color.WHITE } }
+    val pixels = remember(bgArgb) { IntArray(BITMAP_WIDTH_COLS * BITMAP_HEIGHT_BINS) { bgArgb } }
     val ring = remember { SpectrogramRingBuffer(BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS) }
     val spectrogram = remember(sampleRateHz) {
         Spectrogram(fftSize = FFT_SIZE, hopSize = HOP_SIZE, sampleRateHz = sampleRateHz)
@@ -93,7 +102,7 @@ fun LiveSpectrogramView(
                     ring.append(logBinDown(col, BITMAP_HEIGHT_BINS, sampleRateHz))
                 }
                 if (columns.isNotEmpty()) {
-                    fillPixels(pixels, ring, BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS)
+                    fillPixels(pixels, ring, BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS, lut, bgArgb)
                     true
                 } else {
                     false
@@ -172,17 +181,22 @@ private fun whitenInPlace(col: FloatArray, sortBuf: FloatArray) {
     for (i in col.indices) col[i] = col[i] - median
 }
 
-private fun fillPixels(out: IntArray, ring: SpectrogramRingBuffer, w: Int, h: Int) {
+private fun fillPixels(
+    out: IntArray,
+    ring: SpectrogramRingBuffer,
+    w: Int,
+    h: Int,
+    lut: IntArray,
+    bgArgb: Int,
+) {
     val drawCols = ring.size.coerceAtMost(w)
     val xOffset = w - drawCols
     val span = DB_DISPLAY_MAX - DB_DISPLAY_MIN
     val lutMax = LUT_SIZE - 1
-    val white = Color.WHITE
-    // Clear leading uncovered area to white once per frame.
     if (xOffset > 0) {
         for (y in 0 until h) {
             val rowStart = y * w
-            for (x in 0 until xOffset) out[rowStart + x] = white
+            for (x in 0 until xOffset) out[rowStart + x] = bgArgb
         }
     }
     for (x in 0 until drawCols) {
@@ -192,7 +206,7 @@ private fun fillPixels(out: IntArray, ring: SpectrogramRingBuffer, w: Int, h: In
             val db = col[h - 1 - y]
             val linear = ((db - DB_DISPLAY_MIN) / span).coerceIn(0f, 1f)
             val lutIdx = (linear * lutMax).toInt().coerceIn(0, lutMax)
-            out[y * w + px] = inkLut[lutIdx]
+            out[y * w + px] = lut[lutIdx]
         }
     }
 }
