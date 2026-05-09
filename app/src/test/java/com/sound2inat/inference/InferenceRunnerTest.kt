@@ -46,6 +46,7 @@ private class RecordingFakeModel(
         )
     }
 
+    override fun newInstance(): BioacousticModel = RecordingFakeModel(expectedSampleRateHz, windowMs)
     override fun close() = Unit
 }
 

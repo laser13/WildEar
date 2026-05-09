@@ -105,6 +105,8 @@ class PerchTfliteModel(
         const val PREDICTION_FLOOR = 0.01f
     }
 
+    override fun newInstance(): BioacousticModel = PerchTfliteModel(factory, threads)
+
     override fun close() {
         interp?.close()
         interp = null

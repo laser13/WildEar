@@ -107,4 +107,27 @@ class BirdNetTfliteModelTest {
         }.exceptionOrNull()
         assertThat(ex).isNotNull()
     }
+
+    @Test
+    fun `newInstance returns independent model - closing original does not break copy`() = runTest {
+        val labels = tmp.newFile("ni_labels.txt").apply {
+            writeText("Sylvia melanothorax_Cyprus Warbler\n")
+        }
+        val modelFile = tmp.newFile("ni_model.tflite").apply { writeBytes(byteArrayOf(0)) }
+        val fake = FakeInterpreterFactory(output = floatArrayOf(0.8f))
+
+        val original = BirdNetTfliteModel(fake)
+        original.load(modelFile, labels)
+        val copy = original.newInstance() as BirdNetTfliteModel
+        copy.load(modelFile, labels)
+
+        original.close()
+
+        // copy's interpreter is a separate object — predict must succeed
+        val pcm = FloatArray(48_000 * 3)
+        val out = copy.predict(pcm, 48_000, null, null, 0L, 0L, 3_000L)
+        assertThat(out).hasSize(1)
+        assertThat(out[0].taxonScientificName).isEqualTo("Sylvia melanothorax")
+        copy.close()
+    }
 }

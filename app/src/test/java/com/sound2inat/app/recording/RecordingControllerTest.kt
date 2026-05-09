@@ -212,6 +212,7 @@ private object StubBioModel : BioacousticModel {
         windowStartMs: Long,
         windowEndMs: Long,
     ): List<WindowPrediction> = emptyList()
+    override fun newInstance(): BioacousticModel = this
     override fun close() = Unit
 }
 

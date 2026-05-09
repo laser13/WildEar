@@ -110,4 +110,28 @@ class PerchTfliteModelTest {
         m.close()
         assertThat(fake.closed).isTrue()
     }
+
+    @Test
+    fun `newInstance returns independent model - closing original does not break copy`() = runTest {
+        // Row 0 = dataset tag (filtered); row 1 = species label.
+        val labels = tmp.newFile("ni_labels.csv").apply {
+            writeText("inat2024_fsd50k\nRana temporaria\n")
+        }
+        val modelFile = tmp.newFile("ni_model.tflite").apply { writeBytes(byteArrayOf(0)) }
+        // 1 label after filtering; logit 2.0 softmax → probability 1.0 > 0.01 floor → included.
+        val fake = PerchFakeInterpreterFactory(output = floatArrayOf(2.0f), labelIndex = 3)
+
+        val original = PerchTfliteModel(fake)
+        original.load(modelFile, labels)
+        val copy = original.newInstance() as PerchTfliteModel
+        copy.load(modelFile, labels)
+
+        original.close()
+
+        val pcm = FloatArray(32_000 * 5)
+        val out = copy.predict(pcm, 32_000, null, null, 0L, 0L, 5_000L)
+        assertThat(out).hasSize(1)
+        assertThat(out[0].taxonScientificName).isEqualTo("Rana temporaria")
+        copy.close()
+    }
 }
