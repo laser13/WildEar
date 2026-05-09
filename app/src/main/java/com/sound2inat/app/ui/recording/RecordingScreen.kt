@@ -183,41 +183,6 @@ private fun RecordingBody(
             }
         }
 
-        // Status row: elapsed time + camera button + GPS
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(formatElapsed(s.elapsedMs), style = MaterialTheme.typography.headlineMedium)
-            if (vm.hasCamera) {
-                BadgedBox(
-                    badge = {
-                        if (s.habitatPhotoCount > 0) {
-                            Badge { Text("${s.habitatPhotoCount}") }
-                        }
-                    },
-                ) {
-                    IconButton(
-                        onClick = {
-                            val pid = UUID.randomUUID().toString()
-                            val prepared = vm.preparePhotoCapture(s.draftId, pid)
-                            pendingPhoto = pid to prepared.filePath
-                            cameraLauncher.launch(prepared.uri)
-                        },
-                    ) {
-                        Icon(
-                            Icons.Filled.CameraAlt,
-                            contentDescription = stringResource(R.string.cd_take_habitat_photo),
-                        )
-                    }
-                }
-            }
-            GpsIndicator(s.gps)
-        }
-
         // Live detections list (Merlin per-species cards)
         Box(
             modifier = Modifier
@@ -283,6 +248,41 @@ private fun RecordingBody(
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
+        }
+
+        // Status row: elapsed time + camera button + GPS
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(formatElapsed(s.elapsedMs), style = MaterialTheme.typography.headlineMedium)
+            if (vm.hasCamera) {
+                BadgedBox(
+                    badge = {
+                        if (s.habitatPhotoCount > 0) {
+                            Badge { Text("${s.habitatPhotoCount}") }
+                        }
+                    },
+                ) {
+                    IconButton(
+                        onClick = {
+                            val pid = UUID.randomUUID().toString()
+                            val prepared = vm.preparePhotoCapture(s.draftId, pid)
+                            pendingPhoto = pid to prepared.filePath
+                            cameraLauncher.launch(prepared.uri)
+                        },
+                    ) {
+                        Icon(
+                            Icons.Filled.CameraAlt,
+                            contentDescription = stringResource(R.string.cd_take_habitat_photo),
+                        )
+                    }
+                }
+            }
+            GpsIndicator(s.gps)
         }
 
         FilledIconButton(
