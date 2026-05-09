@@ -19,7 +19,9 @@ import java.util.concurrent.atomic.AtomicInteger
  * in parallel coroutines; results merged and sorted by windowStartMs.
  *
  * [run] closes every model it receives (sequential: try/finally on models[0];
- * parallel: async finally blocks per model). Callers must NOT close models after [run].
+ * parallel: async finally blocks per model). TFLite implementations are safe to
+ * double-close (null-guard on interpreter), so callers with their own finally-block
+ * close do not need to change.
  */
 class InferenceRunner(
     private val models: List<BioacousticModel>,
