@@ -48,7 +48,7 @@ class PostRecordingProcessor(
             if (!tmp.renameTo(wavFile)) {
                 // renameTo can fail across filesystems; fallback to copy+delete
                 tmp.copyTo(wavFile, overwrite = true)
-                tmp.delete()
+                if (!tmp.delete()) Log.w(TAG, "Failed to delete temp file ${tmp.name}")
             }
         }.onFailure { e ->
             Log.e(TAG, "Post-recording processing failed for ${wavFile.name}; leaving original intact", e)
