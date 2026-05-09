@@ -227,4 +227,73 @@ class InferenceUseCaseTest {
         val success = outcome as InferenceOutcome.Success
         assertThat(success.detections).isEmpty()
     }
+
+    @Test
+    fun `ProductionPerchAnalysisJob parallelism=2 calls newInstance once and closes both`() = runTest {
+        val modelFile = tmp.newFile("perch.tflite").apply { writeBytes(byteArrayOf(0)) }
+        val labelsFile = tmp.newFile("perch_labels.csv").apply {
+            // Row 0 = dataset tag (filtered); row 1 = species.
+            writeText("inat2024_fsd50k\nRana temporaria\n")
+        }
+        // 12 s WAV at 32 kHz (Perch's native rate — no resampling needed).
+        // frames = 1 + (12*32000 - 5*32000) / 32000 = 8 windows.
+        val perchWav = run {
+            val f = tmp.newFile("perch_silence.wav")
+            val w = WavWriter(f, sampleRate = 32_000, channels = 1, bitsPerSample = 16)
+            w.open()
+            val total = 12 * 32_000
+            val chunk = ShortArray(32_000)
+            var written = 0
+            while (written < total) {
+                val n = minOf(chunk.size, total - written)
+                w.writeShorts(chunk, 0, n)
+                written += n
+            }
+            w.close()
+            f
+        }
+
+        var newInstanceCalls = 0
+        val closedFlags = mutableListOf<Boolean>()
+
+        fun makeTracker(): BioacousticModel {
+            val idx = closedFlags.size
+            closedFlags += false
+            return object : BioacousticModel {
+                override val modelId = ModelIds.PERCH
+                override val modelVersion = "2"
+                override val expectedSampleRateHz = 32_000
+                override val windowMs = 5_000L
+                override suspend fun load(modelFile: File, labelsFile: File) = Unit
+                override suspend fun predict(
+                    pcmFloat32: FloatArray, sampleRateHz: Int, latitude: Double?,
+                    longitude: Double?, observedAtMillis: Long,
+                    windowStartMs: Long, windowEndMs: Long,
+                ) = listOf(
+                    WindowPrediction(windowStartMs, windowEndMs, "Rana temporaria", null, 0.5f, ModelIds.PERCH),
+                )
+                override fun close() { closedFlags[idx] = true }
+                override fun newInstance(): BioacousticModel {
+                    newInstanceCalls++
+                    return makeTracker()
+                }
+            }
+        }
+
+        val root = makeTracker()
+        val job = ProductionPerchAnalysisJob(
+            models = listOf(root),
+            modelManager = fakeModelManager(modelFile, labelsFile),
+            settings = fakeSettings(),
+            yamNetGate = null,
+            parallelism = 2,   // fails to compile until parameter exists
+        )
+
+        val outcome = job.run(perchWav.absolutePath, null, null, 0L) {}
+
+        assertThat(outcome).isInstanceOf(PerchAnalysisOutcome.Success::class.java)
+        assertThat(newInstanceCalls).isEqualTo(1)
+        assertThat(closedFlags).hasSize(2)
+        assertThat(closedFlags.all { it }).isTrue()
+    }
 }

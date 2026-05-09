@@ -73,6 +73,7 @@ class DefaultInferenceUseCase(
         modelManager = modelManager,
         settings = settings,
         yamNetGate = null,
+        parallelism = 2,
     )
 }
 
@@ -273,6 +274,7 @@ internal class ProductionPerchAnalysisJob(
     private val yamNetGate: YamNetGate?,
     /** When true, YAMNet gate is always active and skips predict on DOWNRANK (hard pre-filter). */
     private val hardGate: Boolean = false,
+    private val parallelism: Int = 1,
 ) : PerchAnalysisJob {
 
     @Suppress("TooGenericExceptionCaught")
@@ -290,10 +292,24 @@ internal class ProductionPerchAnalysisJob(
             ?: return@withContext PerchAnalysisOutcome.NotInstalled
         try {
             val perchStartMs = System.currentTimeMillis()
-            perch.load(state.modelFile, state.labelsFile)
+            val instances = buildList {
+                add(perch)
+                repeat(parallelism - 1) { add(perch.newInstance()) }
+            }
+            // Load all instances; if any load() throws, close already-loaded ones first.
+            val loaded = mutableListOf<BioacousticModel>()
+            try {
+                for (inst in instances) {
+                    inst.load(state.modelFile, state.labelsFile)
+                    loaded += inst
+                }
+            } catch (t: Throwable) {
+                loaded.forEach { runCatching { it.close() } }
+                throw t
+            }
             val gate = if (hardGate || settings.yamNetGateEnabled.first()) yamNetGate else null
             val runner = InferenceRunner(
-                models = listOf(perch),
+                models = loaded,
                 yamNetGate = gate,
                 hardGate = hardGate,
             )
@@ -307,7 +323,8 @@ internal class ProductionPerchAnalysisJob(
             }
             android.util.Log.i(
                 "InferenceTiming",
-                "Perch: ${System.currentTimeMillis() - perchStartMs}ms total (load+inference, ${preds.size} raw preds)",
+                "Perch(parallelism=$parallelism): ${System.currentTimeMillis() - perchStartMs}ms total " +
+                    "(load+inference, ${preds.size} raw preds)",
             )
             onProgress(1f)
             val minConf = settings.minConfidenceDisplay.first()
@@ -317,8 +334,8 @@ internal class ProductionPerchAnalysisJob(
         } catch (t: Throwable) {
             android.util.Log.e("ProductionPerchAnalysisJob", "Perch run failed", t)
             PerchAnalysisOutcome.Failure(t.message ?: t::class.simpleName.orEmpty())
-        } finally {
-            runCatching { perch.close() }
         }
+        // InferenceRunner closes all models (sequential: try/finally; parallel: async finally).
+        // No explicit perch.close() needed here.
     }
 }
