@@ -550,4 +550,29 @@ class INaturalistClientTest {
         assertThat(detail.agreeingIdCount).isEqualTo(0)
         assertThat(detail.comments).isEmpty()
     }
+
+    @Test
+    fun `uploadObservationPhoto posts to v2 with correct fields and returns id`() = runTest {
+        // Enqueue a v2-shaped response: { "results": [{ "id": 42 }] }
+        server.enqueue(
+            MockResponse().setBody("""{"results":[{"id":42}]}""").setResponseCode(200),
+        )
+        val photo = tmp.newFile("habitat.jpg").apply { writeText("JPEG") }
+        val result = client.uploadObservationPhoto(
+            token = "Bearer test-token",
+            observationUuid = "obs-uuid-123",
+            photoFile = photo,
+        )
+        assertThat(result).isEqualTo(42L)
+
+        // Verify request went to v2 endpoint
+        val req = server.takeRequest()
+        assertThat(req.path).isEqualTo("/v2/observation_photos")
+        assertThat(req.method).isEqualTo("POST")
+        val body = req.body.readUtf8()
+        assertThat(body).contains("observation_photo[observation_id]")
+        assertThat(body).contains("obs-uuid-123")
+        assertThat(body).contains("name=\"file\"")
+        assertThat(body).contains(photo.name)
+    }
 }

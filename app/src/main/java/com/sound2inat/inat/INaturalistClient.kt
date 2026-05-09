@@ -197,6 +197,12 @@ open class INaturalistClient(
      * Uploads [photoFile] (JPEG) and links it to the observation identified by
      * [observationUuid]. Returns the iNat observation_photo id.
      *
+     * API: POST /v2/observation_photos
+     *
+     * Multipart shape:
+     *   - `observation_photo[observation_id]` — string UUID, required
+     *   - `file` — binary JPEG
+     *
      * Best-effort: callers should catch exceptions and log rather than rolling
      * back the parent observation — a missing photo is far less harmful than a
      * missing observation record.
@@ -220,13 +226,15 @@ open class INaturalistClient(
             )
             .build()
         val req = Request.Builder()
-            .url("$baseUrl/observation_photos")
+            .url("$v2BaseUrl/observation_photos")
             .header("Authorization", token)
             .header("Accept", "application/json")
             .post(body)
             .build()
         val resp = executeJson(req)
-        resp.optLong("id", -1L).also { if (it < 0) error("uploadObservationPhoto: no id in response") }
+        val results = resp.optJSONArray("results")
+        if (results == null || results.length() == 0) error("uploadObservationPhoto: empty results in response")
+        results.getJSONObject(0).getLong("id")
     }
 
     /**
