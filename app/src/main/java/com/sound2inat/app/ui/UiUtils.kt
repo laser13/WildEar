@@ -5,3 +5,5 @@ fun formatDurationMs(ms: Long): String {
     val t = ms.coerceAtLeast(0L)
     return "%d:%02d".format(t / 60_000L, t / 1_000L % 60L)
 }
+
+const val FILE_PROVIDER_AUTHORITY = "com.sound2inat.app.fileprovider"

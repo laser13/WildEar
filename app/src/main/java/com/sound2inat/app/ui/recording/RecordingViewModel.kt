@@ -11,6 +11,7 @@ import com.sound2inat.app.permissions.PermissionsController
 import com.sound2inat.app.recording.RecordingController
 import com.sound2inat.app.recording.RecordingServiceLauncher
 import com.sound2inat.app.recording.RecordingSessionState
+import com.sound2inat.app.ui.FILE_PROVIDER_AUTHORITY
 import com.sound2inat.storage.DraftPhotoDao
 import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.PhotoFileStore
@@ -133,7 +134,7 @@ class RecordingViewModel(
         val file = photoStore.newPhotoFile(draftId, photoId)
         val uri = FileProvider.getUriForFile(
             appContext,
-            "com.sound2inat.app.fileprovider",
+            FILE_PROVIDER_AUTHORITY,
             file,
         )
         return PreparedCapture(uri = uri, filePath = file.absolutePath)

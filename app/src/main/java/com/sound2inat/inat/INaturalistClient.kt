@@ -6,6 +6,7 @@ import com.sound2inat.app.ui.radar.SpeciesAggregate
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -73,11 +74,27 @@ open class INaturalistClient(
      */
     suspend fun resolveTaxon(scientificName: String, token: String?): Long? =
         withContext(ioDispatcher) {
-            val q = scientificName.replace(' ', '+')
             // exact_match=true would need a different endpoint; the public /taxa
             // search ranks exact-name matches first, which is good enough.
-            val path = "/taxa?q=$q&rank=species&is_active=true&per_page=1"
-            val req = if (token != null) authedGet(token, path) else anonGet(path)
+            // Use HttpUrl.Builder so hybrid names with × are percent-encoded.
+            val url = baseUrl.toHttpUrl().newBuilder()
+                .addPathSegment("taxa")
+                .addQueryParameter("q", scientificName)
+                .addQueryParameter("rank", "species")
+                .addQueryParameter("is_active", "true")
+                .addQueryParameter("per_page", "1")
+                .build()
+                .toString()
+            val req = if (token != null) {
+                Request.Builder().url(url)
+                    .header("Authorization", token)
+                    .header("Accept", "application/json")
+                    .get().build()
+            } else {
+                Request.Builder().url(url)
+                    .header("Accept", "application/json")
+                    .get().build()
+            }
             val results = executeJson(req).optJSONArray("results") ?: return@withContext null
             if (results.length() == 0) return@withContext null
             val top = results.getJSONObject(0)
@@ -319,8 +336,18 @@ open class INaturalistClient(
      * required, so safe to call from the Review screen before submission.
      */
     suspend fun fetchTaxonPhotoUrl(scientificName: String): String? = withContext(ioDispatcher) {
-        val q = scientificName.replace(' ', '+')
-        val req = anonGet("/taxa?q=$q&rank=species&is_active=true&per_page=5")
+        // Use HttpUrl.Builder so hybrid names with × are percent-encoded.
+        val url = baseUrl.toHttpUrl().newBuilder()
+            .addPathSegment("taxa")
+            .addQueryParameter("q", scientificName)
+            .addQueryParameter("rank", "species")
+            .addQueryParameter("is_active", "true")
+            .addQueryParameter("per_page", "5")
+            .build()
+            .toString()
+        val req = Request.Builder().url(url)
+            .header("Accept", "application/json")
+            .get().build()
         val results = runCatching { executeJson(req).optJSONArray("results") }
             .getOrNull() ?: return@withContext null
         val taxon = (0 until results.length())

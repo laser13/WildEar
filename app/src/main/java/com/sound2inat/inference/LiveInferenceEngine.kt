@@ -52,7 +52,7 @@ open class LiveInferenceEngine(
     private val model: BioacousticModel,
     private val yamNetGate: YamNetGate?,
     private val spectralSubtractor: SpectralSubtractor?,
-    private val sampleRateHz: Int = 48_000,
+    private val sampleRateHz: Int = AudioConstants.BIRDNET_SAMPLE_RATE_HZ,
     private val windowSamples: Int = sampleRateHz * 3,
     private val hopSamples: Int = sampleRateHz * 3 / 2,
     /**
@@ -79,13 +79,10 @@ open class LiveInferenceEngine(
     private val _droppedOnFull = MutableStateFlow(0)
 
     /**
-     * Number of windows the engine produced but failed to enqueue because
-     * [trySendWindow] reported failure. With the default
-     * `BUFFERED + DROP_OLDEST` channel this counter should remain `0` for an
-     * open channel — see class KDoc. It is incremented as a safety net so UI
-     * accounting (`emitted == consumed + dropped`) holds even if the failure
-     * branch ever fires (e.g. a closed channel race, or a future change to
-     * the buffer-overflow policy).
+     * Counter incremented when [trySendWindow] returns failure — expected to remain 0
+     * during normal recording since `BUFFERED+DROP_OLDEST` makes `trySend` infallible on
+     * an open channel. DROP_OLDEST evictions from a full buffer are not separately counted
+     * (the Channel API does not expose eviction callbacks). See [backlog] for queue depth.
      */
     open val droppedOnFull: StateFlow<Int> = _droppedOnFull.asStateFlow()
 

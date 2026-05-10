@@ -72,7 +72,7 @@ fun RecordingScreen(
     val vm: RecordingViewModel = hiltViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(vm) {
         vm.initWithPermissions(perms)
         vm.start()
     }

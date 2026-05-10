@@ -6,6 +6,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import java.io.File
 import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicInteger
@@ -161,7 +162,8 @@ class InferenceRunner(
                             val window = normalized.copyOfRange(s, s + win)
                             val gateResult = yamNetGate?.classify(window, targetRate)
                             if (hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) {
-                                _progress.value = counter.incrementAndGet().toFloat() / frames
+                                val newProgress = counter.incrementAndGet().toFloat() / frames
+                                _progress.update { maxOf(it, newProgress) }
                                 continue
                             }
                             val startMs = (s.toLong() * MS_PER_SECOND_LONG) / targetRate
@@ -175,7 +177,8 @@ class InferenceRunner(
                                 windowStartMs = startMs,
                                 windowEndMs = endMs,
                             )
-                            _progress.value = counter.incrementAndGet().toFloat() / frames
+                            val newProgress = counter.incrementAndGet().toFloat() / frames
+                            _progress.update { maxOf(it, newProgress) }
                             if (!hardGate && gateResult.suppressesPredictions(predictions)) continue
                             chunkOut += predictions
                         }

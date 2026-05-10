@@ -33,7 +33,7 @@ class PostRecordingProcessor(
                 }
                 val denoised = denoiseFull(floats, sampleRate)
                 shorts = ShortArray(denoised.size) { i ->
-                    (denoised[i] * Short.MAX_VALUE).toInt()
+                    (denoised[i] * 32768f).toInt()
                         .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
                         .toShort()
                 }

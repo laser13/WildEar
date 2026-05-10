@@ -33,7 +33,7 @@ class SettingsViewModelTest {
         val emissions = listOf(
             ModelInstallState.Downloading(0f),
             ModelInstallState.Downloading(0.5f),
-            ModelInstallState.Verifying(false),
+            ModelInstallState.Verifying,
             ready,
         )
         val vm = build(

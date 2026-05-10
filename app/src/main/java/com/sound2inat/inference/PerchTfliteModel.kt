@@ -26,7 +26,7 @@ class PerchTfliteModel(
 
     override val modelId: String = ModelIds.PERCH
     override val modelVersion: String = "2"
-    override val expectedSampleRateHz: Int = 32_000
+    override val expectedSampleRateHz: Int = AudioConstants.PERCH_SAMPLE_RATE_HZ
     override val windowMs: Long = 5_000L
 
     private var interp: InterpreterApi? = null
@@ -71,7 +71,7 @@ class PerchTfliteModel(
         windowEndMs: Long,
     ): List<WindowPrediction> {
         val i = interp ?: error("Model not loaded")
-        require(sampleRateHz == 32_000) { "Perch v2 expects 32 kHz, got $sampleRateHz" }
+        require(sampleRateHz == AudioConstants.PERCH_SAMPLE_RATE_HZ) { "Perch v2 expects 32 kHz, got $sampleRateHz" }
         check(logitsTensorIndex >= 0) { "logits tensor index not resolved (load() not called?)" }
 
         val input = arrayOf(pcmFloat32)

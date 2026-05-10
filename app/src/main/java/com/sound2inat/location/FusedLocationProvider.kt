@@ -33,21 +33,27 @@ class FusedLocationProvider(context: Context) : LocationProvider {
             }
         }
         if (live != null) return live
-        return suspendCancellableCoroutine<Fix?> { cont ->
-            client.lastLocation
-                .addOnSuccessListener { loc ->
-                    cont.resume(
-                        loc?.let {
-                            Fix(
-                                latitude = it.latitude,
-                                longitude = it.longitude,
-                                accuracyMeters = it.accuracy.takeIf { a -> a > 0f },
-                                timestampMs = it.time,
-                            )
-                        },
-                    )
-                }
-                .addOnFailureListener { cont.resume(null) }
+        return withTimeoutOrNull(LOCATION_TIMEOUT_MS) {
+            suspendCancellableCoroutine<Fix?> { cont ->
+                client.lastLocation
+                    .addOnSuccessListener { loc ->
+                        cont.resume(
+                            loc?.let {
+                                Fix(
+                                    latitude = it.latitude,
+                                    longitude = it.longitude,
+                                    accuracyMeters = it.accuracy.takeIf { a -> a > 0f },
+                                    timestampMs = it.time,
+                                )
+                            },
+                        )
+                    }
+                    .addOnFailureListener { cont.resume(null) }
+            }
         }
+    }
+
+    private companion object {
+        const val LOCATION_TIMEOUT_MS = 5_000L
     }
 }

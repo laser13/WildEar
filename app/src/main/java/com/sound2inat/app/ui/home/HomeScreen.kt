@@ -78,6 +78,9 @@ import com.sound2inat.app.inference.JobStatus
 import com.sound2inat.storage.DraftStatus
 import kotlinx.coroutines.flow.Flow
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
@@ -505,8 +508,11 @@ private fun homeStatusLabel(status: DraftStatus, analysedButEmpty: Boolean, jobS
     })
 }
 
-private fun formatTimestamp(ms: Long): String =
-    SimpleDateFormat("MMM d, HH:mm", Locale.US).format(Date(ms))
+private fun formatTimestamp(ms: Long): String {
+    val formatter = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm")
+        .withZone(ZoneId.systemDefault())
+    return formatter.format(Instant.ofEpochMilli(ms))
+}
 
 private const val RECORDING_THUMB_SIZE_DP = 48
 private const val RECORDING_THUMB_CORNER_DP = 6

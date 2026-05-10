@@ -56,8 +56,10 @@ class INaturalistClientTest {
         val id = client.resolveTaxon("Parus major", token = null)
         assertThat(id).isEqualTo(12345L)
         val req = server.takeRequest()
-        assertThat(req.path).contains("q=Parus+major")
         assertThat(req.path).contains("rank=species")
+        // OkHttp's HttpUrl.Builder percent-encodes spaces as %20 in query params.
+        val decoded = java.net.URLDecoder.decode(req.path ?: "", "UTF-8")
+        assertThat(decoded).contains("q=Parus major")
     }
 
     @Test fun `resolveTaxon returns null when no results`() = runTest {

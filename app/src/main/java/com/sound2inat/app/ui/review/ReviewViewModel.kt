@@ -30,6 +30,7 @@ import com.sound2inat.recorder.WavWriter
 import com.sound2inat.inference.WindowPrediction
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
+import com.sound2inat.app.ui.FILE_PROVIDER_AUTHORITY
 import com.sound2inat.storage.DraftPhotoDao
 import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.DraftRepository
@@ -531,7 +532,7 @@ class ReviewViewModel(
         checkNotNull(photoStore) { "Camera not available" }
         val file = photoStore.newPhotoFile(draftId, photoId)
         return androidx.core.content.FileProvider.getUriForFile(
-            context, "com.sound2inat.app.fileprovider", file,
+            context, FILE_PROVIDER_AUTHORITY, file,
         )
     }
 
@@ -550,7 +551,7 @@ class ReviewViewModel(
         checkNotNull(photoStore) { "Camera not available" }
         val file = photoStore.newPhotoFile(draftId, photoId)
         val uri = androidx.core.content.FileProvider.getUriForFile(
-            context, "com.sound2inat.app.fileprovider", file,
+            context, FILE_PROVIDER_AUTHORITY, file,
         )
         return uri to file.absolutePath
     }

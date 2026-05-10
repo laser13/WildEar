@@ -28,7 +28,7 @@ class BirdNetTfliteModel(
 
     override val modelId: String = ModelIds.BIRDNET
     override val modelVersion: String = "2.4"
-    override val expectedSampleRateHz: Int = 48_000
+    override val expectedSampleRateHz: Int = AudioConstants.BIRDNET_SAMPLE_RATE_HZ
     override val windowMs: Long = 3_000L
 
     private var interp: InterpreterApi? = null
@@ -52,7 +52,7 @@ class BirdNetTfliteModel(
         windowEndMs: Long,
     ): List<WindowPrediction> {
         val i = interp ?: error("Model not loaded")
-        require(sampleRateHz == 48_000) { "BirdNET v2.4 expects 48 kHz, got $sampleRateHz" }
+        require(sampleRateHz == AudioConstants.BIRDNET_SAMPLE_RATE_HZ) { "BirdNET v2.4 expects 48 kHz, got $sampleRateHz" }
 
         // BirdNET v2.4 raw-audio input shape: [1, 144000].
         val input = arrayOf(pcmFloat32)

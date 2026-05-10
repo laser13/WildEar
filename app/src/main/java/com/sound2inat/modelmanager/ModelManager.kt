@@ -38,7 +38,7 @@ open class ModelManager(
     open suspend fun install(
         descriptor: ModelDescriptor,
         emit: (ModelInstallState) -> Unit,
-    ): Unit = withContext(Dispatchers.IO) {
+    ): Unit = withContext(ioDispatcher) {
         try {
             emit(ModelInstallState.Downloading(0f))
             val modelTmp = downloadTo(
@@ -53,7 +53,7 @@ open class ModelManager(
             ) { p ->
                 emit(ModelInstallState.Downloading(HALF + p * HALF))
             }
-            emit(ModelInstallState.Verifying(false))
+            emit(ModelInstallState.Verifying)
             require(sha256(modelTmp) == descriptor.modelSha256) { "Model SHA-256 mismatch" }
             require(sha256(labelsTmp) == descriptor.labelsSha256) { "Labels SHA-256 mismatch" }
             val mFinal = modelFile(descriptor)

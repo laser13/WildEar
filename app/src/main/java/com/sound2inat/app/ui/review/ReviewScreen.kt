@@ -183,7 +183,6 @@ private fun ReviewPage(
         || state.perchProgress != null
         || state.queuePosition != null
     val uploadedUrls = remember(state.inatObservations) { state.inatObservations.associate { it.scientificName to it.url } }
-    val uploadedIds  = remember(state.inatObservations) { state.inatObservations.associate { it.scientificName to it.observationId } }
 
     Scaffold(
         topBar = {
