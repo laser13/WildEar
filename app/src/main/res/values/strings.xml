@@ -37,6 +37,7 @@
     <!-- Recording card status headlines -->
     <string name="home_headline_nothing_detected">Nothing detected</string>
     <string name="home_headline_analyzing">Analyzing…</string>
+    <string name="home_headline_reanalyzing">Re-analyzing…</string>
     <string name="home_headline_analysis_failed">Analysis failed</string>
     <string name="home_headline_in_queue">In queue</string>
     <string name="home_headline_ready_review">Ready to review</string>

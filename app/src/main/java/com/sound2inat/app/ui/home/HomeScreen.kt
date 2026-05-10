@@ -445,7 +445,7 @@ private fun statusVisuals(
 ): Pair<ImageVector, Color> {
     val colors = MaterialTheme.colorScheme
     if (analysedButEmpty) return Icons.Filled.SearchOff to colors.outline
-    if (status == DraftStatus.PENDING_INFERENCE) {
+    if (status == DraftStatus.PENDING_INFERENCE || jobStatus != null) {
         return when (jobStatus) {
             is JobStatus.Failed -> Icons.Filled.Error to colors.error
             is JobStatus.Queued -> Icons.Filled.Schedule to colors.outline
@@ -463,11 +463,14 @@ private fun statusVisuals(
 @Composable
 private fun statusHeadline(status: DraftStatus, analysedButEmpty: Boolean, jobStatus: JobStatus? = null): String {
     if (analysedButEmpty) return stringResource(R.string.home_headline_nothing_detected)
-    if (status == DraftStatus.PENDING_INFERENCE) {
+    if (status == DraftStatus.PENDING_INFERENCE || jobStatus != null) {
         return when (jobStatus) {
             is JobStatus.Failed -> stringResource(R.string.home_headline_analysis_failed)
             is JobStatus.Queued -> stringResource(R.string.home_headline_in_queue)
-            is JobStatus.Running, null -> stringResource(R.string.home_headline_analyzing)
+            is JobStatus.Running, null -> stringResource(
+                if (status == DraftStatus.PENDING_INFERENCE) R.string.home_headline_analyzing
+                else R.string.home_headline_reanalyzing
+            )
         }
     }
     return stringResource(when (status) {
@@ -481,7 +484,7 @@ private fun statusHeadline(status: DraftStatus, analysedButEmpty: Boolean, jobSt
 @Composable
 private fun homeStatusLabel(status: DraftStatus, analysedButEmpty: Boolean, jobStatus: JobStatus? = null): String {
     if (analysedButEmpty) return stringResource(R.string.home_label_no_detections)
-    if (status == DraftStatus.PENDING_INFERENCE) {
+    if (status == DraftStatus.PENDING_INFERENCE || jobStatus != null) {
         return when (jobStatus) {
             is JobStatus.Running -> {
                 val pct = (jobStatus.birdnetProgress ?: jobStatus.perchProgress)
