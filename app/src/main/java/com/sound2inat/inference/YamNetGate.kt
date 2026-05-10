@@ -9,4 +9,7 @@ fun interface YamNetGate {
      * callers must treat null as PASS (fail-open).
      */
     suspend fun classify(pcmFloat32: FloatArray, sampleRateHz: Int): YamNetGateResult?
+
+    /** Releases native TFLite resources. Safe to call multiple times. */
+    fun close() {}
 }

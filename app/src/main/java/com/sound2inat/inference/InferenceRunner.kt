@@ -70,6 +70,7 @@ class InferenceRunner(
         val frames = if (normalized.size < win) 0 else 1 + (normalized.size - win) / hop
         if (frames == 0) {
             models.forEach { runCatching { it.close() } }
+            runCatching { yamNetGate?.close() }
             _progress.value = 1f
             return emptyList()
         }
@@ -130,6 +131,8 @@ class InferenceRunner(
         } finally {
             model.close()
         }
+        runCatching { yamNetGate?.close() }
+            .onFailure { Log.w("InferenceRunner", "yamNetGate.close() threw", it) }
         Log.d(
             "InferenceTiming",
             "${model.modelId}: loop done — $frames windows in ${System.currentTimeMillis() - loopStart}ms",
@@ -188,6 +191,8 @@ class InferenceRunner(
             }.awaitAll()
         }
         _progress.value = 1f
+        runCatching { yamNetGate?.close() }
+            .onFailure { Log.w("InferenceRunner", "yamNetGate.close() threw", it) }
         return results.flatten().sortedBy { it.startMs }
     }
 

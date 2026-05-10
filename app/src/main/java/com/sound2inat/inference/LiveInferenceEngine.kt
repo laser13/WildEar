@@ -99,10 +99,12 @@ open class LiveInferenceEngine(
     private var nextEmitAt = 0L // sample index of next window's start
 
     @Volatile private var stopped = false
+    private val started = java.util.concurrent.atomic.AtomicBoolean(false)
 
     open fun start(scope: CoroutineScope) {
-        check(!stopped) { "LiveInferenceEngine is single-use: cannot start after stop" }
-        if (workerJob != null) return
+        check(!started.getAndSet(true)) {
+            "LiveInferenceEngine is single-use: cannot start after stop or after a prior start"
+        }
         workerJob = scope.launch(Dispatchers.Default) { worker() }
     }
 
@@ -235,6 +237,8 @@ open class LiveInferenceEngine(
         withTimeoutOrNull(DRAIN_TIMEOUT_MS) { workerJob?.join() }
         workerJob?.cancel()
         workerJob = null
+        runCatching { model.close() }
+            .onFailure { Log.w(TAG, "model.close() threw in stop()", it) }
     }
 
     internal data class Window(val samples: FloatArray, val startMs: Long, val endMs: Long)

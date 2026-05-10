@@ -32,39 +32,37 @@ class YamNetTfliteGate(
 
     @Suppress("ReturnCount")
     private suspend fun classifyInternal(pcmFloat32: FloatArray, sampleRateHz: Int): YamNetGateResult? {
-        ensureLoaded()
-        val interp = interpreter ?: return null // model not installed yet — fail open
+        ensureLoaded() // acquires+releases mutex internally for lazy load
         val resampled = resampleTo16k(pcmFloat32, sampleRateHz)
-
-        var maxBioScore = 0f
-        var maxNoiseScore = 0f
-        var anyNoiseTopWithLowBio = false
-        var frameStart = 0
-        while (frameStart < resampled.size) {
-            val frame = FloatArray(YAMNET_FRAME_SIZE) // zero-padded if last frame is short
-            val end = (frameStart + YAMNET_FRAME_SIZE).coerceAtMost(resampled.size)
-            resampled.copyInto(frame, destinationOffset = 0, startIndex = frameStart, endIndex = end)
-
-            val input = arrayOf(frame)
-            val output = arrayOf(FloatArray(CLASS_COUNT))
-            interp.run(input, output)
-            val probs = output[0]
-
-            val bioScore = bioIndices.maxOfOrNull { probs[it] } ?: 0f
-            val noiseScore = noiseIndices.maxOfOrNull { probs[it] } ?: 0f
-            val topClass = probs.indices.maxByOrNull { probs[it] } ?: 0
-            if (bioScore > maxBioScore) maxBioScore = bioScore
-            if (noiseScore > maxNoiseScore) maxNoiseScore = noiseScore
-            if (topClass in noiseIndices && bioScore < BIO_THRESHOLD) anyNoiseTopWithLowBio = true
-            frameStart += YAMNET_FRAME_SIZE
+        return mutex.withLock {
+            val interp = interpreter ?: return@withLock null
+            var maxBioScore = 0f
+            var maxNoiseScore = 0f
+            var anyNoiseTopWithLowBio = false
+            var frameStart = 0
+            while (frameStart < resampled.size) {
+                val frame = FloatArray(YAMNET_FRAME_SIZE)
+                val end = (frameStart + YAMNET_FRAME_SIZE).coerceAtMost(resampled.size)
+                resampled.copyInto(frame, destinationOffset = 0, startIndex = frameStart, endIndex = end)
+                val input = arrayOf(frame)
+                val output = arrayOf(FloatArray(CLASS_COUNT))
+                interp.run(input, output)
+                val probs = output[0]
+                val bioScore = bioIndices.maxOfOrNull { probs[it] } ?: 0f
+                val noiseScore = noiseIndices.maxOfOrNull { probs[it] } ?: 0f
+                val topClass = probs.indices.maxByOrNull { probs[it] } ?: 0
+                if (bioScore > maxBioScore) maxBioScore = bioScore
+                if (noiseScore > maxNoiseScore) maxNoiseScore = noiseScore
+                if (topClass in noiseIndices && bioScore < BIO_THRESHOLD) anyNoiseTopWithLowBio = true
+                frameStart += YAMNET_FRAME_SIZE
+            }
+            val passes = !(maxBioScore < BIO_THRESHOLD && anyNoiseTopWithLowBio)
+            YamNetGateResult(
+                biologicalScore = maxBioScore,
+                backgroundScore = maxNoiseScore,
+                recommendation = if (passes) GateRecommendation.PASS else GateRecommendation.DOWNRANK,
+            )
         }
-        val passes = !(maxBioScore < BIO_THRESHOLD && anyNoiseTopWithLowBio)
-        val recommendation = if (passes) GateRecommendation.PASS else GateRecommendation.DOWNRANK
-        return YamNetGateResult(
-            biologicalScore = maxBioScore,
-            backgroundScore = maxNoiseScore,
-            recommendation = recommendation,
-        )
     }
 
     private suspend fun ensureLoaded() = mutex.withLock {
@@ -102,6 +100,11 @@ class YamNetTfliteGate(
             val frac = (pos - i0).toFloat()
             input[i0] + (input[i1] - input[i0]) * frac
         }
+    }
+
+    override fun close() {
+        runCatching { interpreter?.close() }
+        interpreter = null
     }
 
     companion object {

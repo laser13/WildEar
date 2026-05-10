@@ -2,7 +2,7 @@ package com.sound2inat.inference
 
 import android.util.Log
 import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.nnapi.NnApiDelegate
+import org.tensorflow.lite.gpu.GpuDelegate
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.MappedByteBuffer
@@ -12,9 +12,12 @@ import java.nio.channels.FileChannel
  * Test seam for constructing TFLite [InterpreterApi] instances. The production
  * implementation memory-maps the model file via [MappedByteBuffer] and wraps
  * `org.tensorflow.lite.Interpreter`; tests substitute a fake.
+ *
+ * Pass [allowDelegate]=false for models that cannot use GPU/hardware acceleration
+ * (e.g. models with dynamic-sized tensors like [BirdNetMetaModel]).
  */
 interface InterpreterFactory {
-    fun create(modelFile: File, threads: Int): InterpreterApi
+    fun create(modelFile: File, threads: Int, allowDelegate: Boolean = true): InterpreterApi
 }
 
 /**
@@ -39,51 +42,65 @@ interface InterpreterApi {
 }
 
 class TfliteInterpreterFactory : InterpreterFactory {
-    override fun create(modelFile: File, threads: Int): InterpreterApi {
+    @Suppress("NestedBlockDepth")
+    override fun create(modelFile: File, threads: Int, allowDelegate: Boolean): InterpreterApi {
         val raf = RandomAccessFile(modelFile, "r")
         val channel = raf.channel
-        val buffer: MappedByteBuffer =
-            channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size())
+        try {
+            val buffer: MappedByteBuffer =
+                channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size())
 
-        // Try NNAPI delegate first — on Snapdragon devices this routes to the
-        // Hexagon DSP / NPU and is typically 2–5× faster than CPU on TFLite
-        // models like BirdNET. If NNAPI fails (unsupported ops, driver bug,
-        // older Android), fall back to CPU-only with XNNPACK kernels (enabled
-        // by default in TFLite 2.16). XNNPACK + N threads is still a strong
-        // baseline.
-        var nnapi: NnApiDelegate? = null
-        val interpreter = try {
-            val delegate = NnApiDelegate()
-            val opts = Interpreter.Options().apply {
-                numThreads = threads
-                addDelegate(delegate)
-            }
-            val i = Interpreter(buffer, opts)
-            nnapi = delegate
-            Log.i(TAG, "TFLite using NNAPI delegate (threads=$threads)")
-            i
-        } catch (e: Throwable) {
-            Log.w(TAG, "NNAPI unavailable; falling back to CPU+XNNPACK (threads=$threads)", e)
-            Interpreter(buffer, Interpreter.Options().apply { numThreads = threads })
-        }
-
-        return object : InterpreterApi {
-            override val outputTensorCount: Int get() = interpreter.outputTensorCount
-            override fun getOutputShape(index: Int): IntArray =
-                interpreter.getOutputTensor(index).shape()
-
-            override fun run(input: Any, output: Any) = interpreter.run(input, output)
-
-            override fun runForMultipleOutputs(input: Any, outputs: Map<Int, Any>) {
-                interpreter.runForMultipleInputsOutputs(arrayOf(input), outputs)
+            // Try GPU delegate when allowed — Adreno/Mali GPUs typically support a
+            // wider set of TFLite ops than NNAPI drivers on mid-range devices, and
+            // GPU is 2-5× faster than CPU+XNNPACK for large convolution models like
+            // BirdNET and Perch. Models with dynamic-sized tensors (BirdNetMetaModel)
+            // must pass allowDelegate=false — neither GPU nor NNAPI support them.
+            var gpu: GpuDelegate? = null
+            val interpreter = if (allowDelegate) {
+                try {
+                    val delegate = GpuDelegate()
+                    val opts = Interpreter.Options().apply {
+                        numThreads = threads
+                        addDelegate(delegate)
+                    }
+                    val i = Interpreter(buffer, opts)
+                    gpu = delegate
+                    Log.i(TAG, "TFLite using GPU delegate (threads=$threads)")
+                    i
+                } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+                    gpu?.close()
+                    gpu = null
+                    Log.w(TAG, "GPU delegate unavailable; falling back to CPU+XNNPACK (threads=$threads)", e)
+                    Interpreter(buffer, Interpreter.Options().apply { numThreads = threads })
+                }
+            } else {
+                Log.d(TAG, "GPU delegate skipped; using CPU+XNNPACK (threads=$threads)")
+                Interpreter(buffer, Interpreter.Options().apply { numThreads = threads })
             }
 
-            override fun close() {
-                interpreter.close()
-                nnapi?.close()
-                channel.close()
-                raf.close()
+            val capturedGpu = gpu
+            return object : InterpreterApi {
+                override val outputTensorCount: Int get() = interpreter.outputTensorCount
+                override fun getOutputShape(index: Int): IntArray =
+                    interpreter.getOutputTensor(index).shape()
+
+                override fun run(input: Any, output: Any) = interpreter.run(input, output)
+
+                override fun runForMultipleOutputs(input: Any, outputs: Map<Int, Any>) {
+                    interpreter.runForMultipleInputsOutputs(arrayOf(input), outputs)
+                }
+
+                override fun close() {
+                    interpreter.close()
+                    capturedGpu?.close()
+                    channel.close()
+                    raf.close()
+                }
             }
+        } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
+            runCatching { channel.close() }
+            runCatching { raf.close() }
+            throw t
         }
     }
 

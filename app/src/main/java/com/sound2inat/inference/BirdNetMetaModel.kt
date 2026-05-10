@@ -50,10 +50,10 @@ class BirdNetMetaModel(
         latitude: Double,
         longitude: Double,
         weekOfYear: Int,
-    ): Map<String, Float>? {
-        ensureLoaded()
-        val interp = interpreter ?: return null
-        if (labels.isEmpty()) return null
+    ): Map<String, Float>? = mutex.withLock {
+        ensureLoadedUnlocked()
+        val interp = interpreter ?: return@withLock null
+        if (labels.isEmpty()) return@withLock null
 
         val weekMeta = (cos(weekOfYear * WEEK_RADIANS) + 1.0).toFloat()
         val input = arrayOf(floatArrayOf(latitude.toFloat(), longitude.toFloat(), weekMeta))
@@ -64,19 +64,17 @@ class BirdNetMetaModel(
         val result = HashMap<String, Float>(labels.size)
         for (i in labels.indices) {
             val multiplier = applyThreshold(rawPriors[i])
-            if (multiplier > 0f) {
-                result[labels[i].scientificName] = multiplier
-            }
+            if (multiplier > 0f) result[labels[i].scientificName] = multiplier
         }
-        return result
+        result
     }
 
-    private suspend fun ensureLoaded() = mutex.withLock {
-        if (interpreter != null) return@withLock
+    private suspend fun ensureLoadedUnlocked() {
+        if (interpreter != null) return
         val state = modelManager.stateFor(BirdNetMetaV24.descriptor) as? ModelInstallState.Ready
-            ?: return@withLock
+            ?: return
         labels = Labels.load(state.labelsFile, LabelsFormat.BirdNetUnderscore)
-        interpreter = factory.create(state.modelFile, threads = 1)
+        interpreter = factory.create(state.modelFile, threads = 1, allowDelegate = false)
     }
 
     private fun applyThreshold(prob: Float): Float = when {
