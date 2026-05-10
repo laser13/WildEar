@@ -41,6 +41,8 @@ class PerchTfliteModel(
     private var logitsTensorIndex: Int = -1
 
     override suspend fun load(modelFile: File, labelsFile: File) {
+        interp?.close()
+        interp = null
         val i = factory.create(modelFile, threads)
         interp = i
         labels = Labels.load(labelsFile, format = LabelsFormat.PerchScientificName)

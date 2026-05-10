@@ -30,7 +30,7 @@ class InferenceRunner(
     /**
      * When true, a DOWNRANK gate decision skips [BioacousticModel.predict] entirely.
      * When false (default), DOWNRANK is a soft post-filter that drops results only
-     * when no prediction exceeds [HIGH_CONFIDENCE_OVERRIDE].
+     * when no prediction exceeds [GATE_HIGH_CONFIDENCE_OVERRIDE].
      */
     val hardGate: Boolean = false,
 ) {
@@ -123,9 +123,7 @@ class InferenceRunner(
                     )
                     batchStart = now
                 }
-                if (!hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) {
-                    if (predictions.none { it.confidence >= HIGH_CONFIDENCE_OVERRIDE }) continue
-                }
+                if (!hardGate && gateResult.suppressesPredictions(predictions)) continue
                 out += predictions
             }
         } finally {
@@ -178,9 +176,7 @@ class InferenceRunner(
                                 windowEndMs = endMs,
                             )
                             _progress.value = counter.incrementAndGet().toFloat() / frames
-                            if (!hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) {
-                                if (predictions.none { it.confidence >= HIGH_CONFIDENCE_OVERRIDE }) continue
-                            }
+                            if (!hardGate && gateResult.suppressesPredictions(predictions)) continue
                             chunkOut += predictions
                         }
                     } finally {
@@ -199,7 +195,6 @@ class InferenceRunner(
     private companion object {
         const val MS_PER_SECOND = 1_000f
         const val MS_PER_SECOND_LONG = 1_000L
-        const val HIGH_CONFIDENCE_OVERRIDE = 0.7f
     }
 }
 
@@ -216,16 +211,19 @@ internal object WavReader {
                 "Not a WAV file"
             }
             val ch = readLeUint16(header, 22)
-            val sr = readLeUint32(header, 24)
+            val sr = readLeUint32(header, 24).toInt()
             val bits = readLeUint16(header, 34)
             require(ch == 1 && bits == 16) { "Mono 16-bit PCM only (got ch=$ch bits=$bits)" }
             require(String(header, 36, 4) == "data") {
                 "WAV 'data' chunk not at offset 36 — unsupported chunk layout"
             }
-            val dataSize = readLeUint32(header, 40)
-            val raw = ByteArray(dataSize)
+            val dataSize: Long = readLeUint32(header, 40)
+            require(dataSize in 0L..Int.MAX_VALUE.toLong()) {
+                "WAV dataSize out of safe range: $dataSize bytes"
+            }
+            val raw = ByteArray(dataSize.toInt())
             raf.readFully(raw)
-            val samples = ShortArray(dataSize / 2)
+            val samples = ShortArray(dataSize.toInt() / 2)
             for (i in samples.indices) {
                 val lo = raw[2 * i].toInt() and 0xFF
                 val hi = raw[2 * i + 1].toInt()
@@ -238,9 +236,9 @@ internal object WavReader {
     private fun readLeUint16(buf: ByteArray, o: Int): Int =
         (buf[o].toInt() and 0xFF) or ((buf[o + 1].toInt() and 0xFF) shl 8)
 
-    private fun readLeUint32(buf: ByteArray, o: Int): Int =
-        (buf[o].toInt() and 0xFF) or
-            ((buf[o + 1].toInt() and 0xFF) shl 8) or
-            ((buf[o + 2].toInt() and 0xFF) shl 16) or
-            ((buf[o + 3].toInt() and 0xFF) shl 24)
+    private fun readLeUint32(buf: ByteArray, o: Int): Long =
+        (buf[o].toLong() and 0xFF) or
+            ((buf[o + 1].toLong() and 0xFF) shl 8) or
+            ((buf[o + 2].toLong() and 0xFF) shl 16) or
+            ((buf[o + 3].toLong() and 0xFF) shl 24)
 }

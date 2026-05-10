@@ -35,6 +35,8 @@ class BirdNetTfliteModel(
     private var labels: List<Label> = emptyList()
 
     override suspend fun load(modelFile: File, labelsFile: File) {
+        interp?.close()
+        interp = null
         interp = factory.create(modelFile, threads)
         labels = Labels.load(labelsFile)
     }

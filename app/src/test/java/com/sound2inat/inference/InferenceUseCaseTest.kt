@@ -229,7 +229,7 @@ class InferenceUseCaseTest {
     }
 
     @Test
-    fun `ProductionPerchAnalysisJob parallelism=2 calls newInstance once and closes both`() = runTest {
+    fun `ProductionPerchAnalysisJob parallelism=2 calls newInstance for all instances and closes them`() = runTest {
         val modelFile = tmp.newFile("perch.tflite").apply { writeBytes(byteArrayOf(0)) }
         val labelsFile = tmp.newFile("perch_labels.csv").apply {
             // Row 0 = dataset tag (filtered); row 1 = species.
@@ -292,9 +292,11 @@ class InferenceUseCaseTest {
         val outcome = job.run(perchWav.absolutePath, null, null, 0L) {}
 
         assertThat(outcome).isInstanceOf(PerchAnalysisOutcome.Success::class.java)
-        assertThat(newInstanceCalls).isEqualTo(1)
-        assertThat(closedFlags).hasSize(2)
-        assertThat(closedFlags.all { it }).isTrue()
+        // All parallelism instances are created via newInstance() — the DI singleton is not consumed.
+        assertThat(newInstanceCalls).isEqualTo(2)
+        assertThat(closedFlags).hasSize(3) // root (not consumed) + 2 instances
+        assertThat(closedFlags[0]).isFalse() // root/DI-singleton is NOT closed
+        assertThat(closedFlags.drop(1).all { it }).isTrue() // both instances are closed
     }
 
     @Test
@@ -305,8 +307,25 @@ class InferenceUseCaseTest {
         }
 
         var loadCount = 0
-        var firstClosed = false
-        var secondClosed = false
+        var firstInstanceClosed = false
+        var secondInstanceClosed = false
+        var newInstanceCallCount = 0
+
+        // Instances returned by newInstance(): first loads OK, second throws.
+        val firstInstance = object : BioacousticModel {
+            override val modelId = ModelIds.PERCH
+            override val modelVersion = "2"
+            override val expectedSampleRateHz = 32_000
+            override val windowMs = 5_000L
+            override suspend fun load(modelFile: File, labelsFile: File) { loadCount++ }
+            override suspend fun predict(
+                pcmFloat32: FloatArray, sampleRateHz: Int, latitude: Double?,
+                longitude: Double?, observedAtMillis: Long,
+                windowStartMs: Long, windowEndMs: Long,
+            ) = emptyList<WindowPrediction>()
+            override fun close() { firstInstanceClosed = true }
+            override fun newInstance(): BioacousticModel = this
+        }
 
         val secondInstance = object : BioacousticModel {
             override val modelId = ModelIds.PERCH
@@ -321,7 +340,7 @@ class InferenceUseCaseTest {
                 longitude: Double?, observedAtMillis: Long,
                 windowStartMs: Long, windowEndMs: Long,
             ) = emptyList<WindowPrediction>()
-            override fun close() { secondClosed = true }
+            override fun close() { secondInstanceClosed = true }
             override fun newInstance(): BioacousticModel = this
         }
 
@@ -330,14 +349,17 @@ class InferenceUseCaseTest {
             override val modelVersion = "2"
             override val expectedSampleRateHz = 32_000
             override val windowMs = 5_000L
-            override suspend fun load(modelFile: File, labelsFile: File) { loadCount++ }
+            override suspend fun load(modelFile: File, labelsFile: File) = Unit // root is never loaded
             override suspend fun predict(
                 pcmFloat32: FloatArray, sampleRateHz: Int, latitude: Double?,
                 longitude: Double?, observedAtMillis: Long,
                 windowStartMs: Long, windowEndMs: Long,
             ) = emptyList<WindowPrediction>()
-            override fun close() { firstClosed = true }
-            override fun newInstance(): BioacousticModel = secondInstance
+            override fun close() = Unit // root is never closed (it's the DI singleton)
+            override fun newInstance(): BioacousticModel {
+                newInstanceCallCount++
+                return if (newInstanceCallCount == 1) firstInstance else secondInstance
+            }
         }
 
         val job = ProductionPerchAnalysisJob(
@@ -359,8 +381,8 @@ class InferenceUseCaseTest {
         val outcome = job.run(shortWav.absolutePath, null, null, 0L) {}
 
         assertThat(outcome).isInstanceOf(PerchAnalysisOutcome.Failure::class.java)
-        assertThat(loadCount).isEqualTo(1)  // first instance loaded
-        assertThat(firstClosed).isTrue()    // first instance closed in guard
-        assertThat(secondClosed).isFalse()  // second instance never loaded, so not closed
+        assertThat(loadCount).isEqualTo(1)          // first instance loaded successfully
+        assertThat(firstInstanceClosed).isTrue()    // first instance closed in guard
+        assertThat(secondInstanceClosed).isFalse()  // second instance never loaded, so not closed
     }
 }

@@ -73,7 +73,6 @@ class DefaultInferenceUseCase(
         modelManager = modelManager,
         settings = settings,
         yamNetGate = null,
-        parallelism = 2,
     )
 }
 
@@ -293,8 +292,7 @@ internal class ProductionPerchAnalysisJob(
         try {
             val perchStartMs = System.currentTimeMillis()
             val instances = buildList {
-                add(perch)
-                repeat(parallelism - 1) { add(perch.newInstance()) }
+                repeat(parallelism) { add(perch.newInstance()) }
             }
             // Load all instances; if any load() throws, close already-loaded ones first.
             val loaded = mutableListOf<BioacousticModel>()
