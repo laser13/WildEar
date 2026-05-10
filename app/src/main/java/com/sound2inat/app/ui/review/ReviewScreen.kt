@@ -68,6 +68,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -136,7 +137,7 @@ fun ReviewScreen(
         modifier = Modifier.fillMaxSize(),
     ) { pageIndex ->
         val draftId = draftIds.getOrNull(pageIndex) ?: return@HorizontalPager
-        val vm = remember(draftId) { pagerVm.factory.create(draftId) }
+        val vm = remember(draftId) { pagerVm.factory.create(draftId, pagerVm.viewModelScope) }
         DisposableEffect(draftId) {
             onDispose { vm.release() }
         }
@@ -653,12 +654,6 @@ private fun PlayerControls(state: ReviewUiState, vm: ReviewViewModel) {
                 Text(if (isPlaying) stringResource(R.string.btn_pause) else stringResource(R.string.btn_play))
             }
             Text("${formatMs(positionMs)} / ${formatMs(state.durationMs)}")
-            TextButton(onClick = vm::toggleDenoisePlayback) {
-                Text(
-                    if (state.denoisePlayback) stringResource(R.string.review_denoise_on)
-                    else stringResource(R.string.review_denoise_off)
-                )
-            }
         }
         if (state.playback is PlaybackState.Error) {
             Text(state.playback.message, color = MaterialTheme.colorScheme.error)

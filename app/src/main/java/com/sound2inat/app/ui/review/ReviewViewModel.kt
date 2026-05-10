@@ -379,28 +379,32 @@ class ReviewViewModel(
         // Mirror player flows into UI state.
         scope.launch {
             player.position.collect { pos ->
-                val pb = _state.value.playback
-                if (pb is PlaybackState.Playing) {
-                    _state.value = _state.value.copy(playback = PlaybackState.Playing(pos))
+                _state.update { s ->
+                    if (s.playback is PlaybackState.Playing) {
+                        s.copy(playback = PlaybackState.Playing(pos))
+                    } else {
+                        s
+                    }
                 }
             }
         }
         scope.launch {
             player.isPlaying.collect { playing ->
-                val pb = _state.value.playback
-                _state.value = _state.value.copy(
-                    playback = when {
-                        playing -> PlaybackState.Playing(player.position.value)
-                        pb is PlaybackState.Playing -> PlaybackState.Paused(player.position.value)
-                        else -> pb
-                    },
-                )
+                _state.update { s ->
+                    s.copy(
+                        playback = when {
+                            playing -> PlaybackState.Playing(player.position.value)
+                            s.playback is PlaybackState.Playing -> PlaybackState.Paused(player.position.value)
+                            else -> s.playback
+                        },
+                    )
+                }
             }
         }
         scope.launch {
             player.lastError.collect { err ->
                 if (err != null) {
-                    _state.value = _state.value.copy(playback = PlaybackState.Error(err))
+                    _state.update { s -> s.copy(playback = PlaybackState.Error(err)) }
                 }
             }
         }
@@ -602,8 +606,8 @@ class ReviewViewModel(
      * with newer thresholds.
      */
     private fun recomputePerchEligibility() {
-        if (_state.value.isPerchInstalled != perchInstalled) {
-            _state.value = _state.value.copy(isPerchInstalled = perchInstalled)
+        _state.update { s ->
+            if (s.isPerchInstalled != perchInstalled) s.copy(isPerchInstalled = perchInstalled) else s
         }
     }
 
@@ -650,15 +654,17 @@ class ReviewViewModel(
             "submitToINaturalist invoked",
             Throwable("call site"),
         )
-        _state.value = _state.value.copy(inatSubmission = InatSubmissionState.InProgress)
+        _state.update { it.copy(inatSubmission = InatSubmissionState.InProgress) }
         scope.launch {
             val token = tokenProvider()
             if (token.isNullOrBlank()) {
-                _state.value = _state.value.copy(
-                    inatSubmission = InatSubmissionState.Failed(
-                        "iNaturalist session expired — open Settings and tap Log in again",
-                    ),
-                )
+                _state.update {
+                    it.copy(
+                        inatSubmission = InatSubmissionState.Failed(
+                            "iNaturalist session expired — open Settings and tap Log in again",
+                        ),
+                    )
+                }
                 return@launch
             }
             val photos = _state.value.habitatPhotos.map { java.io.File(it.photoPath) }
@@ -666,17 +672,19 @@ class ReviewViewModel(
                 it.taxonScientificName to it.includeHabitatPhoto
             }
             val outcome = submission.submit(token, draftId, photos, includeByTaxon)
-            _state.value = _state.value.copy(
-                inatSubmission = when (outcome) {
-                    is InatSubmissionOutcome.Success -> InatSubmissionState.Done(outcome.urls)
-                    is InatSubmissionOutcome.Failure -> InatSubmissionState.Failed(outcome.message)
-                },
-            )
+            _state.update {
+                it.copy(
+                    inatSubmission = when (outcome) {
+                        is InatSubmissionOutcome.Success -> InatSubmissionState.Done(outcome.urls)
+                        is InatSubmissionOutcome.Failure -> InatSubmissionState.Failed(outcome.message)
+                    },
+                )
+            }
         }
     }
 
     fun resetInatSubmission() {
-        _state.value = _state.value.copy(inatSubmission = InatSubmissionState.Idle)
+        _state.update { it.copy(inatSubmission = InatSubmissionState.Idle) }
     }
 
     /**
@@ -716,8 +724,11 @@ class ReviewViewModel(
     fun seekTo(ms: Long) { player.seekTo(ms) }
 
     fun toggleDenoisePlayback() {
-        val newValue = !_state.value.denoisePlayback
-        _state.value = _state.value.copy(denoisePlayback = newValue)
+        var newValue = false
+        _state.update { s ->
+            newValue = !s.denoisePlayback
+            s.copy(denoisePlayback = newValue)
+        }
         if (newValue && denoisedPath == null) ensureDenoised()
     }
 
@@ -931,7 +942,7 @@ class ReviewViewModelFactory @Inject constructor(
     /** Cache root used by the screen's `ensureVisuals` call. */
     val filesDir: File get() = context.filesDir
 
-    fun create(draftId: String): ReviewViewModel = ReviewViewModel(
+    fun create(draftId: String, externalScope: CoroutineScope): ReviewViewModel = ReviewViewModel(
         draftId = draftId,
         repo = repo,
         player = MediaPlayerAudioPlayer(),
@@ -966,6 +977,7 @@ class ReviewViewModelFactory @Inject constructor(
         photosDao = photosDao,
         photoStore = photoStore,
         queue = queue,
+        externalScope = externalScope,
     )
 }
 

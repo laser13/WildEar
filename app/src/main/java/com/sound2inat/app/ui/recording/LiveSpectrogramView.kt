@@ -82,20 +82,17 @@ fun LiveSpectrogramView(
     val bgArgb = backgroundColor.toArgb()
     val lut = remember(bgArgb) { buildInkLut(bgArgb) }
 
-    val bitmap = remember {
-        Bitmap.createBitmap(BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS, Bitmap.Config.ARGB_8888)
-    }
     val pixels = remember(bgArgb) { IntArray(BITMAP_WIDTH_COLS * BITMAP_HEIGHT_BINS) { bgArgb } }
     val ring = remember { SpectrogramRingBuffer(BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS) }
     val spectrogram = remember(sampleRateHz) {
         Spectrogram(fftSize = FFT_SIZE, hopSize = HOP_SIZE, sampleRateHz = sampleRateHz)
     }
     val sortBuf = remember { FloatArray(FFT_SIZE / 2 + 1) }
-    var revision by remember { mutableStateOf(0) }
+    var imageBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
 
     LaunchedEffect(audioBlocks) {
         audioBlocks.collect { block ->
-            val drew = withContext(Dispatchers.Default) {
+            val snapshot: IntArray? = withContext(Dispatchers.Default) {
                 val columns = spectrogram.process(block)
                 for (col in columns) {
                     whitenInPlace(col, sortBuf)
@@ -103,26 +100,31 @@ fun LiveSpectrogramView(
                 }
                 if (columns.isNotEmpty()) {
                     fillPixels(pixels, ring, BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS, lut, bgArgb)
-                    true
+                    pixels.copyOf() // hand off a completed snapshot to the main thread
                 } else {
-                    false
+                    null
                 }
             }
-            if (drew) {
-                bitmap.setPixels(pixels, 0, BITMAP_WIDTH_COLS, 0, 0, BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS)
-                revision++
+            if (snapshot != null) {
+                val bmp = Bitmap.createBitmap(
+                    BITMAP_WIDTH_COLS,
+                    BITMAP_HEIGHT_BINS,
+                    Bitmap.Config.ARGB_8888,
+                )
+                bmp.setPixels(snapshot, 0, BITMAP_WIDTH_COLS, 0, 0, BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS)
+                imageBitmap = bmp.asImageBitmap()
             }
         }
     }
 
-    @Suppress("UNUSED_EXPRESSION")
-    revision // force recomposition on bitmap mutation
-    Image(
-        bitmap = bitmap.asImageBitmap(),
-        contentDescription = null,
-        modifier = modifier.fillMaxSize(),
-        contentScale = ContentScale.FillBounds,
-    )
+    imageBitmap?.let { img ->
+        Image(
+            bitmap = img,
+            contentDescription = null,
+            modifier = modifier.fillMaxSize(),
+            contentScale = ContentScale.FillBounds,
+        )
+    }
 }
 
 /**
