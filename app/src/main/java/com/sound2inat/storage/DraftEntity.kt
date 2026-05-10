@@ -19,7 +19,5 @@ data class DraftEntity(
     val modelVersion: String?,
     val createdAtUtcMs: Long,
     val updatedAtUtcMs: Long,
-    val inatObservationId: Long? = null,
-    val inatObservationUrl: String? = null,
     val inatLastError: String? = null,
 )

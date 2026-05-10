@@ -8,7 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [DraftEntity::class, DetectionEntity::class, InatObservationEntity::class, DraftPhotoEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -88,6 +88,44 @@ abstract class Sound2iNatDb : RoomDatabase() {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_draft_photos_draftId ON draft_photos(draftId)",
                 )
+            }
+        }
+
+        // v7: remove orphaned inatObservationId and inatObservationUrl columns from drafts.
+        // These were superseded by the inat_observations table added in v3.
+        // SQLite on API 28 does not support DROP COLUMN, so the table must be recreated.
+        val MIGRATION_6_7: Migration = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS drafts_new (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        audioPath TEXT NOT NULL,
+                        recordedAtUtcMs INTEGER NOT NULL,
+                        durationMs INTEGER NOT NULL,
+                        latitude REAL,
+                        longitude REAL,
+                        locationAccuracyMeters REAL,
+                        status TEXT NOT NULL,
+                        modelId TEXT,
+                        modelVersion TEXT,
+                        createdAtUtcMs INTEGER NOT NULL,
+                        updatedAtUtcMs INTEGER NOT NULL,
+                        inatLastError TEXT
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO drafts_new
+                    SELECT id, audioPath, recordedAtUtcMs, durationMs, latitude, longitude,
+                           locationAccuracyMeters, status, modelId, modelVersion,
+                           createdAtUtcMs, updatedAtUtcMs, inatLastError
+                    FROM drafts
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP TABLE drafts")
+                db.execSQL("ALTER TABLE drafts_new RENAME TO drafts")
             }
         }
     }

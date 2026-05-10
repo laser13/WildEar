@@ -29,7 +29,7 @@ class YamNetGateTest {
         val modelFile = tmp.newFile("yamnet.tflite").apply { writeBytes(byteArrayOf(0)) }
         val labelsFile = tmp.newFile("yamnet.labels.csv").apply { writeText(labels521) }
         val fakeFactory = object : InterpreterFactory {
-            override fun create(m: File, threads: Int): InterpreterApi = object : InterpreterApi {
+            override fun create(m: File, threads: Int, allowDelegate: Boolean): InterpreterApi = object : InterpreterApi {
                 override val outputTensorCount = 1
                 override fun getOutputShape(index: Int) = intArrayOf(1, probs.size)
                 override fun run(input: Any, output: Any) {
@@ -104,7 +104,7 @@ class YamNetGateTest {
         val modelFile = tmp.newFile("boom.tflite").apply { writeBytes(byteArrayOf(0)) }
         val labelsFile = tmp.newFile("boom.csv").apply { writeText(labels521) }
         val throwingFactory = object : InterpreterFactory {
-            override fun create(m: File, threads: Int): InterpreterApi = error("deliberate failure")
+            override fun create(m: File, threads: Int, allowDelegate: Boolean): InterpreterApi = error("deliberate failure")
         }
         val fakeManager = object : ModelManager(tmp.root, OkHttpClient()) {
             override suspend fun stateFor(descriptor: ModelDescriptor) =
@@ -122,7 +122,7 @@ class YamNetGateTest {
     @Test
     fun `returns null when model not yet installed — fail-open`() = runTest {
         val fakeFactory = object : InterpreterFactory {
-            override fun create(m: File, threads: Int): InterpreterApi = error("should not be called")
+            override fun create(m: File, threads: Int, allowDelegate: Boolean): InterpreterApi = error("should not be called")
         }
         val fakeManager = object : ModelManager(tmp.root, OkHttpClient()) {
             override suspend fun stateFor(descriptor: ModelDescriptor) = ModelInstallState.NotInstalled

@@ -1,5 +1,6 @@
 package com.sound2inat.storage
 
+import android.util.Log
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.FragmentRanges
 import com.sound2inat.inference.SourceStat
@@ -122,32 +123,7 @@ class DraftRepository(
                     updatedAtUtcMs = now,
                 ),
             )
-            detectionDao.insertAll(
-                detections.map {
-                    DetectionEntity(
-                        draftId = id,
-                        taxonScientificName = it.taxonScientificName,
-                        taxonCommonName = it.taxonCommonName,
-                        maxConfidence = it.maxConfidence,
-                        detectedWindows = it.detectedWindows,
-                        firstSeenMs = it.firstSeenMs,
-                        lastSeenMs = it.lastSeenMs,
-                        isSelectedByUser = false,
-                        sources = SourceStats.encode(
-                            it.confidenceBySource.mapValues { (src, conf) ->
-                                SourceStat(
-                                    maxConf     = conf,
-                                    windows     = it.windowsBySource[src]   ?: 0,
-                                    firstSeenMs = it.firstSeenBySource[src] ?: it.firstSeenMs,
-                                    lastSeenMs  = it.lastSeenBySource[src]  ?: it.lastSeenMs,
-                                )
-                            }
-                        ),
-                        fragmentRanges = FragmentRanges.encode(it.fragmentRanges),
-                        aggregatedConfidence = it.aggregatedConfidence,
-                    )
-                },
-            )
+            detectionDao.insertAll(detections.map { it.toEntity(id) })
         }
     }
 
@@ -171,32 +147,7 @@ class DraftRepository(
                 ),
             )
             detections.deleteForDraft(draftId)
-            detections.insertAll(
-                items.map {
-                    DetectionEntity(
-                        draftId = draftId,
-                        taxonScientificName = it.taxonScientificName,
-                        taxonCommonName = it.taxonCommonName,
-                        maxConfidence = it.maxConfidence,
-                        detectedWindows = it.detectedWindows,
-                        firstSeenMs = it.firstSeenMs,
-                        lastSeenMs = it.lastSeenMs,
-                        isSelectedByUser = false,
-                        sources = SourceStats.encode(
-                            it.confidenceBySource.mapValues { (src, conf) ->
-                                SourceStat(
-                                    maxConf     = conf,
-                                    windows     = it.windowsBySource[src]   ?: 0,
-                                    firstSeenMs = it.firstSeenBySource[src] ?: it.firstSeenMs,
-                                    lastSeenMs  = it.lastSeenBySource[src]  ?: it.lastSeenMs,
-                                )
-                            }
-                        ),
-                        fragmentRanges = FragmentRanges.encode(it.fragmentRanges),
-                        aggregatedConfidence = it.aggregatedConfidence,
-                    )
-                },
-            )
+            detections.insertAll(items.map { it.toEntity(draftId) })
         }
     }
 
@@ -204,14 +155,19 @@ class DraftRepository(
         withContext(ioDispatcher) { detections.setSelected(detectionId, selected) }
 
     suspend fun markReviewed(draftId: String) = withContext(ioDispatcher) {
-        val d = drafts.getById(draftId) ?: error("draft $draftId missing")
-        drafts.update(d.copy(status = DraftStatus.REVIEWED, updatedAtUtcMs = nowMs()))
+        val affected = drafts.updateStatusConditional(
+            draftId,
+            DraftStatus.REVIEWED,
+            DraftStatus.PENDING_REVIEW,
+        )
+        check(affected > 0) { "Status transition failed for draft $draftId — unexpected current status" }
     }
 
     suspend fun delete(draftId: String) = withContext(ioDispatcher) {
-        drafts.deleteById(draftId)               // cascade removes draft_photos rows automatically
-        files.deleteAllFor(draftId)
-        photoStore?.deletePhotosFor(draftId)     // files last — best-effort, irreversible
+        drafts.deleteById(draftId) // cascade removes draft_photos rows automatically
+        val deleted = files.deleteAllFor(draftId)
+        if (!deleted) Log.w(TAG, "WAV file deletion failed for draft $draftId")
+        photoStore?.deletePhotosFor(draftId) // files last — best-effort, irreversible
     }
 
     /**
@@ -229,7 +185,8 @@ class DraftRepository(
      * `PENDING_REVIEW` snapshot between the two writes.
      *
      * Serialised by [persistMutex] so concurrent BirdNET and Perch jobs do not race
-     * the read-merge-write cycle.
+     * the read-merge-write cycle. The full read-merge-write cycle runs inside a single
+     * [runInTransaction] block so it cannot be interleaved with other writers.
      */
     suspend fun mergeAndPersist(
         draftId: String,
@@ -238,48 +195,67 @@ class DraftRepository(
         freshDetections: List<AggregatedDetection>,
         promoteToReviewed: Boolean = false,
     ) = persistMutex.withLock {
-        val draft = withContext(ioDispatcher) { drafts.getById(draftId) }
-            ?: error("draft $draftId missing in mergeAndPersist")
-        val detectionList = withContext(ioDispatcher) { detections.listForDraft(draftId) }
-        val existing = detectionList.map { e ->
-            val fullStats = SourceStats.decode(e.sources)
-            AggregatedDetection(
-                taxonScientificName = e.taxonScientificName,
-                taxonCommonName = e.taxonCommonName,
-                maxConfidence = e.maxConfidence,
-                detectedWindows = e.detectedWindows,
-                firstSeenMs = e.firstSeenMs,
-                lastSeenMs = e.lastSeenMs,
-                confidenceBySource  = if (fullStats.isNotEmpty()) fullStats.mapValues { it.value.maxConf }
-                                      else SourceStats.decodeConfidenceOnly(e.sources),
-                windowsBySource     = fullStats.mapValues { it.value.windows },
-                firstSeenBySource   = fullStats.mapValues { it.value.firstSeenMs },
-                lastSeenBySource    = fullStats.mapValues { it.value.lastSeenMs },
-                fragmentRanges = FragmentRanges.decode(e.fragmentRanges),
-                aggregatedConfidence = e.aggregatedConfidence,
-            )
+        val now = nowMs()
+        withContext(ioDispatcher) {
+            runInTransaction {
+                val draft = drafts.getById(draftId)
+                    ?: error("draft $draftId missing in mergeAndPersist")
+                val existing = detections.listForDraft(draftId).map { it.toAggregated() }
+                val merged = mergeBySpecies(existing, freshDetections)
+                val combinedModelId = combineModelIds(draft.modelId, newModelId)
+                val combinedVersion = combineVersions(draft.modelVersion ?: "", newModelVersion)
+                val finalStatus = if (promoteToReviewed && merged.isNotEmpty()) {
+                    DraftStatus.REVIEWED
+                } else {
+                    DraftStatus.PENDING_REVIEW
+                }
+                drafts.update(
+                    draft.copy(
+                        status = finalStatus,
+                        modelId = combinedModelId,
+                        modelVersion = combinedVersion.trim('+'),
+                        updatedAtUtcMs = now,
+                    ),
+                )
+                detections.deleteForDraft(draftId)
+                detections.insertAll(merged.map { it.toEntity(draftId) })
+            }
         }
-        val merged = mergeBySpecies(existing, freshDetections)
-        val priorModelId = draft.modelId
-        val combinedModelId = when {
-            priorModelId.isNullOrBlank() -> newModelId
-            priorModelId.split(',', '+').contains(newModelId) -> priorModelId
-            else -> "$priorModelId,$newModelId"
-        }
-        val priorVersion = draft.modelVersion ?: ""
-        val combinedVersion = when {
-            priorVersion.isBlank() -> newModelVersion
-            newModelVersion.isBlank() -> priorVersion
-            priorVersion.contains(newModelVersion) -> priorVersion
-            else -> "$priorVersion+$newModelVersion"
-        }
-        attachDetections(
-            draftId = draftId,
-            modelId = combinedModelId,
-            modelVersion = combinedVersion.trim('+'),
-            items = merged,
-            promoteToReviewed = promoteToReviewed,
+    }
+
+    private fun DetectionEntity.toAggregated(): AggregatedDetection {
+        val fullStats = SourceStats.decode(sources)
+        return AggregatedDetection(
+            taxonScientificName = taxonScientificName,
+            taxonCommonName = taxonCommonName,
+            maxConfidence = maxConfidence,
+            detectedWindows = detectedWindows,
+            firstSeenMs = firstSeenMs,
+            lastSeenMs = lastSeenMs,
+            confidenceBySource = if (fullStats.isNotEmpty()) {
+                fullStats.mapValues { it.value.maxConf }
+            } else {
+                SourceStats.decodeConfidenceOnly(sources)
+            },
+            windowsBySource = fullStats.mapValues { it.value.windows },
+            firstSeenBySource = fullStats.mapValues { it.value.firstSeenMs },
+            lastSeenBySource = fullStats.mapValues { it.value.lastSeenMs },
+            fragmentRanges = FragmentRanges.decode(fragmentRanges),
+            aggregatedConfidence = aggregatedConfidence,
         )
+    }
+
+    private fun combineModelIds(prior: String?, newId: String): String = when {
+        prior.isNullOrBlank() -> newId
+        prior.split(',', '+').contains(newId) -> prior
+        else -> "$prior,$newId"
+    }
+
+    private fun combineVersions(prior: String, newVersion: String): String = when {
+        prior.isBlank() -> newVersion
+        newVersion.isBlank() -> prior
+        prior.contains(newVersion) -> prior
+        else -> "$prior+$newVersion"
     }
 
     /**
@@ -324,14 +300,41 @@ class DraftRepository(
                 detectedWindows = prior.detectedWindows + d.detectedWindows,
                 firstSeenMs = minOf(prior.firstSeenMs, d.firstSeenMs),
                 lastSeenMs = maxOf(prior.lastSeenMs, d.lastSeenMs),
-                confidenceBySource  = mergedSources,
-                windowsBySource     = mergedWindows,
-                firstSeenBySource   = mergedFirstSeen,
-                lastSeenBySource    = mergedLastSeen,
+                confidenceBySource = mergedSources,
+                windowsBySource = mergedWindows,
+                firstSeenBySource = mergedFirstSeen,
+                lastSeenBySource = mergedLastSeen,
                 fragmentRanges = prior.fragmentRanges + d.fragmentRanges,
                 aggregatedConfidence = maxOf(prior.aggregatedConfidence, d.aggregatedConfidence),
             )
         }
         return byName.values.sortedByDescending { it.maxConfidence }
+    }
+
+    private fun AggregatedDetection.toEntity(draftId: String): DetectionEntity = DetectionEntity(
+        draftId = draftId,
+        taxonScientificName = taxonScientificName,
+        taxonCommonName = taxonCommonName,
+        maxConfidence = maxConfidence,
+        detectedWindows = detectedWindows,
+        firstSeenMs = firstSeenMs,
+        lastSeenMs = lastSeenMs,
+        isSelectedByUser = false,
+        sources = SourceStats.encode(
+            confidenceBySource.mapValues { (src, conf) ->
+                SourceStat(
+                    maxConf = conf,
+                    windows = windowsBySource[src] ?: 0,
+                    firstSeenMs = firstSeenBySource[src] ?: this.firstSeenMs,
+                    lastSeenMs = lastSeenBySource[src] ?: this.lastSeenMs,
+                )
+            },
+        ),
+        fragmentRanges = FragmentRanges.encode(fragmentRanges),
+        aggregatedConfidence = aggregatedConfidence,
+    )
+
+    private companion object {
+        const val TAG = "DraftRepository"
     }
 }

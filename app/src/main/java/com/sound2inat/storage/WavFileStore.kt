@@ -9,8 +9,9 @@ class WavFileStore(private val filesDir: File) {
     fun newRecordingFile(id: String): File = File(recordings, "$id.wav")
     fun spectrogramFile(id: String): File = File(spectrograms, "$id.png")
 
-    fun deleteAllFor(id: String) {
-        File(recordings, "$id.wav").delete()
-        File(spectrograms, "$id.png").delete()
+    fun deleteAllFor(id: String): Boolean {
+        val wav = File(recordings, "$id.wav").let { if (it.exists()) it.delete() else true }
+        val spec = File(spectrograms, "$id.png").let { if (it.exists()) it.delete() else true }
+        return wav && spec
     }
 }

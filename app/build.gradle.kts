@@ -49,6 +49,7 @@ android {
         unitTests.isReturnDefaultValues = true
         unitTests.isIncludeAndroidResources = true
     }
+
 }
 
 kotlin {
@@ -89,6 +90,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.jtransforms)
     implementation(libs.tflite)
+    implementation(libs.tflite.gpu)
     implementation(libs.tflite.support)
     implementation(libs.play.services.location)
     implementation(libs.coil.compose)

@@ -37,12 +37,18 @@
     <!-- Recording card status headlines -->
     <string name="home_headline_nothing_detected">Nothing detected</string>
     <string name="home_headline_analyzing">Analyzing…</string>
+    <string name="home_headline_analysis_failed">Analysis failed</string>
+    <string name="home_headline_in_queue">In queue</string>
     <string name="home_headline_ready_review">Ready to review</string>
     <string name="home_headline_ready_submit">Ready to submit</string>
     <string name="home_headline_submitted">Submitted to iNaturalist</string>
     <!-- Recording card supporting status labels -->
     <string name="home_label_no_detections">No detections</string>
     <string name="home_label_analyzing">Analyzing</string>
+    <string name="home_label_analyzing_progress">Analyzing… %1$d%%</string>
+    <string name="home_label_up_next">Up next</string>
+    <string name="home_label_in_queue">In queue (#%1$d)</string>
+    <string name="home_label_analysis_failed">Analysis failed</string>
     <string name="home_label_needs_review">Needs review</string>
     <string name="home_label_not_submitted">Not submitted</string>
     <string name="home_label_submitted">Submitted</string>

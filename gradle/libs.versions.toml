@@ -61,6 +61,7 @@ okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver", version.ref = "mockwebserver" }
 jtransforms = { module = "com.github.wendykierp:JTransforms", version.ref = "jtransforms" }
 tflite = { module = "org.tensorflow:tensorflow-lite", version.ref = "tflite" }
+tflite-gpu = { module = "org.tensorflow:tensorflow-lite-gpu", version.ref = "tflite" }
 tflite-support = { module = "org.tensorflow:tensorflow-lite-support", version.ref = "tfliteSupport" }
 play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playLocation" }
 junit = { module = "junit:junit", version.ref = "junit" }

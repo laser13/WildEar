@@ -26,4 +26,10 @@ interface DraftDao {
 
     @Query("DELETE FROM drafts WHERE id = :id")
     fun deleteById(id: String): Int
+
+    @Query(
+        "UPDATE drafts SET status = :newStatus " +
+            "WHERE id = :id AND status = :expectedStatus",
+    )
+    fun updateStatusConditional(id: String, newStatus: DraftStatus, expectedStatus: DraftStatus): Int
 }

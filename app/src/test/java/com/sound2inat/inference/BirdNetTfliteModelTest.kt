@@ -21,7 +21,7 @@ private class FakeInterpreterFactory(
     var lastInput: FloatArray? = null
     var closed = false
 
-    override fun create(modelFile: File, threads: Int): InterpreterApi =
+    override fun create(modelFile: File, threads: Int, allowDelegate: Boolean): InterpreterApi =
         object : InterpreterApi {
             override val outputTensorCount: Int = 1
             override fun getOutputShape(index: Int): IntArray = intArrayOf(1, output.size)

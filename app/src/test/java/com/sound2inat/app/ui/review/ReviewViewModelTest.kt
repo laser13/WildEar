@@ -1220,6 +1220,18 @@ private class FakeDraftDao : DraftDao {
             0
         }
 
+    override fun updateStatusConditional(
+        id: String,
+        newStatus: DraftStatus,
+        expectedStatus: DraftStatus,
+    ): Int {
+        val current = rows[id] ?: return 0
+        if (current.status != expectedStatus) return 0
+        rows[id] = current.copy(status = newStatus)
+        emitter.value = rows.values.toList()
+        return 1
+    }
+
     fun byId(id: String): DraftEntity? = rows[id]
 }
 

@@ -414,6 +414,16 @@ private class FakeDraftDao : DraftDao {
     override fun getById(id: String): DraftEntity? = inserted.firstOrNull { it.id == id }
     override fun observeAll(): Flow<List<DraftEntity>> = flowOf(inserted.toList())
     override fun deleteById(id: String): Int = if (inserted.removeAll { it.id == id }) 1 else 0
+    override fun updateStatusConditional(
+        id: String,
+        newStatus: DraftStatus,
+        expectedStatus: DraftStatus,
+    ): Int {
+        val i = inserted.indexOfFirst { it.id == id && it.status == expectedStatus }
+        if (i < 0) return 0
+        inserted[i] = inserted[i].copy(status = newStatus)
+        return 1
+    }
 }
 
 private class FakeInatDao : InatObservationDao {

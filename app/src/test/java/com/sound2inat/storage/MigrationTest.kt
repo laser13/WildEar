@@ -158,7 +158,38 @@ class MigrationTest {
     }
 
     @Test
-    fun `migrate all versions 1 through 5 preserves seed data`() {
+    fun `migrate 6 to 7 drops inatObservationId and inatObservationUrl from drafts`() {
+        helper.createDatabase(dbName, 6).use { db ->
+            db.execSQL(
+                """INSERT INTO drafts (id, audioPath, recordedAtUtcMs, durationMs,
+                    latitude, longitude, locationAccuracyMeters,
+                    status, modelId, modelVersion, createdAtUtcMs, updatedAtUtcMs,
+                    inatObservationId, inatObservationUrl, inatLastError)
+                   VALUES ('d6', '/audio/f.wav', 6000, 8000,
+                    NULL, NULL, NULL,
+                    'UPLOADED', 'birdnet', '2.4', 6000, 6000,
+                    42, 'https://inat.org/obs/42', NULL)""",
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            dbName, 7, true, Sound2iNatDb.MIGRATION_6_7,
+        )
+
+        db.query("SELECT id, audioPath, inatLastError FROM drafts WHERE id='d6'").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getString(0)).isEqualTo("d6")
+            assertThat(c.getString(1)).isEqualTo("/audio/f.wav")
+            assertThat(c.isNull(2)).isTrue()
+        }
+        db.query("SELECT COUNT(*) FROM drafts").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getInt(0)).isEqualTo(1)
+        }
+    }
+
+    @Test
+    fun `migrate all versions 1 through 7 preserves seed data`() {
         helper.createDatabase(dbName, 1).use { db ->
             db.execSQL(
                 """INSERT INTO drafts (id, audioPath, recordedAtUtcMs, durationMs,
@@ -177,11 +208,13 @@ class MigrationTest {
         }
 
         val db = helper.runMigrationsAndValidate(
-            dbName, 5, true,
+            dbName, 7, true,
             Sound2iNatDb.MIGRATION_1_2,
             Sound2iNatDb.MIGRATION_2_3,
             Sound2iNatDb.MIGRATION_3_4,
             Sound2iNatDb.MIGRATION_4_5,
+            Sound2iNatDb.MIGRATION_5_6,
+            Sound2iNatDb.MIGRATION_6_7,
         )
 
         db.query("SELECT COUNT(*) FROM drafts WHERE id='d5'").use { c ->

@@ -340,6 +340,18 @@ private class FakeDraftDao : DraftDao {
         } else {
             0
         }
+
+    override fun updateStatusConditional(
+        id: String,
+        newStatus: DraftStatus,
+        expectedStatus: DraftStatus,
+    ): Int {
+        val current = rows[id] ?: return 0
+        if (current.status != expectedStatus) return 0
+        rows[id] = current.copy(status = newStatus)
+        emitter.value = rows.values.toList()
+        return 1
+    }
 }
 
 private class FakeDetectionDao : DetectionDao {
