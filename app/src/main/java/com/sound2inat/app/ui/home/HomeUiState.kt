@@ -1,5 +1,6 @@
 package com.sound2inat.app.ui.home
 
+import com.sound2inat.app.inference.JobStatus
 import com.sound2inat.storage.DraftStatus
 
 data class DraftSummary(
@@ -10,6 +11,7 @@ data class DraftSummary(
     val topLabel: String?,
     val inatCount: Int = 0,
     val detectionCount: Int = 0,
+    val jobStatus: JobStatus? = null,
 )
 
 data class HomeUiState(

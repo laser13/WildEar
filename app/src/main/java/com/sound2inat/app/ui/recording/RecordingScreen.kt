@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -20,7 +21,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Badge
@@ -69,11 +69,13 @@ fun RecordingScreen(
     onCancel: () -> Unit,
 ) {
     val perms = LocalPermissionsController.current
-    val hilt: RecordingViewModelHilt = hiltViewModel()
-    val vm = remember(hilt) { hilt.factory(perms) }
+    val vm: RecordingViewModel = hiltViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
 
-    LaunchedEffect(Unit) { vm.start() }
+    LaunchedEffect(Unit) {
+        vm.initWithPermissions(perms)
+        vm.start()
+    }
 
     Scaffold { padding ->
         Box(
@@ -157,13 +159,6 @@ private fun RecordingBody(
                 backgroundColor = spectrogramBg,
                 modifier = Modifier.fillMaxSize(),
             )
-            // Close button overlaid on the spectrogram (top-left)
-            IconButton(
-                onClick = onCancel,
-                modifier = Modifier.align(Alignment.TopStart),
-            ) {
-                Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.cd_cancel))
-            }
             // Backlog delay hint (bottom-left pill)
             if (s.backlogWindows > BACKLOG_VISIBLE_THRESHOLD) {
                 val delaySeconds = (s.backlogWindows * BACKLOG_SECONDS_PER_WINDOW).roundToInt()
@@ -267,20 +262,28 @@ private fun RecordingBody(
                         }
                     },
                 ) {
-                    IconButton(
+                    FilledIconButton(
                         onClick = {
                             val pid = UUID.randomUUID().toString()
                             val prepared = vm.preparePhotoCapture(s.draftId, pid)
                             pendingPhoto = pid to prepared.filePath
                             cameraLauncher.launch(prepared.uri)
                         },
+                        shape = CircleShape,
+                        modifier = Modifier.size(STOP_BUTTON_DP.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ),
                     ) {
                         Icon(
                             Icons.Filled.CameraAlt,
                             contentDescription = stringResource(R.string.cd_take_habitat_photo),
+                            modifier = Modifier.size(STOP_ICON_DP.dp),
                         )
                     }
                 }
+                Spacer(Modifier.width(CAMERA_STOP_GAP_DP.dp))
             }
             FilledIconButton(
                 onClick = onStop,
@@ -391,6 +394,7 @@ private const val MS_PER_SECOND = 1000L
 private const val SECONDS_PER_MINUTE = 60L
 private const val STOP_BUTTON_DP = 72
 private const val STOP_ICON_DP = 36
+private const val CAMERA_STOP_GAP_DP = 16
 private const val SPECTROGRAM_WEIGHT = 0.3f
 private const val LIVE_CARDS_WEIGHT = 1f
 private const val PERCENT_SCALE = 100f

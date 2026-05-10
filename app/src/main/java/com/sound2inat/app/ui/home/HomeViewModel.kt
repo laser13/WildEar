@@ -3,12 +3,12 @@ package com.sound2inat.app.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sound2inat.app.data.Settings
+import com.sound2inat.app.inference.InferenceQueue
 import com.sound2inat.inat.TaxonPhotoRepository
 import com.sound2inat.modelmanager.BirdNetV24
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
 import com.sound2inat.storage.DetectionDao
-import com.sound2inat.storage.DraftEntity
 import com.sound2inat.storage.DraftRepository
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.InatObservationDao
@@ -25,10 +25,15 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-class HomeViewModel(
-    private val observeDrafts: () -> Flow<List<DraftEntity>>,
-    private val topLabelFor: suspend (String) -> String?,
-    private val isModelReady: suspend () -> Boolean,
+@HiltViewModel
+class HomeViewModel @Inject constructor(
+    private val repo: DraftRepository,
+    private val detectionDao: DetectionDao,
+    private val inatObservationDao: InatObservationDao,
+    private val modelManager: ModelManager,
+    private val taxonPhotoRepository: TaxonPhotoRepository,
+    private val settings: Settings,
+    private val inferenceQueue: InferenceQueue,
 ) : ViewModel() {
 
     private val readyState = MutableStateFlow(false)
@@ -36,10 +41,12 @@ class HomeViewModel(
     init { refreshModelState() }
 
     fun refreshModelState() {
-        viewModelScope.launch { readyState.value = isModelReady() }
+        viewModelScope.launch {
+            readyState.value = modelManager.stateFor(BirdNetV24.descriptor) is ModelInstallState.Ready
+        }
     }
 
-    val state: StateFlow<HomeUiState> = combine(observeDrafts(), readyState) { drafts, ready ->
+    val state: StateFlow<HomeUiState> = combine(repo.observeAll(), readyState) { drafts, ready ->
         HomeUiState(
             isModelReady = ready,
             drafts = drafts.map { d ->
@@ -54,50 +61,26 @@ class HomeViewModel(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), HomeUiState())
 
-    private companion object { const val STOP_TIMEOUT_MS = 5_000L }
-}
-
-data class TopSpeciesItem(
-    val scientificName: String,
-    val commonName: String?,
-)
-
-@HiltViewModel
-class HomeViewModelHilt @Inject constructor(
-    private val repo: DraftRepository,
-    private val detectionDao: DetectionDao,
-    private val inatObservationDao: InatObservationDao,
-    private val modelManager: ModelManager,
-    private val taxonPhotoRepository: TaxonPhotoRepository,
-    private val settings: Settings,
-) : ViewModel() {
-
-    private val delegate = HomeViewModel(
-        observeDrafts = { repo.observeAll() },
-        topLabelFor = { _ -> null },
-        isModelReady = { modelManager.stateFor(BirdNetV24.descriptor) is ModelInstallState.Ready },
-    )
-
-    val state get() = delegate.state
-
     val filterMode = MutableStateFlow(FilterMode.ALL)
 
     val allowDeleteUploaded: StateFlow<Boolean> = settings.allowDeleteUploaded
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), false)
 
-    // Enriched state: draft list + per-draft counts joined into DraftSummary.
-    // Used for filtering and bulk delete decisions.
+    // Enriched state: draft list + per-draft counts + live queue status joined into DraftSummary.
+    // Used for filtering, bulk delete decisions, and queue status display.
     val enrichedDrafts: StateFlow<List<DraftSummary>> = combine(
-        delegate.state,
+        state,
         inatObservationDao.observeCountsByDraft(),
         detectionDao.observeCountsByDraft(),
-    ) { homeState, inatCounts, detectionCounts ->
+        inferenceQueue.status,
+    ) { homeState, inatCounts, detectionCounts, queueStatus ->
         val inatMap = inatCounts.associate { it.draftId to it.count }
         val detMap = detectionCounts.associate { it.draftId to it.count }
         homeState.drafts.map { d ->
             d.copy(
                 inatCount = inatMap[d.id] ?: 0,
                 detectionCount = detMap[d.id] ?: 0,
+                jobStatus = queueStatus[d.id],
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
@@ -175,10 +158,13 @@ class HomeViewModelHilt @Inject constructor(
             .map { it.size }
             .flowOn(Dispatchers.IO)
 
-    fun refreshModelState() { delegate.refreshModelState() }
-
     private companion object {
         const val TOP_SPECIES_LIMIT = 3
         const val STOP_TIMEOUT_MS = 5_000L
     }
 }
+
+data class TopSpeciesItem(
+    val scientificName: String,
+    val commonName: String?,
+)

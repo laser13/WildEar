@@ -2,9 +2,24 @@ package com.sound2inat.app.ui.home
 
 import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.app.data.Settings
+import com.sound2inat.app.inference.InferenceQueue
+import com.sound2inat.inat.TaxonPhotoRepository
+import com.sound2inat.modelmanager.BirdNetV24
+import com.sound2inat.modelmanager.ModelInstallState
+import com.sound2inat.modelmanager.ModelManager
+import com.sound2inat.storage.DetectionDao
+import com.sound2inat.storage.DraftDetectionCount
 import com.sound2inat.storage.DraftEntity
+import com.sound2inat.storage.DraftObservationCount
+import com.sound2inat.storage.DraftRepository
 import com.sound2inat.storage.DraftStatus
+import com.sound2inat.storage.InatObservationDao
+import io.mockk.coEvery
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -14,6 +29,7 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
 
     private val testDispatcher = UnconfinedTestDispatcher()
@@ -26,6 +42,46 @@ class HomeViewModelTest {
     @After
     fun tearDown() {
         Dispatchers.resetMain()
+    }
+
+    private fun buildVm(
+        drafts: List<DraftEntity> = emptyList(),
+        modelReady: Boolean = false,
+    ): HomeViewModel {
+        val repo = mockk<DraftRepository>(relaxed = true)
+        every { repo.observeAll() } returns flowOf(drafts)
+
+        val modelManager = mockk<ModelManager>(relaxed = true)
+        coEvery { modelManager.stateFor(BirdNetV24.descriptor) } returns
+            if (modelReady) ModelInstallState.Ready(java.io.File("/m"), java.io.File("/l"))
+            else ModelInstallState.NotInstalled
+
+        val detectionDao = mockk<DetectionDao>(relaxed = true)
+        every { detectionDao.observeCountsByDraft() } returns flowOf(emptyList<DraftDetectionCount>())
+        every { detectionDao.observeForDraft(any()) } returns flowOf(emptyList())
+
+        val inatObservationDao = mockk<InatObservationDao>(relaxed = true)
+        every { inatObservationDao.observeCountsByDraft() } returns flowOf(emptyList<DraftObservationCount>())
+        every { inatObservationDao.observeForDraft(any()) } returns flowOf(emptyList())
+
+        val taxonPhotoRepository = mockk<TaxonPhotoRepository>(relaxed = true)
+        every { taxonPhotoRepository.observe(any()) } returns flowOf(null)
+
+        val settings = mockk<Settings>(relaxed = true)
+        every { settings.allowDeleteUploaded } returns flowOf(false)
+
+        val inferenceQueue = mockk<InferenceQueue>(relaxed = true)
+        every { inferenceQueue.status } returns kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
+
+        return HomeViewModel(
+            repo = repo,
+            detectionDao = detectionDao,
+            inatObservationDao = inatObservationDao,
+            modelManager = modelManager,
+            taxonPhotoRepository = taxonPhotoRepository,
+            settings = settings,
+            inferenceQueue = inferenceQueue,
+        )
     }
 
     @Test fun `maps drafts and reflects model readiness`() = runTest {
@@ -45,11 +101,7 @@ class HomeViewModelTest {
                 createdAtUtcMs = 0L, updatedAtUtcMs = 0L,
             ),
         )
-        val vm = HomeViewModel(
-            observeDrafts = { flowOf(rows) },
-            topLabelFor = { null },
-            isModelReady = { true },
-        )
+        val vm = buildVm(drafts = rows, modelReady = true)
         vm.state.test {
             // First emission can be the empty default; await the populated one.
             var s = awaitItem()
@@ -61,11 +113,7 @@ class HomeViewModelTest {
     }
 
     @Test fun `model not ready when isModelReady returns false`() = runTest {
-        val vm = HomeViewModel(
-            observeDrafts = { flowOf(emptyList()) },
-            topLabelFor = { null },
-            isModelReady = { false },
-        )
+        val vm = buildVm(drafts = emptyList(), modelReady = false)
         vm.state.test {
             val s = awaitItem()
             assertThat(s.isModelReady).isFalse()

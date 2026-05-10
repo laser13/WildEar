@@ -29,17 +29,43 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+@HiltViewModel
 class RecordingViewModel(
-    private val perms: PermissionsController,
     private val controller: RecordingController,
     private val launcher: RecordingServiceLauncher,
     private val appContext: Context,
-    private val photoDao: DraftPhotoDao? = null,
-    private val photoStore: PhotoFileStore? = null,
-    private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
+    private val photoDao: DraftPhotoDao,
+    private val photoStore: PhotoFileStore,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
-    val hasCamera: Boolean = photoStore != null
+    @Inject constructor(
+        controller: RecordingController,
+        launcher: RecordingServiceLauncher,
+        @ApplicationContext appContext: Context,
+        photoDao: DraftPhotoDao,
+        photoStore: PhotoFileStore,
+    ) : this(
+        controller = controller,
+        launcher = launcher,
+        appContext = appContext,
+        photoDao = photoDao,
+        photoStore = photoStore,
+        ioDispatcher = Dispatchers.IO,
+    )
+
+    private var perms: PermissionsController? = null
+
+    /**
+     * Must be called once from the screen before [start] is invoked.
+     * [PermissionsController] comes from [com.sound2inat.app.permissions.LocalPermissionsController]
+     * and cannot be injected via Hilt.
+     */
+    fun initWithPermissions(p: PermissionsController) {
+        if (perms == null) perms = p
+    }
+
+    val hasCamera: Boolean = true
 
     private val permissionError = MutableStateFlow<String?>(null)
     private val _photoCount = MutableStateFlow(0)
@@ -82,7 +108,8 @@ class RecordingViewModel(
     fun start() {
         hasSeenRecording = false  // reset so the Done guard works for this session
         viewModelScope.launch {
-            val granted = perms.request(RECORDING_PERMISSIONS)
+            val p = checkNotNull(perms) { "initWithPermissions must be called before start()" }
+            val granted = p.request(RECORDING_PERMISSIONS)
             if (granted[Permission.RECORD_AUDIO] != PermissionStatus.GRANTED) {
                 permissionError.value = "Microphone permission required."
                 return@launch
@@ -103,7 +130,6 @@ class RecordingViewModel(
     data class PreparedCapture(val uri: Uri, val filePath: String)
 
     fun preparePhotoCapture(draftId: String, photoId: String): PreparedCapture {
-        checkNotNull(photoStore) { "Camera is not available — photoStore is null" }
         val file = photoStore.newPhotoFile(draftId, photoId)
         val uri = FileProvider.getUriForFile(
             appContext,
@@ -126,20 +152,20 @@ class RecordingViewModel(
     }
 
     fun onPhotoCancelled(draftId: String, photoId: String) {
-        photoStore?.newPhotoFile(draftId, photoId)?.delete()
+        photoStore.newPhotoFile(draftId, photoId).delete()
     }
 
     private suspend fun flushPendingPhotos() {
         if (pendingPhotos.isEmpty()) return
         val toInsert = pendingPhotos.toList()
         pendingPhotos.clear()
-        withContext(ioDispatcher) { toInsert.forEach { photoDao?.insert(it) } }
+        withContext(ioDispatcher) { toInsert.forEach { photoDao.insert(it) } }
     }
 
     private fun discardPendingPhotos() {
         val toDiscard = pendingPhotos.toList()
         pendingPhotos.clear()
-        toDiscard.forEach { photoStore?.newPhotoFile(it.draftId, it.id)?.delete() }
+        toDiscard.forEach { photoStore.newPhotoFile(it.draftId, it.id).delete() }
     }
 
     private fun RecordingSessionState.toUiState(photoCount: Int = 0): RecordingUiState = when (this) {
@@ -163,27 +189,6 @@ class RecordingViewModel(
             Permission.RECORD_AUDIO,
             Permission.ACCESS_FINE_LOCATION,
             Permission.POST_NOTIFICATIONS,
-        )
-    }
-}
-
-@HiltViewModel
-class RecordingViewModelHilt @Inject constructor(
-    private val controller: RecordingController,
-    private val launcher: RecordingServiceLauncher,
-    @ApplicationContext private val appContext: Context,
-    private val photoDao: DraftPhotoDao,
-    private val photoStore: PhotoFileStore,
-) : ViewModel() {
-    val factory = { perms: PermissionsController ->
-        RecordingViewModel(
-            perms = perms,
-            controller = controller,
-            launcher = launcher,
-            appContext = appContext,
-            photoDao = photoDao,
-            photoStore = photoStore,
-            ioDispatcher = Dispatchers.IO,
         )
     }
 }

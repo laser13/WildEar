@@ -49,8 +49,7 @@ import com.sound2inat.modelmanager.ModelInstallState
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
-    val hilt: SettingsViewModelHilt = hiltViewModel()
-    val vm = hilt.delegate
+    val vm: SettingsViewModel = hiltViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
 
     Scaffold(

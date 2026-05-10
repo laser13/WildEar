@@ -25,6 +25,7 @@ import org.osmdroid.util.GeoPoint
 import javax.inject.Inject
 import kotlin.math.roundToInt
 
+@HiltViewModel
 @Suppress("LongParameterList")
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class RadarViewModel(
@@ -35,8 +36,32 @@ class RadarViewModel(
     private val getLastKnown: suspend () -> Pair<Double?, Double?>,
     private val getLocation: suspend () -> Fix?,
     private val userId: () -> Long?,
+    private val setRadiusKm: suspend (Int) -> Unit = {},
+    private val setPeriodDays: suspend (Int) -> Unit = {},
+    private val setTaxa: suspend (Set<String>) -> Unit = {},
+    private val getTaxa: suspend () -> Set<String> = { emptySet() },
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
+
+    @Inject constructor(
+        repo: INatObservationsRepository,
+        auth: INatAuthRepository,
+        location: LocationProvider,
+        settings: Settings,
+        @Suppress("UNUSED_PARAMETER") savedStateHandle: SavedStateHandle,
+    ) : this(
+        repoFetch = { key, force -> repo.fetch(key, force) },
+        radarRadiusKm = settings.radarRadiusKm,
+        radarPeriodDays = settings.radarPeriodDays,
+        radarTaxa = settings.radarTaxa,
+        getLastKnown = { settings.lastKnownLat.first() to settings.lastKnownLon.first() },
+        getLocation = { location.getCurrent() },
+        userId = { auth.userId },
+        setRadiusKm = { settings.setRadarRadiusKm(it) },
+        setPeriodDays = { settings.setRadarPeriodDays(it) },
+        setTaxa = { settings.setRadarTaxa(it) },
+        getTaxa = { settings.radarTaxa.first() },
+    )
 
     private val scope = externalScope ?: viewModelScope
 
@@ -69,6 +94,13 @@ class RadarViewModel(
         scope.launch {
             try { refreshFor(_state.value.filter, force = true) } finally { refreshInFlight.set(false) }
         }
+    }
+
+    fun setRadius(km: Int) = scope.launch { setRadiusKm(km) }
+    fun setPeriod(d: Int) = scope.launch { setPeriodDays(d) }
+    fun toggleTaxon(id: String) = scope.launch {
+        val cur = getTaxa()
+        setTaxa(if (id in cur) cur - id else cur + id)
     }
 
     private suspend fun primeLocation() {
@@ -130,34 +162,5 @@ class RadarViewModel(
 
     private companion object {
         const val DEBOUNCE_MS = 300L
-    }
-}
-
-@HiltViewModel
-class RadarViewModelHilt @Inject constructor(
-    private val repo: INatObservationsRepository,
-    private val auth: INatAuthRepository,
-    private val location: LocationProvider,
-    private val settings: Settings,
-    @Suppress("UNUSED_PARAMETER") savedStateHandle: SavedStateHandle,
-) : ViewModel() {
-    private val delegate: RadarViewModel = RadarViewModel(
-        repoFetch = { key, force -> repo.fetch(key, force) },
-        radarRadiusKm = settings.radarRadiusKm,
-        radarPeriodDays = settings.radarPeriodDays,
-        radarTaxa = settings.radarTaxa,
-        getLastKnown = { settings.lastKnownLat.first() to settings.lastKnownLon.first() },
-        getLocation = { location.getCurrent() },
-        userId = { auth.userId },
-    )
-
-    val state get() = delegate.state
-    fun pullRefresh() = delegate.pullRefresh()
-
-    fun setRadius(km: Int) = viewModelScope.launch { settings.setRadarRadiusKm(km) }
-    fun setPeriod(d: Int) = viewModelScope.launch { settings.setRadarPeriodDays(d) }
-    fun toggleTaxon(id: String) = viewModelScope.launch {
-        val cur = settings.radarTaxa.first()
-        settings.setRadarTaxa(if (id in cur) cur - id else cur + id)
     }
 }

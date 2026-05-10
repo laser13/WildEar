@@ -8,7 +8,11 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.platform.LocalContext
+
+val LocalIsDarkTheme = compositionLocalOf { false }
 
 private val lightScheme = lightColorScheme(
     primary = primaryLight,
@@ -100,9 +104,11 @@ fun Sound2iNatTheme(
         darkTheme -> darkScheme
         else -> lightScheme
     }
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Sound2iNatTypography,
-        content = content,
-    )
+    CompositionLocalProvider(LocalIsDarkTheme provides darkTheme) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Sound2iNatTypography,
+            content = content,
+        )
+    }
 }

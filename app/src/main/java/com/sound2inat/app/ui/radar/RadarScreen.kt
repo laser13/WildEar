@@ -40,7 +40,7 @@ private const val MAP_HEIGHT_DP = 280
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RadarScreen(onOpenSettings: () -> Unit) {
-    val vm: RadarViewModelHilt = hiltViewModel()
+    val vm: RadarViewModel = hiltViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
     val perms = LocalPermissionsController.current

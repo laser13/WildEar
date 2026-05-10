@@ -60,17 +60,20 @@ class RecordingViewModelTest {
         perms: PermissionsController = grantedPerms(),
         controller: RecordingController = fakeController,
         launcher: RecordingServiceLauncher = fakeLauncher,
-        photoDao: DraftPhotoDao? = null,
-        photoStore: PhotoFileStore? = null,
-    ) = RecordingViewModel(
-        perms = perms,
-        controller = controller,
-        launcher = launcher,
-        appContext = fakeContext,
-        photoDao = photoDao,
-        photoStore = photoStore,
-        ioDispatcher = dispatcher,
-    )
+        photoDao: DraftPhotoDao = FakeDraftPhotoDao(),
+        photoStore: PhotoFileStore = PhotoFileStore(tmp.root),
+    ): RecordingViewModel {
+        val vm = RecordingViewModel(
+            controller = controller,
+            launcher = launcher,
+            appContext = fakeContext,
+            photoDao = photoDao,
+            photoStore = photoStore,
+            ioDispatcher = dispatcher,
+        )
+        vm.initWithPermissions(perms)
+        return vm
+    }
 
     @Test
     fun `start calls launcher start when RECORD_AUDIO granted`() = runTest {
@@ -160,11 +163,10 @@ class RecordingViewModelTest {
     }
 
     @Test
-    fun `onPhotoTaken inserts DraftPhotoEntity for current draft`() = runTest {
+    fun `onPhotoTaken buffers photo during recording and flushes to DB on Done`() = runTest {
         val photoRows = mutableListOf<DraftPhotoEntity>()
         val fakePhotoDao = FakeDraftPhotoDao(photoRows)
         val photoStore = PhotoFileStore(tmp.root)
-        // Simulate controller in Recording state with a draft id.
         fakeController.setState(
             RecordingSessionState.Recording(
                 draftId = "d1", recordingStartMs = 0L, elapsedMs = 1000L,
@@ -174,8 +176,12 @@ class RecordingViewModelTest {
         )
         val vm = buildVm(photoDao = fakePhotoDao, photoStore = photoStore)
         runCurrent()
-        val photoId = "photo-uuid"
-        vm.onPhotoTaken(draftId = "d1", photoId = photoId, photoPath = "/tmp/a.jpg")
+        vm.onPhotoTaken(draftId = "d1", photoId = "photo-uuid", photoPath = "/tmp/a.jpg")
+        runCurrent()
+        // Photo is buffered in memory — DB not written yet (Draft row doesn't exist).
+        assertThat(photoRows).isEmpty()
+        // Done state: Draft row now exists in DB; photos are flushed.
+        fakeController.setState(RecordingSessionState.Done("d1"))
         runCurrent()
         assertThat(photoRows).hasSize(1)
         assertThat(photoRows[0].draftId).isEqualTo("d1")

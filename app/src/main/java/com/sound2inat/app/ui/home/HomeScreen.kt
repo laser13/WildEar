@@ -90,7 +90,7 @@ fun HomeScreen(
     onOpenDraft: (String) -> Unit,
     onSettings: () -> Unit,
 ) {
-    val vm: HomeViewModelHilt = hiltViewModel()
+    val vm: HomeViewModel = hiltViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
     val filterMode by vm.filterMode.collectAsStateWithLifecycle()
     val enrichedDrafts by vm.enrichedDrafts.collectAsStateWithLifecycle()

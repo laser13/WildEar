@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sound2inat.app.data.Settings
 import com.sound2inat.app.data.ThemeMode
+import com.sound2inat.inat.INatAuthRepository
 import com.sound2inat.modelmanager.KnownModels
 import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelInstallState
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+@HiltViewModel
 @Suppress("LongParameterList")
 class SettingsViewModel(
     private val descriptors: List<ModelDescriptor>,
@@ -51,6 +53,41 @@ class SettingsViewModel(
     private val writeNormalizeAudio: suspend (Boolean) -> Unit = {},
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
+
+    @Inject constructor(
+        modelManager: ModelManager,
+        settings: Settings,
+        inatAuth: INatAuthRepository,
+    ) : this(
+        descriptors = KnownModels,
+        installModel = { d, emit -> modelManager.install(d, emit) },
+        removeModel = { d -> modelManager.remove(d) },
+        resolveState = { d -> modelManager.stateFor(d) },
+        minConfFlow = settings.minConfidenceDisplay,
+        writeMinConf = { settings.setMinConfidenceDisplay(it) },
+        inatTokenFlow = inatAuth.tokenState,
+        inatLoginFlow = inatAuth.loginState,
+        acceptInatToken = { inatAuth.acceptCapturedToken(it) },
+        signOutInat = { inatAuth.logout() },
+        regionalFilterEnabledFlow = settings.regionalFilterEnabled,
+        writeRegionalFilterEnabled = { settings.setRegionalFilterEnabled(it) },
+        regionRadiusKmFlow = settings.regionRadiusKm,
+        writeRegionRadiusKm = { settings.setRegionRadiusKm(it) },
+        minWindowsFlow = settings.minWindows,
+        writeMinWindows = { settings.setMinWindows(it) },
+        yamNetGateEnabledFlow = settings.yamNetGateEnabled,
+        writeYamNetGateEnabled = { settings.setYamNetGateEnabled(it) },
+        birdNetMetaEnabledFlow = settings.birdNetMetaEnabled,
+        writeBirdNetMetaEnabled = { settings.setBirdNetMetaEnabled(it) },
+        allowDeleteUploadedFlow = settings.allowDeleteUploaded,
+        writeAllowDeleteUploaded = { settings.setAllowDeleteUploaded(it) },
+        themeModeFlow = settings.themeMode,
+        writeThemeMode = { settings.setThemeMode(it) },
+        audioSourceRawFlow = settings.audioSourceRaw,
+        writeAudioSourceRaw = { settings.setAudioSourceRaw(it) },
+        normalizeAudioFlow = settings.normalizeAudio,
+        writeNormalizeAudio = { settings.setNormalizeAudio(it) },
+    )
 
     private val scope: CoroutineScope = externalScope ?: viewModelScope
 
@@ -236,41 +273,3 @@ private data class Partial2(
     val allowDelete: Boolean,
     val theme: ThemeMode,
 )
-
-@HiltViewModel
-class SettingsViewModelHilt @Inject constructor(
-    private val modelManager: ModelManager,
-    private val settings: Settings,
-    private val inatAuth: com.sound2inat.inat.INatAuthRepository,
-) : ViewModel() {
-    val delegate = SettingsViewModel(
-        descriptors = KnownModels,
-        installModel = { d, emit -> modelManager.install(d, emit) },
-        removeModel = { d -> modelManager.remove(d) },
-        resolveState = { d -> modelManager.stateFor(d) },
-        minConfFlow = settings.minConfidenceDisplay,
-        writeMinConf = { settings.setMinConfidenceDisplay(it) },
-        inatTokenFlow = inatAuth.tokenState,
-        inatLoginFlow = inatAuth.loginState,
-        acceptInatToken = { inatAuth.acceptCapturedToken(it) },
-        signOutInat = { inatAuth.logout() },
-        regionalFilterEnabledFlow = settings.regionalFilterEnabled,
-        writeRegionalFilterEnabled = { settings.setRegionalFilterEnabled(it) },
-        regionRadiusKmFlow = settings.regionRadiusKm,
-        writeRegionRadiusKm = { settings.setRegionRadiusKm(it) },
-        minWindowsFlow = settings.minWindows,
-        writeMinWindows = { settings.setMinWindows(it) },
-        yamNetGateEnabledFlow = settings.yamNetGateEnabled,
-        writeYamNetGateEnabled = { settings.setYamNetGateEnabled(it) },
-        birdNetMetaEnabledFlow = settings.birdNetMetaEnabled,
-        writeBirdNetMetaEnabled = { settings.setBirdNetMetaEnabled(it) },
-        allowDeleteUploadedFlow = settings.allowDeleteUploaded,
-        writeAllowDeleteUploaded = { settings.setAllowDeleteUploaded(it) },
-        themeModeFlow = settings.themeMode,
-        writeThemeMode = { settings.setThemeMode(it) },
-        audioSourceRawFlow = settings.audioSourceRaw,
-        writeAudioSourceRaw = { settings.setAudioSourceRaw(it) },
-        normalizeAudioFlow = settings.normalizeAudio,
-        writeNormalizeAudio = { settings.setNormalizeAudio(it) },
-    )
-}
