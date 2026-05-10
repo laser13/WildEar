@@ -6,7 +6,10 @@ import android.webkit.WebStorage
 import com.sound2inat.app.data.Settings
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,6 +59,10 @@ open class INatAuthRepository @Inject constructor(
 
     private val migrationMutex = Mutex()
     private var migrationChecked = false
+
+    /** Prevents concurrent 401 responses from each triggering a separate WebView refresh. */
+    private val refreshMutex = Mutex()
+    private var refreshDeferred: Deferred<String?>? = null
 
     /**
      * Returns a usable api_token, attempting a silent refresh first if the
@@ -113,9 +120,23 @@ open class INatAuthRepository @Inject constructor(
     /**
      * Override point for tests: replace with a stub that does not spin a WebView.
      * Production code calls [trySilentRefreshWebView].
+     *
+     * Uses a mutex + shared [Deferred] so concurrent callers (e.g. two in-flight
+     * requests both receiving 401) coalesce into a single WebView refresh instead
+     * of each spinning their own — which would consume the one valid session cookie
+     * and fail the second attempt.
      */
     internal open suspend fun trySilentRefresh(dispatcher: CoroutineDispatcher): String? =
-        trySilentRefreshWebView(dispatcher)
+        refreshMutex.withLock {
+            refreshDeferred?.let { return@withLock it.await() }
+            val deferred = coroutineScope { async { trySilentRefreshWebView(dispatcher) } }
+            refreshDeferred = deferred
+            try {
+                deferred.await()
+            } finally {
+                refreshDeferred = null
+            }
+        }
 
     /**
      * Headless variant of [INatWebLoginActivity]'s flow — spins a hidden
@@ -132,16 +153,21 @@ open class INatAuthRepository @Inject constructor(
         withContext(mainDispatcher) {
             suspendCancellableCoroutine<String?> { cont ->
                 var resolved = false
+                // Use a holder so the onTokenCaptured lambda can reference the
+                // WebView instance after it is constructed (forward reference).
+                val webViewHolder = arrayOfNulls<android.webkit.WebView>(1)
                 val webView = buildWebView(
                     context = context,
                     onLoadingChange = { /* ignored — headless */ },
                     onTokenCaptured = { token ->
                         if (!resolved) {
                             resolved = true
+                            webViewHolder[0]?.destroy()
                             cont.resume(token)
                         }
                     },
                 )
+                webViewHolder[0] = webView
                 cont.invokeOnCancellation {
                     webView.stopLoading()
                     webView.destroy()

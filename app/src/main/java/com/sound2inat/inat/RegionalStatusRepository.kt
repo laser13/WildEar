@@ -2,6 +2,9 @@ package com.sound2inat.inat
 
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.RegionalStatus
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -45,13 +48,28 @@ class RegionalStatusRepository(
     private data class Entry(val status: RegionalStatus, val storedAtMs: Long)
     private val cache = ConcurrentHashMap<String, Entry>()
 
+    /** Deduplicates concurrent network calls for the same key. */
+    private val inFlight = ConcurrentHashMap<String, Deferred<RegionalStatus>>()
+
+    @Suppress("TooGenericExceptionCaught")
     suspend fun get(taxonName: String, lat: Double, lon: Double): RegionalStatus {
         val key = "$taxonName|${bucket(lat)}|${bucket(lon)}"
         val now = nowMs()
         cache[key]?.takeIf { now - it.storedAtMs < TTL_MS }?.let { return it.status }
-        val fresh = annotator.annotate(taxonName, lat, lon)
-        cache[key] = Entry(fresh, now)
-        return fresh
+        // Multiple callers arriving before the first fetch completes share the same
+        // Deferred — only one network request is issued.
+        val deferred = inFlight.getOrPut(key) {
+            coroutineScope { async { annotator.annotate(taxonName, lat, lon) } }
+        }
+        return try {
+            deferred.await().also { fresh ->
+                cache[key] = Entry(fresh, nowMs())
+                inFlight.remove(key)
+            }
+        } catch (e: Exception) {
+            inFlight.remove(key)
+            throw e
+        }
     }
 
     /**
@@ -75,7 +93,10 @@ class RegionalStatusRepository(
         cache[key] = Entry(status, nowMs())
     }
 
-    fun invalidateAll() = cache.clear()
+    fun invalidateAll() {
+        cache.clear()
+        inFlight.clear()
+    }
 
     // 0.1° ≈ 11 km at equator — coarse enough that minor GPS jitter doesn't
     // bust the cache, fine enough that city-scale moves (e.g. 50 km) create

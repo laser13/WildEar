@@ -14,7 +14,12 @@ class AndroidAudioRecordSource(
 
     private val format = AudioFormat.ENCODING_PCM_16BIT
     private val channelCfg = AudioFormat.CHANNEL_IN_MONO
-    private val minBuf = AudioRecord.getMinBufferSize(sampleRate, channelCfg, format)
+    private val minBuf = AudioRecord.getMinBufferSize(sampleRate, channelCfg, format).also { minBufSize ->
+        require(minBufSize > 0) {
+            "AudioRecord: unsupported configuration (code=$minBufSize). " +
+                "sampleRate=$sampleRate channelConfig=$channelCfg encoding=$format"
+        }
+    }
     private val bufBytes = (minBuf * 2).coerceAtLeast(MIN_BUF_BYTES)
 
     private var record: AudioRecord? = null
@@ -72,11 +77,15 @@ class AndroidAudioRecordSource(
                     ar.release()
                 }
             }
-            return audioRecordFactory(
+            val fallback = audioRecordFactory(
                 MediaRecorder.AudioSource.MIC,
                 sampleRate,
                 bufferSize,
             )
+            check(fallback.state == AudioRecord.STATE_INITIALIZED) {
+                "AudioRecord MIC fallback failed to initialize (state=${fallback.state})"
+            }
+            return fallback
         }
     }
 }

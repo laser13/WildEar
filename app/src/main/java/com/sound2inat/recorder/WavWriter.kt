@@ -13,6 +13,7 @@ class WavWriter(
 ) {
     private var out: BufferedOutputStream? = null
     private var dataBytesWritten: Long = 0L
+    private var bytesSinceLastPatch: Long = 0L
 
     fun open() {
         require(channels == 1) { "Only mono supported in Spec 1" }
@@ -20,11 +21,18 @@ class WavWriter(
         val raw = FileOutputStream(file).also { writeHeaderPlaceholder(it) }
         out = BufferedOutputStream(raw)
         dataBytesWritten = 0L
+        bytesSinceLastPatch = 0L
     }
 
     fun writeBytes(buf: ByteArray, off: Int, len: Int) {
         out!!.write(buf, off, len)
         dataBytesWritten += len
+        bytesSinceLastPatch += len
+        if (bytesSinceLastPatch >= PATCH_INTERVAL_BYTES) {
+            out!!.flush()
+            patchHeader()
+            bytesSinceLastPatch = 0L
+        }
     }
 
     fun writeShorts(buf: ShortArray, off: Int, len: Int) {
@@ -88,5 +96,8 @@ class WavWriter(
 
     companion object {
         const val HEADER_SIZE = 44
+
+        /** ~10 s at 48 kHz / 16-bit / mono before flushing and patching the header. */
+        private const val PATCH_INTERVAL_BYTES = 960_000L
     }
 }

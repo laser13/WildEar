@@ -12,6 +12,7 @@ import com.sound2inat.storage.InatObservationEntity
 import com.sound2inat.storage.Sound2iNatDb
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
@@ -128,8 +129,6 @@ class INatSubmitter(
         drafts.update(
             draft.draft.copy(
                 status = DraftStatus.UPLOADED,
-                inatObservationId = primary.observationId,
-                inatObservationUrl = primary.observationUrl,
                 inatLastError = if (failures.isEmpty()) null else failures.joinToString(" | "),
                 updatedAtUtcMs = nowMs(),
             ),
@@ -180,11 +179,13 @@ class INatSubmitter(
             latitude = draft.draft.latitude,
             longitude = draft.draft.longitude,
             positionalAccuracy = draft.draft.locationAccuracyMeters,
+            // taxonId is intentionally null here: we first create the observation,
+            // then add a separate identification for each selected species.
             taxonId = null,
             description = baseDescription(det),
             licenseCode = "cc-by-nc",
         )
-        val created = client.createObservation(token, obsBody)
+        val created = withRetry { client.createObservation(token, obsBody) }
         check(created.uuid.isNotBlank()) {
             "iNat /observations did not return a uuid; cannot link sound (id=${created.id})"
         }
@@ -192,7 +193,7 @@ class INatSubmitter(
         // If it fails we delete the just-created observation so the user's
         // iNat account doesn't accumulate empty records on retry.
         try {
-            client.uploadSound(token, created.uuid, cropFile)
+            withRetry { client.uploadSound(token, created.uuid, cropFile) }
         } catch (t: Throwable) {
             runCatching { client.deleteObservation(token, created.id) }
                 .onFailure { android.util.Log.w(LOG_TAG, "Cleanup failed for ${created.id}", it) }
@@ -301,6 +302,40 @@ class INatSubmitter(
                 "\n\nSibling observations from the same recording:\n$siblings"
             runCatching { client.updateObservationDescription(token, row.observationId, description) }
         }
+    }
+
+    /**
+     * Retries [block] up to [maxAttempts] times on transient failures ([java.io.IOException]
+     * or [INatException] with HTTP 5xx). Uses exponential back-off: 1 s, 2 s, 4 s, …
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun <T> withRetry(
+        maxAttempts: Int = 3,
+        block: suspend () -> T,
+    ): T {
+        var lastException: Exception? = null
+        repeat(maxAttempts) { attempt ->
+            try {
+                return block()
+            } catch (e: java.io.IOException) {
+                lastException = e
+                if (attempt < maxAttempts - 1) {
+                    val delayMs = 1_000L shl attempt
+                    delay(delayMs)
+                }
+            } catch (e: INatException) {
+                if (e.code >= 500) {
+                    lastException = e
+                    if (attempt < maxAttempts - 1) {
+                        val delayMs = 1_000L shl attempt
+                        delay(delayMs)
+                    }
+                } else {
+                    throw e
+                }
+            }
+        }
+        throw lastException!!
     }
 
     private fun formatIso(epochMs: Long): String {
