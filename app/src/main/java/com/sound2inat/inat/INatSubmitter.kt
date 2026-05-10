@@ -61,6 +61,9 @@ class INatSubmitter(
         data class Failure(val message: String) : Result
     }
 
+    /** Carries both the persisted entity and the observation UUID returned by iNat. */
+    private data class SubmittedObs(val entity: InatObservationEntity, val uuid: String)
+
     @Suppress("ReturnCount", "LongMethod", "TooGenericExceptionCaught")
     suspend fun submit(
         token: String,
@@ -76,21 +79,21 @@ class INatSubmitter(
 
         val cropDir = File(tmpRoot, "inat_uploads").apply { mkdirs() }
         val pendingRows = mutableListOf<InatObservationEntity>()
-        val createdPairs = mutableListOf<Pair<InatObservationEntity, DetectionEntity>>()
+        val createdPairs = mutableListOf<Pair<SubmittedObs, DetectionEntity>>()
         val failures = mutableListOf<String>()
 
         for (det in selected) {
             val outcome = runCatching {
                 submitOne(token, draft, srcAudio, cropDir, det, habitatPhotos, includeHabitatPhotoByTaxon)
             }
-            outcome.onSuccess { row ->
-                if (row != null) {
+            outcome.onSuccess { submitted ->
+                if (submitted != null) {
                     android.util.Log.i(
                         LOG_TAG,
-                        "Uploaded ${det.taxonScientificName} -> ${row.observationUrl}",
+                        "Uploaded ${det.taxonScientificName} -> ${submitted.entity.observationUrl}",
                     )
-                    pendingRows += row
-                    createdPairs += row to det
+                    pendingRows += submitted.entity
+                    createdPairs += submitted to det
                 } else {
                     android.util.Log.w(LOG_TAG, "No iNat match for ${det.taxonScientificName}")
                     failures += "${det.taxonScientificName}: no iNat match"
@@ -158,8 +161,8 @@ class INatSubmitter(
 
     /**
      * Resolves, creates and uploads a single species' observation. Returns
-     * the persisted [InatObservationEntity] (with its DAO-assigned `id`),
-     * or null if the taxon name didn't match anything on iNat.
+     * a [SubmittedObs] wrapping the entity and the iNat UUID, or null if the
+     * taxon name didn't match anything on iNat.
      */
     @Suppress("TooGenericExceptionCaught")
     private suspend fun submitOne(
@@ -170,7 +173,7 @@ class INatSubmitter(
         det: DetectionEntity,
         habitatPhotos: List<File> = emptyList(),
         includeHabitatPhotoByTaxon: Map<String, Boolean> = emptyMap(),
-    ): InatObservationEntity? {
+    ): SubmittedObs? {
         val genusId = client.resolveGenus(det.taxonScientificName, token) ?: return null
         val cropFile = File(cropDir, cropFileName(draft.draft.id, det))
         cropPerSpecies(srcAudio, det, draft.draft.durationMs, cropFile)
@@ -228,7 +231,7 @@ class INatSubmitter(
                     }
             }
         }
-        return InatObservationEntity(
+        val entity = InatObservationEntity(
             draftId = draft.draft.id,
             taxonScientificName = det.taxonScientificName,
             taxonInatId = genusId,
@@ -236,6 +239,7 @@ class INatSubmitter(
             observationUrl = created.url,
             createdAtUtcMs = nowMs(),
         )
+        return SubmittedObs(entity, created.uuid)
     }
 
     private fun cropPerSpecies(
@@ -291,16 +295,30 @@ class INatSubmitter(
 
     private suspend fun crossLink(
         token: String,
-        pairs: List<Pair<InatObservationEntity, DetectionEntity>>,
+        pairs: List<Pair<SubmittedObs, DetectionEntity>>,
     ) {
-        for ((row, det) in pairs) {
-            val others = pairs.filter { it.first.observationId != row.observationId }
-            val siblings = others.joinToString("\n") { (sibRow, _) ->
-                " - ${sibRow.taxonScientificName} → ${sibRow.observationUrl}"
+        for ((submitted, det) in pairs) {
+            val others = pairs.filter { it.first.entity.observationId != submitted.entity.observationId }
+            val siblings = others.joinToString("\n") { (sib, _) ->
+                " - ${sib.entity.taxonScientificName} → ${sib.entity.observationUrl}"
             }
             val description = baseDescription(det) +
                 "\n\nSibling observations from the same recording:\n$siblings"
-            runCatching { client.updateObservationDescription(token, row.observationId, description) }
+            runCatching {
+                client.updateObservationDescription(token, submitted.entity.observationId, description)
+            }
+            val siblingUrls = others.joinToString(" ") { it.first.entity.observationUrl }
+            runCatching {
+                client.createObservationFieldValue(
+                    token, submitted.uuid, LINKED_OBS_FIELD_ID, siblingUrls,
+                )
+            }.onFailure {
+                android.util.Log.w(
+                    LOG_TAG,
+                    "Linked Observation field on ${submitted.entity.observationId} failed",
+                    it,
+                )
+            }
         }
     }
 
@@ -359,6 +377,11 @@ class INatSubmitter(
         private const val VALUE_ALIVE = 18
         private const val ATTR_EVIDENCE = 22
         private const val VALUE_ORGANISM = 24
+
+        // iNaturalist observation field used to cross-link sibling observations
+        // from the same recording (space-separated observation URLs).
+        // Field name: "Linked Observation" (field id 7014).
+        private const val LINKED_OBS_FIELD_ID = 7014
         private val DEFAULT_ANNOTATIONS: List<Pair<Int, Int>> = listOf(
             ATTR_ALIVE_OR_DEAD to VALUE_ALIVE,
             ATTR_EVIDENCE to VALUE_ORGANISM,

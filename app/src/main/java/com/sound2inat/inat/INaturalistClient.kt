@@ -331,6 +331,37 @@ open class INaturalistClient(
     }
 
     /**
+     * Sets an observation field value on an existing observation. Best-effort:
+     * callers should not roll back the upload on failure.
+     *
+     * [observationUuid] is the UUID returned by [createObservation].
+     * [fieldId] is the iNaturalist observation field id (e.g. 7014 = "Linked Observation").
+     * [value] is the field value string.
+     */
+    suspend fun createObservationFieldValue(
+        token: String,
+        observationUuid: String,
+        fieldId: Int,
+        value: String,
+    ) = withContext(ioDispatcher) {
+        val payload = JSONObject().apply {
+            put("observation_field_value", JSONObject().apply {
+                put("observation_field_id", fieldId)
+                put("observation_id", observationUuid)
+                put("value", value)
+            })
+        }
+        val req = Request.Builder()
+            .url(baseUrl + "/observation_field_values")
+            .header("Authorization", token)
+            .header("Accept", "application/json")
+            .post(payload.toString().toRequestBody(JSON))
+            .build()
+        executeJsonOrArrayFirst(req)
+        Unit
+    }
+
+    /**
      * Returns the `medium_url` of the taxon's default photo, or null if the
      * name doesn't resolve or the taxon has no photo. Anonymous — no token
      * required, so safe to call from the Review screen before submission.

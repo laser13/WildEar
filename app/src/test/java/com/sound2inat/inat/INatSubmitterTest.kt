@@ -171,8 +171,12 @@ class INatSubmitterTest {
         server.enqueue(MockResponse().setBody("""{"id":22}"""))
         // 13. PUT description on observation 700
         server.enqueue(MockResponse().setBody("""{"id":700}"""))
-        // 14. PUT description on observation 701
+        // 14. POST observation_field_values for observation u-A (Linked Observation)
+        server.enqueue(MockResponse().setBody("""{"id":31}"""))
+        // 15. PUT description on observation 701
         server.enqueue(MockResponse().setBody("""{"id":701}"""))
+        // 16. POST observation_field_values for observation u-B (Linked Observation)
+        server.enqueue(MockResponse().setBody("""{"id":32}"""))
 
         val result = submitter.submit("jwt", draftWith(listOf("Parus major", "Sylvia")))
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
@@ -186,6 +190,7 @@ class INatSubmitterTest {
         assertThat(put1.method).isEqualTo("PUT")
         assertThat(put1.path).endsWith("/observations/700")
         assertThat(put1.body.readUtf8()).contains("observations\\/701")
+        server.takeRequest() // POST /observation_field_values for u-A
         val put2 = server.takeRequest()
         assertThat(put2.method).isEqualTo("PUT")
         assertThat(put2.path).endsWith("/observations/701")
@@ -301,9 +306,13 @@ class INatSubmitterTest {
         server.enqueue(MockResponse().setBody("""{"id":13}"""))
         server.enqueue(MockResponse().setBody("""{"id":14}"""))
         server.enqueue(MockResponse().setBody("""{"id":22}""")) // addIdentification Sylvia
-        // PUT cross-links
+        // PUT cross-link descriptions
         server.enqueue(MockResponse().setBody("""{"id":700}"""))
+        // POST observation_field_values for u-A (Linked Observation)
+        server.enqueue(MockResponse().setBody("""{"id":31}"""))
         server.enqueue(MockResponse().setBody("""{"id":701}"""))
+        // POST observation_field_values for u-B (Linked Observation)
+        server.enqueue(MockResponse().setBody("""{"id":32}"""))
 
         submitter.submit("jwt", draft)
 
@@ -313,6 +322,7 @@ class INatSubmitterTest {
         assertThat(put1Body).contains("Recorded with WildEar.")
         assertThat(put1Body).contains("Sibling observations from the same recording:")
         assertThat(put1Body).contains(" - Sylvia atricapilla →")
+        server.takeRequest() // POST /observation_field_values for u-A
 
         val put2Body = server.takeRequest().body.readUtf8()
         assertThat(put2Body).contains("Sibling observations from the same recording:")
