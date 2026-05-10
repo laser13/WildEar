@@ -7,7 +7,6 @@ import com.sound2inat.inference.SourceStats
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.sync.Mutex
@@ -239,8 +238,10 @@ class DraftRepository(
         freshDetections: List<AggregatedDetection>,
         promoteToReviewed: Boolean = false,
     ) = persistMutex.withLock {
-        val dwd = observeWithDetections(draftId).first()
-        val existing = dwd.detections.map { e ->
+        val draft = withContext(ioDispatcher) { drafts.getById(draftId) }
+            ?: error("draft $draftId missing in mergeAndPersist")
+        val detectionList = withContext(ioDispatcher) { detections.listForDraft(draftId) }
+        val existing = detectionList.map { e ->
             val fullStats = SourceStats.decode(e.sources)
             AggregatedDetection(
                 taxonScientificName = e.taxonScientificName,
@@ -259,13 +260,13 @@ class DraftRepository(
             )
         }
         val merged = mergeBySpecies(existing, freshDetections)
-        val priorModelId = dwd.draft.modelId
+        val priorModelId = draft.modelId
         val combinedModelId = when {
             priorModelId.isNullOrBlank() -> newModelId
             priorModelId.split(',', '+').contains(newModelId) -> priorModelId
             else -> "$priorModelId,$newModelId"
         }
-        val priorVersion = dwd.draft.modelVersion ?: ""
+        val priorVersion = draft.modelVersion ?: ""
         val combinedVersion = when {
             priorVersion.isBlank() -> newModelVersion
             newModelVersion.isBlank() -> priorVersion

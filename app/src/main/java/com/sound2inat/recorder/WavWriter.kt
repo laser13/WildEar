@@ -12,14 +12,14 @@ class WavWriter(
     private val bitsPerSample: Int,
 ) {
     private var out: BufferedOutputStream? = null
-    private var dataBytesWritten: Int = 0
+    private var dataBytesWritten: Long = 0L
 
     fun open() {
         require(channels == 1) { "Only mono supported in Spec 1" }
         require(bitsPerSample == 16) { "Only 16-bit PCM supported in Spec 1" }
         val raw = FileOutputStream(file).also { writeHeaderPlaceholder(it) }
         out = BufferedOutputStream(raw)
-        dataBytesWritten = 0
+        dataBytesWritten = 0L
     }
 
     fun writeBytes(buf: ByteArray, off: Int, len: Int) {
@@ -42,6 +42,9 @@ class WavWriter(
         out?.flush()
         out?.close()
         out = null
+        require(dataBytesWritten <= 0xFFFF_FFFFL - 36L) {
+            "WAV data exceeds 4 GiB RIFF limit (dataBytesWritten=$dataBytesWritten)"
+        }
         patchHeader()
     }
 
@@ -55,7 +58,7 @@ class WavWriter(
         RandomAccessFile(file, "rw").use { raf ->
             raf.seek(0)
             raf.write("RIFF".toByteArray(Charsets.US_ASCII))
-            raf.writeIntLe(dataBytesWritten + 36)
+            raf.writeIntLe((dataBytesWritten + 36L).toInt())
             raf.write("WAVE".toByteArray(Charsets.US_ASCII))
             raf.write("fmt ".toByteArray(Charsets.US_ASCII))
             raf.writeIntLe(16)
@@ -66,7 +69,7 @@ class WavWriter(
             raf.writeShortLe(blockAlign)
             raf.writeShortLe(bitsPerSample.toShort())
             raf.write("data".toByteArray(Charsets.US_ASCII))
-            raf.writeIntLe(dataBytesWritten)
+            raf.writeIntLe(dataBytesWritten.toInt())
         }
     }
 

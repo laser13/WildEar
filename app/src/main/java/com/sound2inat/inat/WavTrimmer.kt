@@ -49,11 +49,12 @@ object WavTrimmer {
 
             // Read only the samples we need. PCM is 2 bytes/sample so we can
             // seek straight past the header + the prefix we're discarding.
-            raf.seek((HEADER_SIZE + startSample * BYTES_PER_SAMPLE).toLong())
+            raf.seek(HEADER_SIZE + startSample * BYTES_PER_SAMPLE)
             val sliceLen = endSample - startSample
-            val raw = ByteArray(sliceLen * BYTES_PER_SAMPLE)
+            // sliceLen fits in Int: clips trimmed for iNat upload are well under 2 GiB in memory
+            val raw = ByteArray(sliceLen.toInt() * BYTES_PER_SAMPLE)
             raf.readFully(raw)
-            val shorts = ShortArray(sliceLen)
+            val shorts = ShortArray(sliceLen.toInt())
             for (i in shorts.indices) {
                 val lo = raw[2 * i].toInt() and 0xFF
                 val hi = raw[2 * i + 1].toInt()
@@ -62,7 +63,7 @@ object WavTrimmer {
             // Reuse the production WavWriter so the trimmed file gets a clean
             // 44-byte header that any downstream tool — including iNat — will
             // happily decode.
-            val writer = WavWriter(dstFile, sampleRate, channels = 1, bitsPerSample = BITS_PCM16)
+            val writer = WavWriter(dstFile, sampleRate.toInt(), channels = 1, bitsPerSample = BITS_PCM16)
             writer.open()
             writer.writeShorts(shorts, 0, shorts.size)
             writer.close()
@@ -70,20 +71,17 @@ object WavTrimmer {
         }
     }
 
-    private fun msToSamples(ms: Long, sampleRate: Int): Int {
-        // 32-bit safe: a 10-minute clip at 48 kHz is ~28.8M samples — fits.
-        val s = (ms * sampleRate) / MS_PER_SECOND
-        return s.toInt().coerceAtLeast(0)
-    }
+    private fun msToSamples(ms: Long, sampleRate: Long): Long =
+        (ms * sampleRate) / MS_PER_SECOND
 
     private fun leU16(buf: ByteArray, o: Int): Int =
         (buf[o].toInt() and 0xFF) or ((buf[o + 1].toInt() and 0xFF) shl 8)
 
-    private fun leU32(buf: ByteArray, o: Int): Int =
-        (buf[o].toInt() and 0xFF) or
-            ((buf[o + 1].toInt() and 0xFF) shl 8) or
-            ((buf[o + 2].toInt() and 0xFF) shl 16) or
-            ((buf[o + 3].toInt() and 0xFF) shl 24)
+    private fun leU32(buf: ByteArray, o: Int): Long =
+        ((buf[o].toLong() and 0xFF)) or
+            ((buf[o + 1].toLong() and 0xFF) shl 8) or
+            ((buf[o + 2].toLong() and 0xFF) shl 16) or
+            ((buf[o + 3].toLong() and 0xFF) shl 24)
 
     private const val HEADER_SIZE = 44
     private const val OFFSET_CHANNELS = 22

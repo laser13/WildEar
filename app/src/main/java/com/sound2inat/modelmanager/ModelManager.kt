@@ -58,8 +58,12 @@ open class ModelManager(
             require(sha256(labelsTmp) == descriptor.labelsSha256) { "Labels SHA-256 mismatch" }
             val mFinal = modelFile(descriptor)
             val lFinal = labelsFile(descriptor)
-            modelTmp.renameTo(mFinal)
-            labelsTmp.renameTo(lFinal)
+            check(modelTmp.renameTo(mFinal)) {
+                "Failed to rename model file: ${modelTmp.name} → ${mFinal.name}"
+            }
+            check(labelsTmp.renameTo(lFinal)) {
+                "Failed to rename labels file: ${labelsTmp.name} → ${lFinal.name}"
+            }
             emit(ModelInstallState.Ready(mFinal, lFinal))
             // Auto-install hidden companion models (e.g. YAMNet) once a visible model lands.
             if (!descriptor.hidden) {
