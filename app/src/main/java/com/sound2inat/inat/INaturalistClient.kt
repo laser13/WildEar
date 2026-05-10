@@ -471,7 +471,7 @@ open class INaturalistClient(
         val taxonId: Long? = when {
             cached != null -> if (cached.id == NO_TAXON_ID) null else cached.id
             else -> {
-                val q = scientificName.replace(' ', '+')
+                val q = java.net.URLEncoder.encode(scientificName, "UTF-8")
                 val result = runCatching {
                     val results = executeJson(anonGet("/taxa?q=$q&rank=species&is_active=true&per_page=5"))
                         .optJSONArray("results")
@@ -486,7 +486,7 @@ open class INaturalistClient(
                 result
             }
         }
-        return if (taxonId != null) "taxon_id=$taxonId" else "taxon_name=${scientificName.replace(' ', '+')}"
+        return if (taxonId != null) "taxon_id=$taxonId" else "taxon_name=${java.net.URLEncoder.encode(scientificName, "UTF-8")}"
     }
 
     /**

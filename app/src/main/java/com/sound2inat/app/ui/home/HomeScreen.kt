@@ -77,13 +77,10 @@ import coil.compose.AsyncImage
 import com.sound2inat.app.inference.JobStatus
 import com.sound2inat.storage.DraftStatus
 import kotlinx.coroutines.flow.Flow
-import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
-import java.util.Date
-import java.util.Locale
 
 @Suppress("FunctionNaming", "LongMethod")
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -537,16 +534,17 @@ private fun groupDraftsByDate(
     val cal = Calendar.getInstance()
     val todayStart = startOfDay(now, cal)
     val yesterdayStart = todayStart - DAY_MS
-    val recentFmt = SimpleDateFormat("EEEE, MMM d", Locale.US)
-    val olderFmt = SimpleDateFormat("MMMM d, yyyy", Locale.US)
+    val zone = ZoneId.systemDefault()
+    val recentFmt = DateTimeFormatter.ofPattern("EEEE, MMM d").withZone(zone)
+    val olderFmt = DateTimeFormatter.ofPattern("MMMM d, yyyy").withZone(zone)
     val groups = LinkedHashMap<String, MutableList<DraftSummary>>()
     for (d in drafts.sortedByDescending { it.recordedAtUtcMs }) {
         val dayStart = startOfDay(d.recordedAtUtcMs, cal)
         val label = when {
             dayStart >= todayStart -> "Today"
             dayStart >= yesterdayStart -> "Yesterday"
-            (todayStart - dayStart) < WEEK_DAYS * DAY_MS -> recentFmt.format(Date(d.recordedAtUtcMs))
-            else -> olderFmt.format(Date(d.recordedAtUtcMs))
+            (todayStart - dayStart) < WEEK_DAYS * DAY_MS -> recentFmt.format(Instant.ofEpochMilli(d.recordedAtUtcMs))
+            else -> olderFmt.format(Instant.ofEpochMilli(d.recordedAtUtcMs))
         }
         groups.getOrPut(label) { mutableListOf() }.add(d)
     }
