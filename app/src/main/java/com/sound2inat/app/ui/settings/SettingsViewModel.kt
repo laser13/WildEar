@@ -14,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -73,54 +75,61 @@ class SettingsViewModel(
                 updateSection(d.id) { it.copy(install = st) }
             }
         }
+        // Group 1: iNat auth + regional filter settings
         scope.launch {
-            minConfFlow.collect { v -> _state.value = _state.value.copy(minConfidenceDisplay = v) }
-        }
-        scope.launch {
-            inatTokenFlow.collect { v -> _state.value = _state.value.copy(inatTokenPresent = v != null) }
-        }
-        scope.launch {
-            inatLoginFlow.collect { v -> _state.value = _state.value.copy(inatLogin = v) }
-        }
-        scope.launch {
-            regionalFilterEnabledFlow.collect { v ->
-                _state.value = _state.value.copy(regionalFilterEnabled = v)
+            combine(
+                minConfFlow,
+                inatTokenFlow,
+                inatLoginFlow,
+                regionalFilterEnabledFlow,
+                regionRadiusKmFlow,
+            ) { minConf, inatToken, inatLogin, regionalFilter, regionRadius ->
+                Partial1(minConf, inatToken, inatLogin, regionalFilter, regionRadius)
+            }.collect { p1 ->
+                _state.update { s ->
+                    s.copy(
+                        minConfidenceDisplay = p1.minConf,
+                        inatTokenPresent = p1.inatToken != null,
+                        inatLogin = p1.inatLogin,
+                        regionalFilterEnabled = p1.regionalFilter,
+                        regionRadiusKm = p1.regionRadius,
+                    )
+                }
             }
         }
+        // Group 2: inference settings + UI preferences
         scope.launch {
-            regionRadiusKmFlow.collect { v ->
-                _state.value = _state.value.copy(regionRadiusKm = v)
+            combine(
+                minWindowsFlow,
+                yamNetGateEnabledFlow,
+                birdNetMetaEnabledFlow,
+                allowDeleteUploadedFlow,
+                themeModeFlow,
+            ) { minWin, yamNet, birdNetMeta, allowDelete, theme ->
+                Partial2(minWin, yamNet, birdNetMeta, allowDelete, theme)
+            }.collect { p2 ->
+                _state.update { s ->
+                    s.copy(
+                        minWindows = p2.minWin,
+                        yamNetGateEnabled = p2.yamNet,
+                        birdNetMetaEnabled = p2.birdNetMeta,
+                        allowDeleteUploaded = p2.allowDelete,
+                        themeMode = p2.theme,
+                    )
+                }
             }
         }
+        // Group 3: audio source settings
         scope.launch {
-            minWindowsFlow.collect { v -> _state.value = _state.value.copy(minWindows = v) }
-        }
-        scope.launch {
-            yamNetGateEnabledFlow.collect { v ->
-                _state.value = _state.value.copy(yamNetGateEnabled = v)
-            }
-        }
-        scope.launch {
-            birdNetMetaEnabledFlow.collect { v ->
-                _state.value = _state.value.copy(birdNetMetaEnabled = v)
-            }
-        }
-        scope.launch {
-            allowDeleteUploadedFlow.collect { v ->
-                _state.value = _state.value.copy(allowDeleteUploaded = v)
-            }
-        }
-        scope.launch {
-            themeModeFlow.collect { v -> _state.value = _state.value.copy(themeMode = v) }
-        }
-        scope.launch {
-            audioSourceRawFlow.collect { v ->
-                _state.value = _state.value.copy(audioSourceRaw = v)
-            }
-        }
-        scope.launch {
-            normalizeAudioFlow.collect { v ->
-                _state.value = _state.value.copy(normalizeAudio = v)
+            combine(
+                audioSourceRawFlow,
+                normalizeAudioFlow,
+            ) { audioRaw, normalize ->
+                audioRaw to normalize
+            }.collect { (audioRaw, normalize) ->
+                _state.update { s ->
+                    s.copy(audioSourceRaw = audioRaw, normalizeAudio = normalize)
+                }
             }
         }
     }
@@ -211,6 +220,22 @@ class SettingsViewModel(
         )
     }
 }
+
+private data class Partial1(
+    val minConf: Float,
+    val inatToken: String?,
+    val inatLogin: String?,
+    val regionalFilter: Boolean,
+    val regionRadius: Int,
+)
+
+private data class Partial2(
+    val minWin: Int,
+    val yamNet: Boolean,
+    val birdNetMeta: Boolean,
+    val allowDelete: Boolean,
+    val theme: ThemeMode,
+)
 
 @HiltViewModel
 class SettingsViewModelHilt @Inject constructor(

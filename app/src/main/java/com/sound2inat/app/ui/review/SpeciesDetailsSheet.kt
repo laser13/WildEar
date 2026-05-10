@@ -28,6 +28,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import com.sound2inat.app.R
+import com.sound2inat.app.ui.formatDurationMs
+import com.sound2inat.app.ui.theme.iNatGreen
 
 /**
  * Bottom sheet showing technical details for a single species detection.
@@ -149,7 +151,7 @@ internal fun SpeciesDetailsSheet(
             }
             items(timeRanges) { range ->
                 Text(
-                    text = formatSheetMs(range.startMs) + "–" + formatSheetMs(range.endMs),
+                    text = formatDurationMs(range.startMs) + "–" + formatDurationMs(range.endMs),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
@@ -195,7 +197,7 @@ internal fun SpeciesDetailsSheet(
                             DetailRow(
                                 label = stringResource(R.string.sheet_label_status),
                                 value = idText,
-                                valueColor = if (d.qualityGrade == "research") SHEET_INAT_GREEN
+                                valueColor = if (d.qualityGrade == "research") iNatGreen
                                     else MaterialTheme.colorScheme.onSurface,
                             )
                         }
@@ -312,14 +314,6 @@ private fun DetailRow(
  */
 internal data class SpeciesTimeRange(val startMs: Long, val endMs: Long)
 
-private val SHEET_INAT_GREEN = Color(0xFF74AC00)
-
-internal fun formatSheetMs(ms: Long): String {
-    val totalSeconds = (ms / SHEET_MS_PER_SECOND).coerceAtLeast(0L)
-    val minutes = totalSeconds / SHEET_SECONDS_PER_MINUTE
-    val seconds = totalSeconds % SHEET_SECONDS_PER_MINUTE
-    return "%d:%02d".format(minutes, seconds)
-}
 
 /**
  * Sorts ranges by start time and merges overlapping or adjacent ones into
@@ -344,5 +338,3 @@ internal fun mergeRanges(ranges: List<SpeciesTimeRange>): List<SpeciesTimeRange>
 }
 
 private const val SHEET_PERCENT = 100f
-private const val SHEET_MS_PER_SECOND = 1000L
-private const val SHEET_SECONDS_PER_MINUTE = 60L

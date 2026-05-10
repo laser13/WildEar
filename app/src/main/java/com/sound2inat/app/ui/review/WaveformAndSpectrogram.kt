@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -22,7 +22,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import com.sound2inat.inference.WindowPrediction
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -31,22 +30,18 @@ import kotlinx.coroutines.flow.StateFlow
  * Compose dp sizes individual peaks were unreadable and the strip just
  * stole vertical space from the spectrogram.
  */
-@Suppress("FunctionNaming", "LongParameterList")
+@Suppress("FunctionNaming")
 @Composable
 internal fun WaveformAndSpectrogram(
     @Suppress("UNUSED_PARAMETER") peaks: FloatArray?,
     spectrogramPath: String?,
     durationMs: Long,
     positionFlow: StateFlow<Long>,
-    windowPreds: List<WindowPrediction>,
-    species: List<SpeciesRow>,
-    highlight: Long?,
-    onWindowTap: (WindowPrediction) -> Unit,
     onSeek: (Long) -> Unit,
 ) {
     // Position read is local to this subtree so the 50 ms tick from
     // MediaPlayer does not trigger recomposition of the entire Review screen.
-    val positionMs by positionFlow.collectAsState()
+    val positionMs by positionFlow.collectAsStateWithLifecycle()
     val cursor: Float = if (durationMs > 0L) {
         (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
     } else {
@@ -84,13 +79,6 @@ internal fun WaveformAndSpectrogram(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            DetectionOverlays(
-                windowPreds = windowPreds,
-                species = species,
-                highlight = highlight,
-                durationMs = durationMs,
-                onTap = onWindowTap,
-            )
             val cursorColor = MaterialTheme.colorScheme.error
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val cx = cursor * size.width

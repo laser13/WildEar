@@ -44,6 +44,9 @@ class RecordingViewModel(
     private val permissionError = MutableStateFlow<String?>(null)
     private val _photoCount = MutableStateFlow(0)
 
+    // Photos buffered during recording; flushed to DB once Draft row exists (on Done).
+    private val pendingPhotos = mutableListOf<DraftPhotoEntity>()
+
     // True once this VM instance has observed at least one Recording state, meaning
     // the controller is running a session we started. Without this guard, a stale
     // Done(prevId) left in the singleton controller would fire onDone immediately
@@ -60,11 +63,24 @@ class RecordingViewModel(
         if (!hasSeenRecording && uiState is RecordingUiState.Done) RecordingUiState.Idle else uiState
     }.stateIn(viewModelScope, SharingStarted.Eagerly, RecordingUiState.Idle)
 
+    init {
+        viewModelScope.launch {
+            controller.state.collect { s ->
+                when (s) {
+                    is RecordingSessionState.Done -> flushPendingPhotos()
+                    is RecordingSessionState.Idle -> discardPendingPhotos()
+                    else -> Unit
+                }
+            }
+        }
+    }
+
     val rmsHistory: StateFlow<FloatArray> = controller.rmsHistory
     val audioBlocks: SharedFlow<FloatArray> = controller.audioBlocks
     val sampleRateHz: Int get() = controller.sampleRateHz
 
     fun start() {
+        hasSeenRecording = false  // reset so the Done guard works for this session
         viewModelScope.launch {
             val granted = perms.request(RECORDING_PERMISSIONS)
             if (granted[Permission.RECORD_AUDIO] != PermissionStatus.GRANTED) {
@@ -98,23 +114,32 @@ class RecordingViewModel(
     }
 
     fun onPhotoTaken(draftId: String, photoId: String, photoPath: String) {
-        viewModelScope.launch {
-            withContext(ioDispatcher) {
-                photoDao?.insert(
-                    DraftPhotoEntity(
-                        id = photoId,
-                        draftId = draftId,
-                        photoPath = photoPath,
-                        takenAtMs = System.currentTimeMillis(),
-                    ),
-                )
-            }
-            _photoCount.update { it + 1 }
-        }
+        pendingPhotos.add(
+            DraftPhotoEntity(
+                id = photoId,
+                draftId = draftId,
+                photoPath = photoPath,
+                takenAtMs = System.currentTimeMillis(),
+            ),
+        )
+        _photoCount.update { it + 1 }
     }
 
     fun onPhotoCancelled(draftId: String, photoId: String) {
         photoStore?.newPhotoFile(draftId, photoId)?.delete()
+    }
+
+    private suspend fun flushPendingPhotos() {
+        if (pendingPhotos.isEmpty()) return
+        val toInsert = pendingPhotos.toList()
+        pendingPhotos.clear()
+        withContext(ioDispatcher) { toInsert.forEach { photoDao?.insert(it) } }
+    }
+
+    private fun discardPendingPhotos() {
+        val toDiscard = pendingPhotos.toList()
+        pendingPhotos.clear()
+        toDiscard.forEach { photoStore?.newPhotoFile(it.draftId, it.id)?.delete() }
     }
 
     private fun RecordingSessionState.toUiState(photoCount: Int = 0): RecordingUiState = when (this) {

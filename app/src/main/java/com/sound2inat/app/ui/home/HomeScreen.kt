@@ -24,7 +24,9 @@ import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Eco
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.outlined.MicNone
@@ -65,10 +67,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sound2inat.app.R
+import com.sound2inat.app.ui.formatDurationMs
+import com.sound2inat.app.ui.theme.LocalIsDarkTheme
+import com.sound2inat.app.ui.theme.iNatGreen
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
+import com.sound2inat.app.inference.JobStatus
 import com.sound2inat.storage.DraftStatus
 import kotlinx.coroutines.flow.Flow
 import java.text.SimpleDateFormat
@@ -205,9 +211,6 @@ fun HomeScreen(
                             contentPadding = PaddingValues(top = 0.dp, bottom = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            item(key = "large_header") {
-                                LargeHeader(modifier = Modifier.padding(horizontal = 16.dp))
-                            }
                             groups.forEach { group ->
                                 stickyHeader(key = "header_${group.label}") {
                                     Text(
@@ -306,7 +309,7 @@ private fun RecordingCard(
             summary.status == DraftStatus.PENDING_REVIEW ||
                 summary.status == DraftStatus.REVIEWED
             )
-    val (icon, iconBg) = statusVisuals(summary.status, analysedButEmpty)
+    val (icon, iconBg) = statusVisuals(summary.status, analysedButEmpty, summary.jobStatus)
     val badge = uploadBadge(summary, inatCount)
 
     Card(
@@ -336,12 +339,12 @@ private fun RecordingCard(
                 }
             },
             headlineContent = {
-                Text(topLabel ?: statusHeadline(summary.status, analysedButEmpty))
+                Text(topLabel ?: statusHeadline(summary.status, analysedButEmpty, summary.jobStatus))
             },
             supportingContent = {
                 Text(
                     "${formatTimestamp(summary.recordedAtUtcMs)} · " +
-                        homeStatusLabel(summary.status, analysedButEmpty),
+                        homeStatusLabel(summary.status, analysedButEmpty, summary.jobStatus),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -352,7 +355,7 @@ private fun RecordingCard(
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     Text(
-                        formatDuration(summary.durationMs),
+                        formatDurationMs(summary.durationMs),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -361,7 +364,7 @@ private fun RecordingCard(
                         Text(
                             countText,
                             style = MaterialTheme.typography.titleLarge,
-                            color = if (inatCount > 0) INAT_GREEN
+                            color = if (inatCount > 0) iNatGreen
                                 else MaterialTheme.colorScheme.onSurface,
                         )
                     }
@@ -428,7 +431,7 @@ private fun uploadBadge(summary: DraftSummary, inatCount: Int): (@Composable () 
         Icon(
             Icons.Filled.Eco,
             contentDescription = stringResource(R.string.cd_uploaded_to_inat),
-            tint = INAT_GREEN,
+            tint = iNatGreen,
             modifier = Modifier.size(BADGE_ICON_SIZE_DP.dp),
         )
     }
@@ -438,9 +441,17 @@ private fun uploadBadge(summary: DraftSummary, inatCount: Int): (@Composable () 
 private fun statusVisuals(
     status: DraftStatus,
     analysedButEmpty: Boolean,
+    jobStatus: JobStatus? = null,
 ): Pair<ImageVector, Color> {
     val colors = MaterialTheme.colorScheme
     if (analysedButEmpty) return Icons.Filled.SearchOff to colors.outline
+    if (status == DraftStatus.PENDING_INFERENCE) {
+        return when (jobStatus) {
+            is JobStatus.Failed -> Icons.Filled.Error to colors.error
+            is JobStatus.Queued -> Icons.Filled.Schedule to colors.outline
+            is JobStatus.Running, null -> Icons.Filled.Autorenew to colors.secondary
+        }
+    }
     return when (status) {
         DraftStatus.PENDING_INFERENCE -> Icons.Filled.Autorenew to colors.secondary
         DraftStatus.PENDING_REVIEW -> Icons.Filled.Visibility to colors.tertiary
@@ -450,8 +461,15 @@ private fun statusVisuals(
 }
 
 @Composable
-private fun statusHeadline(status: DraftStatus, analysedButEmpty: Boolean): String {
+private fun statusHeadline(status: DraftStatus, analysedButEmpty: Boolean, jobStatus: JobStatus? = null): String {
     if (analysedButEmpty) return stringResource(R.string.home_headline_nothing_detected)
+    if (status == DraftStatus.PENDING_INFERENCE) {
+        return when (jobStatus) {
+            is JobStatus.Failed -> stringResource(R.string.home_headline_analysis_failed)
+            is JobStatus.Queued -> stringResource(R.string.home_headline_in_queue)
+            is JobStatus.Running, null -> stringResource(R.string.home_headline_analyzing)
+        }
+    }
     return stringResource(when (status) {
         DraftStatus.PENDING_INFERENCE -> R.string.home_headline_analyzing
         DraftStatus.PENDING_REVIEW -> R.string.home_headline_ready_review
@@ -461,8 +479,24 @@ private fun statusHeadline(status: DraftStatus, analysedButEmpty: Boolean): Stri
 }
 
 @Composable
-private fun homeStatusLabel(status: DraftStatus, analysedButEmpty: Boolean): String {
+private fun homeStatusLabel(status: DraftStatus, analysedButEmpty: Boolean, jobStatus: JobStatus? = null): String {
     if (analysedButEmpty) return stringResource(R.string.home_label_no_detections)
+    if (status == DraftStatus.PENDING_INFERENCE) {
+        return when (jobStatus) {
+            is JobStatus.Running -> {
+                val pct = (jobStatus.birdnetProgress ?: jobStatus.perchProgress)
+                    ?.let { (it * 100).toInt() }
+                if (pct != null) stringResource(R.string.home_label_analyzing_progress, pct)
+                else stringResource(R.string.home_label_analyzing)
+            }
+            is JobStatus.Queued -> {
+                if (jobStatus.position == 0) stringResource(R.string.home_label_up_next)
+                else stringResource(R.string.home_label_in_queue, jobStatus.position + 1)
+            }
+            is JobStatus.Failed -> stringResource(R.string.home_label_analysis_failed)
+            null -> stringResource(R.string.home_label_analyzing)
+        }
+    }
     return stringResource(when (status) {
         DraftStatus.PENDING_INFERENCE -> R.string.home_label_analyzing
         DraftStatus.PENDING_REVIEW -> R.string.home_label_needs_review
@@ -474,16 +508,6 @@ private fun homeStatusLabel(status: DraftStatus, analysedButEmpty: Boolean): Str
 private fun formatTimestamp(ms: Long): String =
     SimpleDateFormat("MMM d, HH:mm", Locale.US).format(Date(ms))
 
-private fun formatDuration(ms: Long): String {
-    val totalSeconds = ms / MS_PER_SECOND
-    val minutes = totalSeconds / SECONDS_PER_MINUTE
-    val seconds = totalSeconds % SECONDS_PER_MINUTE
-    return "%d:%02d".format(minutes, seconds)
-}
-
-private val INAT_GREEN = Color(0xFF74AC00)
-private const val MS_PER_SECOND = 1000L
-private const val SECONDS_PER_MINUTE = 60L
 private const val RECORDING_THUMB_SIZE_DP = 48
 private const val RECORDING_THUMB_CORNER_DP = 6
 private const val STATUS_ICON_INNER_DP = 20
@@ -630,8 +654,9 @@ private fun HomeTopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        val logoRes = if (LocalIsDarkTheme.current) R.drawable.ic_app_logo_dark else R.drawable.ic_app_logo_light
         Image(
-            painter = painterResource(R.mipmap.ic_launcher_round),
+            painter = painterResource(logoRes),
             contentDescription = null,
             modifier = Modifier
                 .padding(start = 8.dp)
@@ -653,29 +678,6 @@ private fun HomeTopBar(
                 contentDescription = stringResource(R.string.cd_settings),
             )
         }
-    }
-}
-
-@Suppress("FunctionNaming")
-@Composable
-private fun LargeHeader(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(top = 16.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Image(
-            painter = painterResource(R.mipmap.ic_launcher_round),
-            contentDescription = null,
-            modifier = Modifier
-                .size(72.dp)
-                .clip(CircleShape),
-        )
-        Text(
-            stringResource(R.string.app_name),
-            style = MaterialTheme.typography.headlineMedium,
-        )
     }
 }
 

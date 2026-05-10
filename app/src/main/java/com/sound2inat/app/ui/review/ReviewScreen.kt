@@ -86,10 +86,12 @@ import androidx.core.net.toUri
 import coil.compose.AsyncImage
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sound2inat.app.ui.formatDurationMs
 import com.sound2inat.app.ui.theme.detectionCardLikelyDark
 import com.sound2inat.app.ui.theme.detectionCardLikelyLight
 import com.sound2inat.app.ui.theme.detectionCardUnlikelyDark
 import com.sound2inat.app.ui.theme.detectionCardUnlikelyLight
+import com.sound2inat.app.ui.theme.iNatGreen
 import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.DraftStatus
@@ -134,6 +136,7 @@ fun ReviewScreen(
     HorizontalPager(
         state = pagerState,
         key = { idx -> draftIds.getOrElse(idx) { idx.toString() } },
+        beyondViewportPageCount = 1,
         modifier = Modifier.fillMaxSize(),
     ) { pageIndex ->
         val draftId = draftIds.getOrNull(pageIndex) ?: return@HorizontalPager
@@ -653,7 +656,7 @@ private fun PlayerControls(state: ReviewUiState, vm: ReviewViewModel) {
                 Spacer(Modifier.width(8.dp))
                 Text(if (isPlaying) stringResource(R.string.btn_pause) else stringResource(R.string.btn_play))
             }
-            Text("${formatMs(positionMs)} / ${formatMs(state.durationMs)}")
+            Text("${formatDurationMs(positionMs)} / ${formatDurationMs(state.durationMs)}")
         }
         if (state.playback is PlaybackState.Error) {
             Text(state.playback.message, color = MaterialTheme.colorScheme.error)
@@ -780,7 +783,7 @@ private fun SpeciesListItem(
                     Icon(
                         Icons.Filled.Eco,
                         contentDescription = stringResource(R.string.cd_uploaded_to_inat),
-                        tint = INAT_GREEN,
+                        tint = iNatGreen,
                         modifier = Modifier.size(20.dp),
                     )
                 }
@@ -893,15 +896,6 @@ private fun qualityGradeLabel(grade: String): String = when (grade) {
 private fun formatTimestamp(ms: Long): String =
     SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(ms))
 
-private fun formatMs(ms: Long): String {
-    val totalSeconds = (ms / MS_PER_SECOND).coerceAtLeast(0L)
-    val minutes = totalSeconds / SECONDS_PER_MINUTE
-    val seconds = totalSeconds % SECONDS_PER_MINUTE
-    return "%d:%02d".format(minutes, seconds)
-}
-
-private const val MS_PER_SECOND = 1000L
-private const val SECONDS_PER_MINUTE = 60L
 private const val PERCENT = 100f
 private const val DENOISE_HELP_SIZE_DP = 24
 private const val DENOISE_HELP_ICON_SIZE_DP = 18
@@ -909,4 +903,3 @@ private const val PHOTO_SIZE_DP = 48
 private const val PHOTO_CORNER_DP = 8
 private const val HABITAT_PHOTO_SIZE_DP = 80
 private const val OVERLAY_ALPHA = 0.7f
-private val INAT_GREEN = Color(0xFF74AC00)
