@@ -28,10 +28,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.MicNone
 import androidx.compose.material.icons.outlined.Public
@@ -757,18 +759,6 @@ private fun SpeciesListItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 row.regionalStatus?.let { RegionalStatusIcon(it) }
-                if (hasHabitatPhotos) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = row.includeHabitatPhoto,
-                            onCheckedChange = { onToggleHabitatPhoto() },
-                        )
-                        Text(
-                            stringResource(R.string.label_include_habitat_photo),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
             }
         },
         trailingContent = {
@@ -785,6 +775,18 @@ private fun SpeciesListItem(
                         tint = iNatGreen,
                         modifier = Modifier.size(20.dp),
                     )
+                }
+                if (hasHabitatPhotos) {
+                    IconButton(onClick = onToggleHabitatPhoto) {
+                        Icon(
+                            imageVector = if (row.includeHabitatPhoto) Icons.Filled.CameraAlt
+                                          else Icons.Outlined.CameraAlt,
+                            contentDescription = stringResource(R.string.label_include_habitat_photo),
+                            tint = if (row.includeHabitatPhoto) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
             }
         },
