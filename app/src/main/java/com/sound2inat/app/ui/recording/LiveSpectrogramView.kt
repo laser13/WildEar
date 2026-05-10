@@ -88,11 +88,18 @@ fun LiveSpectrogramView(
         Spectrogram(fftSize = FFT_SIZE, hopSize = HOP_SIZE, sampleRateHz = sampleRateHz)
     }
     val sortBuf = remember { FloatArray(FFT_SIZE / 2 + 1) }
+    val bitmapA = remember {
+        Bitmap.createBitmap(BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS, Bitmap.Config.ARGB_8888)
+    }
+    val bitmapB = remember {
+        Bitmap.createBitmap(BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS, Bitmap.Config.ARGB_8888)
+    }
     var imageBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
 
     LaunchedEffect(audioBlocks) {
+        var backBitmap = bitmapB
         audioBlocks.collect { block ->
-            val snapshot: IntArray? = withContext(Dispatchers.Default) {
+            val updated = withContext(Dispatchers.Default) {
                 val columns = spectrogram.process(block)
                 for (col in columns) {
                     whitenInPlace(col, sortBuf)
@@ -100,19 +107,15 @@ fun LiveSpectrogramView(
                 }
                 if (columns.isNotEmpty()) {
                     fillPixels(pixels, ring, BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS, lut, bgArgb)
-                    pixels.copyOf() // hand off a completed snapshot to the main thread
+                    backBitmap.setPixels(pixels, 0, BITMAP_WIDTH_COLS, 0, 0, BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS)
+                    true
                 } else {
-                    null
+                    false
                 }
             }
-            if (snapshot != null) {
-                val bmp = Bitmap.createBitmap(
-                    BITMAP_WIDTH_COLS,
-                    BITMAP_HEIGHT_BINS,
-                    Bitmap.Config.ARGB_8888,
-                )
-                bmp.setPixels(snapshot, 0, BITMAP_WIDTH_COLS, 0, 0, BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS)
-                imageBitmap = bmp.asImageBitmap()
+            if (updated) {
+                imageBitmap = backBitmap.asImageBitmap()
+                backBitmap = if (backBitmap === bitmapA) bitmapB else bitmapA
             }
         }
     }
