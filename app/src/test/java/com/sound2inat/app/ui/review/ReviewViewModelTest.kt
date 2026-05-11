@@ -1,5 +1,6 @@
 package com.sound2inat.app.ui.review
 
+import android.net.Uri
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.app.inference.InferenceQueue
 import com.sound2inat.app.inference.QueuedJob
@@ -41,6 +42,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReviewViewModelTest {
@@ -788,6 +790,280 @@ class ReviewViewModelTest {
             vm.reanalyze(runBirdnet = true, runPerch = true)
             assertThat(order).containsExactly("birdnet", "perch").inOrder()
         }
+
+    // ─── Audio Export Tests ─────────────────────────────────────────────────
+
+    @Test
+    fun `onShareFullRecording emits ShareAudioFile when audio exists`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "export_share1"
+            val audioFile = createSilentWav(tmp.newFile("$draftId.wav"))
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                queue = makeQueue(draftRepo = repo),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+
+            vm.onShareFullRecording()
+
+            val effect = vm.state.value.exportEffect
+            assertThat(effect).isInstanceOf(ReviewExportEffect.ShareAudioFile::class.java)
+            assertThat((effect as ReviewExportEffect.ShareAudioFile).file.absolutePath)
+                .isEqualTo(audioFile.absolutePath)
+            assertThat(vm.state.value.exportingAction).isNull()
+        }
+
+    @Test
+    fun `onShareFullRecording emits snackbar when audio file missing`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "export_share2"
+            val missingPath = File(tmp.root, "does_not_exist.wav").absolutePath
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, DraftStatus.PENDING_REVIEW).copy(audioPath = missingPath))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                queue = makeQueue(draftRepo = repo),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+
+            vm.onShareFullRecording()
+
+            val effect = vm.state.value.exportEffect
+            assertThat(effect).isInstanceOf(ReviewExportEffect.ShowSnackbar::class.java)
+            assertThat((effect as ReviewExportEffect.ShowSnackbar).message)
+                .isEqualTo("Audio file is missing")
+            assertThat(vm.state.value.exportingAction).isNull()
+        }
+
+    @Test
+    fun `onSaveFullRecording calls audioSaver and emits success snackbar`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "export_save1"
+            val audioFile = createSilentWav(tmp.newFile("$draftId.wav"))
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            var savedFile: File? = null
+            var savedName: String? = null
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                queue = makeQueue(draftRepo = repo),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+                audioSaver = AudioSaver { f, n ->
+                    savedFile = f
+                    savedName = n
+                    Uri.EMPTY
+                },
+            )
+
+            vm.onSaveFullRecording()
+
+            assertThat(savedFile?.absolutePath).isEqualTo(audioFile.absolutePath)
+            assertThat(savedName).startsWith("recording_")
+            assertThat(savedName).endsWith(".wav")
+            val effect = vm.state.value.exportEffect
+            assertThat(effect).isInstanceOf(ReviewExportEffect.ShowSnackbar::class.java)
+            assertThat((effect as ReviewExportEffect.ShowSnackbar).message)
+                .isEqualTo("Audio saved to Downloads")
+            assertThat(vm.state.value.exportingAction).isNull()
+        }
+
+    @Test
+    fun `onSaveFullRecording emits not-supported snackbar on UnsupportedOperationException`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "export_save2"
+            val audioFile = createSilentWav(tmp.newFile("$draftId.wav"))
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                queue = makeQueue(draftRepo = repo),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+                audioSaver = AudioSaver { _, _ -> throw UnsupportedOperationException("API 28") },
+            )
+
+            vm.onSaveFullRecording()
+
+            val effect = vm.state.value.exportEffect
+            assertThat(effect).isInstanceOf(ReviewExportEffect.ShowSnackbar::class.java)
+            assertThat((effect as ReviewExportEffect.ShowSnackbar).message)
+                .isEqualTo("Saving to Downloads is not supported on this Android version")
+        }
+
+    @Test
+    fun `onSaveFullRecording emits missing-file snackbar when file absent`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "export_save3"
+            val missingPath = File(tmp.root, "gone.wav").absolutePath
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, DraftStatus.PENDING_REVIEW).copy(audioPath = missingPath))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                queue = makeQueue(draftRepo = repo),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+                audioSaver = AudioSaver { _, _ -> Uri.EMPTY },
+            )
+
+            vm.onSaveFullRecording()
+
+            val effect = vm.state.value.exportEffect
+            assertThat(effect).isInstanceOf(ReviewExportEffect.ShowSnackbar::class.java)
+            assertThat((effect as ReviewExportEffect.ShowSnackbar).message)
+                .isEqualTo("Audio file is missing")
+        }
+
+    @Test
+    fun `consumeExportEffect clears exportEffect`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "export_consume1"
+            val missingPath = File(tmp.root, "gone.wav").absolutePath
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, DraftStatus.PENDING_REVIEW).copy(audioPath = missingPath))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                queue = makeQueue(draftRepo = repo),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            vm.onShareFullRecording()
+            assertThat(vm.state.value.exportEffect).isNotNull()
+
+            vm.consumeExportEffect()
+
+            assertThat(vm.state.value.exportEffect).isNull()
+        }
+
+    @Test
+    fun `onShareSpeciesClip emits ShareAudioFile for valid WAV`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "export_clip_share1"
+            val audioFile = createSilentWav(tmp.newFile("$draftId.wav"))
+            val draftDao = FakeDraftDao().apply {
+                insert(
+                    draftFor(draftId, DraftStatus.PENDING_REVIEW).copy(
+                        audioPath = audioFile.absolutePath,
+                        durationMs = 1_000L,
+                    )
+                )
+            }
+            val clipDir = tmp.newFolder("export_clips_$draftId")
+            val repo = repo(draftDao, FakeDetectionDao())
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                queue = makeQueue(draftRepo = repo),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+                exportClipsDir = clipDir,
+            )
+            val row = SpeciesRow(
+                detectionId = 1L,
+                taxonScientificName = "Turdus merula",
+                taxonCommonName = "Common Blackbird",
+                maxConfidence = 0.8f,
+                detectedWindows = 1,
+                firstSeenMs = 0L,
+                lastSeenMs = 500L,
+                isSelected = true,
+            )
+
+            vm.onShareSpeciesClip(row)
+
+            val effect = vm.state.value.exportEffect
+            assertThat(effect).isInstanceOf(ReviewExportEffect.ShareAudioFile::class.java)
+            val clipFile = (effect as ReviewExportEffect.ShareAudioFile).file
+            assertThat(clipFile.exists()).isTrue()
+            assertThat(clipFile.length()).isGreaterThan(0L)
+            assertThat(vm.state.value.exportingAction).isNull()
+        }
+
+    @Test
+    fun `onSaveSpeciesClip emits error snackbar when source WAV missing`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "export_clip_save_err"
+            val missingPath = File(tmp.root, "no_audio.wav").absolutePath
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, DraftStatus.PENDING_REVIEW).copy(audioPath = missingPath))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                queue = makeQueue(draftRepo = repo),
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+                exportClipsDir = tmp.newFolder("clips_err"),
+                audioSaver = AudioSaver { _, _ -> Uri.EMPTY },
+            )
+            val row = SpeciesRow(
+                detectionId = 2L,
+                taxonScientificName = "Parus major",
+                taxonCommonName = null,
+                maxConfidence = 0.9f,
+                detectedWindows = 1,
+                firstSeenMs = 0L,
+                lastSeenMs = 3_000L,
+                isSelected = true,
+            )
+
+            vm.onSaveSpeciesClip(row)
+
+            val effect = vm.state.value.exportEffect
+            assertThat(effect).isInstanceOf(ReviewExportEffect.ShowSnackbar::class.java)
+            assertThat((effect as ReviewExportEffect.ShowSnackbar).message)
+                .isEqualTo("Audio file is missing")
+            assertThat(vm.state.value.exportingAction).isNull()
+        }
+
+    /** Creates a valid mono 16-bit PCM WAV file containing [durationMs] ms of silence. */
+    private fun createSilentWav(dest: File, sampleRate: Int = 16_000, durationMs: Long = 1_000): File {
+        val samples = ((sampleRate.toLong() * durationMs) / 1000L).toInt()
+        val writer = com.sound2inat.recorder.WavWriter(dest, sampleRate, channels = 1, bitsPerSample = 16)
+        writer.open()
+        writer.writeShorts(ShortArray(samples), 0, samples)
+        writer.close()
+        return dest
+    }
 
     private fun draftFor(id: String, status: DraftStatus): DraftEntity = DraftEntity(
         id = id,

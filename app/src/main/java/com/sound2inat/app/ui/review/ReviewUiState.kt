@@ -107,9 +107,9 @@ sealed interface ObservationDetailLoadState {
 
 sealed interface ExportingAction {
     data object FullRecordingShare : ExportingAction
-    data object FullRecordingSave  : ExportingAction
-    data class  SpeciesClipShare(val detectionId: Long) : ExportingAction
-    data class  SpeciesClipSave (val detectionId: Long) : ExportingAction
+    data object FullRecordingSave : ExportingAction
+    data class SpeciesClipShare(val detectionId: Long) : ExportingAction
+    data class SpeciesClipSave(val detectionId: Long) : ExportingAction
 }
 
 sealed interface ReviewExportEffect {

@@ -1,10 +1,12 @@
 package com.sound2inat.app.ui.review
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sound2inat.app.AudioExportManager
 import com.sound2inat.app.data.Settings
 import com.sound2inat.app.inference.InferenceQueue
 import com.sound2inat.app.inference.JobStatus
@@ -15,6 +17,7 @@ import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.ObservationDetail
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inat.RegionalStatusRepository
+import com.sound2inat.inat.WavTrimmer
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.FragmentRanges
 import com.sound2inat.inference.InferenceJob
@@ -112,6 +115,17 @@ sealed interface InatSubmissionOutcome {
     data class Failure(val message: String) : InatSubmissionOutcome
 }
 
+/**
+ * Abstraction over saving audio to public storage. Lets VM unit tests
+ * inject a fake save operation without touching Android MediaStore.
+ * Returns the [Uri] of the saved file, or null if not applicable.
+ * The ViewModel discards the return value — it is exposed only for
+ * callers that need to open or share the just-saved item.
+ */
+fun interface AudioSaver {
+    suspend fun saveToDownloads(file: File, displayName: String): Uri?
+}
+
 @Suppress("LongParameterList")
 class ReviewViewModel(
     private val draftId: String,
@@ -171,6 +185,14 @@ class ReviewViewModel(
     private val photosDao: DraftPhotoDao? = null,
     /** File store used to create photo files for camera capture. Null in tests. */
     private val photoStore: PhotoFileStore? = null,
+    private val audioSaver: AudioSaver = AudioSaver { _, _ ->
+        throw UnsupportedOperationException("No AudioSaver configured")
+    },
+    // Default is used only in JVM tests; production factory passes context.cacheDir/export_clips.
+    private val exportClipsDir: File = File(
+        checkNotNull(System.getProperty("java.io.tmpdir")),
+        "export_clips"
+    ),
     private val queue: InferenceQueue,
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
@@ -925,9 +947,144 @@ class ReviewViewModel(
         }
     }
 
+    fun onShareFullRecording() {
+        _state.update { it.copy(exportingAction = ExportingAction.FullRecordingShare) }
+        scope.launch(ioDispatcher) {
+            try {
+                val path = _state.value.audioPath
+                val file = if (path != null) File(path) else null
+                require(file != null && file.exists() && file.isFile && file.length() > 0L)
+                emitEffect(ReviewExportEffect.ShareAudioFile(file))
+            } catch (_: IllegalArgumentException) {
+                emitEffect(ReviewExportEffect.ShowSnackbar("Audio file is missing"))
+            } catch (_: Exception) {
+                emitEffect(ReviewExportEffect.ShowSnackbar("Could not share audio"))
+            } finally {
+                clearExportingAction()
+            }
+        }
+    }
+
+    fun onSaveFullRecording() {
+        _state.update { it.copy(exportingAction = ExportingAction.FullRecordingSave) }
+        scope.launch(ioDispatcher) {
+            try {
+                val path = _state.value.audioPath
+                val file = if (path != null) File(path) else null
+                require(file != null && file.exists() && file.isFile && file.length() > 0L)
+                audioSaver.saveToDownloads(file, buildDisplayName("recording"))
+                emitEffect(ReviewExportEffect.ShowSnackbar("Audio saved to Downloads"))
+            } catch (_: UnsupportedOperationException) {
+                emitEffect(
+                    ReviewExportEffect.ShowSnackbar(
+                        "Saving to Downloads is not supported on this Android version"
+                    )
+                )
+            } catch (_: IllegalArgumentException) {
+                emitEffect(ReviewExportEffect.ShowSnackbar("Audio file is missing"))
+            } catch (_: Exception) {
+                emitEffect(ReviewExportEffect.ShowSnackbar("Could not save audio"))
+            } finally {
+                clearExportingAction()
+            }
+        }
+    }
+
+    fun onShareSpeciesClip(row: SpeciesRow) {
+        _state.update { it.copy(exportingAction = ExportingAction.SpeciesClipShare(row.detectionId)) }
+        scope.launch(ioDispatcher) {
+            try {
+                val clip = prepareSpeciesClip(row)
+                emitEffect(ReviewExportEffect.ShareAudioFile(clip))
+            } catch (_: IllegalArgumentException) {
+                emitEffect(ReviewExportEffect.ShowSnackbar("Audio file is missing"))
+            } catch (_: Exception) {
+                emitEffect(ReviewExportEffect.ShowSnackbar("Could not share audio"))
+            } finally {
+                clearExportingAction()
+            }
+        }
+    }
+
+    fun onSaveSpeciesClip(row: SpeciesRow) {
+        _state.update { it.copy(exportingAction = ExportingAction.SpeciesClipSave(row.detectionId)) }
+        scope.launch(ioDispatcher) {
+            try {
+                val clip = prepareSpeciesClip(row)
+                val safe = row.taxonScientificName.replace("[^A-Za-z0-9]+".toRegex(), "_")
+                audioSaver.saveToDownloads(clip, buildDisplayName("clip_$safe"))
+                emitEffect(ReviewExportEffect.ShowSnackbar("Audio saved to Downloads"))
+            } catch (_: UnsupportedOperationException) {
+                emitEffect(
+                    ReviewExportEffect.ShowSnackbar(
+                        "Saving to Downloads is not supported on this Android version"
+                    )
+                )
+            } catch (_: IllegalArgumentException) {
+                emitEffect(ReviewExportEffect.ShowSnackbar("Audio file is missing"))
+            } catch (_: Exception) {
+                emitEffect(ReviewExportEffect.ShowSnackbar("Could not save audio"))
+            } finally {
+                clearExportingAction()
+            }
+        }
+    }
+
+    fun consumeExportEffect() {
+        _state.update { it.copy(exportEffect = null) }
+    }
+
+    private fun prepareSpeciesClip(row: SpeciesRow): File {
+        val snapshot = _state.value
+        val srcPath = requireNotNull(snapshot.audioPath) { "No audio path available" }
+        val srcFile = File(srcPath)
+        require(srcFile.exists() && srcFile.isFile && srcFile.length() > 0L) {
+            "Source audio missing or empty"
+        }
+        val durationMs = snapshot.durationMs
+        require(durationMs > 0L) { "Recording duration not yet loaded" }
+        val startMs = maxOf(0L, row.firstSeenMs - CLIP_PADDING_MS)
+        val endMs = minOf(durationMs, row.lastSeenMs + CLIP_PADDING_MS)
+        require(endMs > startMs) { "Clip range is empty: $startMs..$endMs" }
+        val safe = row.taxonScientificName.replace("[^A-Za-z0-9]+".toRegex(), "_")
+        val clipFile = File(exportClipsDir, "${draftId}__${safe}__${row.firstSeenMs}_${row.lastSeenMs}.wav")
+        if (clipFile.exists() && clipFile.length() > 0L) return clipFile
+        exportClipsDir.mkdirs()
+        val tmp = File(exportClipsDir, "${clipFile.name}.tmp")
+        try {
+            WavTrimmer.trimMono16(srcPath, tmp, startMs, endMs)
+            if (!tmp.renameTo(clipFile)) {
+                // renameTo can fail across filesystems; fall back to copy+delete
+                tmp.copyTo(clipFile, overwrite = true)
+                tmp.delete()
+            }
+        } catch (t: Throwable) {
+            tmp.delete()
+            throw t
+        }
+        return clipFile
+    }
+
+    private fun emitEffect(effect: ReviewExportEffect) {
+        _state.update { it.copy(exportEffect = effect) }
+    }
+
+    private fun clearExportingAction() {
+        _state.update { it.copy(exportingAction = null) }
+    }
+
+    private fun buildDisplayName(prefix: String): String {
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", java.util.Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }
+        return "${prefix}_${sdf.format(java.util.Date(_state.value.recordedAtUtcMs))}.wav"
+    }
+
     private companion object {
         /** Milliseconds an overlay/row stays highlighted after a tap. */
         const val HighlightDurationMs = 800L
+
+        private const val CLIP_PADDING_MS = 1_000L
     }
 }
 
@@ -955,6 +1112,7 @@ class ReviewViewModelFactory @Inject constructor(
     private val photosDao: DraftPhotoDao,
     private val photoStore: PhotoFileStore,
     private val queue: InferenceQueue,
+    private val audioExport: AudioExportManager,
 ) {
     /** Cache root used by the screen's `ensureVisuals` call. */
     val filesDir: File get() = context.filesDir
@@ -993,6 +1151,8 @@ class ReviewViewModelFactory @Inject constructor(
         habitatPhotosFlow = photosDao.photosForDraft(draftId),
         photosDao = photosDao,
         photoStore = photoStore,
+        audioSaver = AudioSaver { file, name -> audioExport.saveToDownloads(file, name) },
+        exportClipsDir = File(context.cacheDir, "export_clips"),
         queue = queue,
         externalScope = externalScope,
     )

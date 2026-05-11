@@ -31,6 +31,7 @@ class AudioExportManager @Inject constructor(
         return saveToDownloadsQ(file, displayName)
     }
 
+    @Suppress("ThrowsCount")
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun saveToDownloadsQ(file: File, displayName: String): Uri {
         require(file.exists() && file.isFile && file.length() > 0L) {
@@ -43,12 +44,14 @@ class AudioExportManager @Inject constructor(
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
         val resolver = context.contentResolver
-        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            ?: throw IllegalStateException("MediaStore.insert returned null")
+        val uri = checkNotNull(resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)) {
+            "MediaStore.insert returned null"
+        }
         try {
-            resolver.openOutputStream(uri)?.use { out ->
-                file.inputStream().use { it.copyTo(out) }
-            } ?: throw IllegalStateException("Could not open output stream for $uri")
+            val stream = checkNotNull(resolver.openOutputStream(uri)) {
+                "Could not open output stream for $uri"
+            }
+            stream.use { out -> file.inputStream().use { it.copyTo(out) } }
         } catch (t: Throwable) {
             runCatching { resolver.delete(uri, null, null) }
             throw t
