@@ -5,6 +5,7 @@ import com.sound2inat.inference.FragmentRange
 import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.DraftStatus
+import java.io.File
 
 data class SpeciesRow(
     val detectionId: Long,
@@ -74,6 +75,13 @@ data class ReviewUiState(
     val estimatedWaitMs: Long? = null,
     /** Last error message from a queued inference job. Null when no error. */
     val queueError: String? = null,
+    /** Which export action is currently running; null when idle. Drives button spinner state. */
+    val exportingAction: ExportingAction? = null,
+    /**
+     * One-shot export side-effect. Composable must call `vm.consumeExportEffect()`
+     * BEFORE executing the side effect (before startActivity or showSnackbar).
+     */
+    val exportEffect: ReviewExportEffect? = null,
 )
 
 sealed interface PlaybackState {
@@ -95,4 +103,16 @@ sealed interface ObservationDetailLoadState {
     data object Loading : ObservationDetailLoadState
     data class Loaded(val detail: ObservationDetail) : ObservationDetailLoadState
     data class Error(val message: String) : ObservationDetailLoadState
+}
+
+sealed interface ExportingAction {
+    data object FullRecordingShare : ExportingAction
+    data object FullRecordingSave  : ExportingAction
+    data class  SpeciesClipShare(val detectionId: Long) : ExportingAction
+    data class  SpeciesClipSave (val detectionId: Long) : ExportingAction
+}
+
+sealed interface ReviewExportEffect {
+    data class ShareAudioFile(val file: File) : ReviewExportEffect
+    data class ShowSnackbar(val message: String) : ReviewExportEffect
 }

@@ -6,4 +6,10 @@
     <files-path
         name="habitat_photos_internal"
         path="habitat_photos/" />
+
+    <!-- Full recordings for FileProvider share -->
+    <files-path name="recordings" path="recordings/" />
+
+    <!-- Temporary export clips for species clip share -->
+    <cache-path name="export_clips" path="export_clips/" />
 </paths>
