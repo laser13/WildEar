@@ -36,19 +36,20 @@ class AudioExportManager @Inject constructor(
 
 `AudioExportManager` does **not** switch dispatchers internally. The caller (ReviewViewModel) must invoke it from `ioDispatcher`.
 
-API split by `Build.VERSION.SDK_INT`:
+**API 29+ (Android 10+) only.** On API 28, `saveToDownloads` must immediately throw `UnsupportedOperationException("API 29+ required")` — the caller (VM) catches this and emits `ShowSnackbar("Saving to Downloads is not supported on this Android version")`. No `WRITE_EXTERNAL_STORAGE` permission is added.
 
-- **API 29+ (Android 10+):** Insert via `MediaStore.Downloads.EXTERNAL_CONTENT_URI` with:
+On API 29+:
+
+- Defensively verify `file.exists() && file.isFile && file.length() > 0` before inserting into MediaStore; throw `IllegalArgumentException` if the check fails.
+- Insert via `MediaStore.Downloads.EXTERNAL_CONTENT_URI` with:
   - `DISPLAY_NAME` = `displayName`
   - `MIME_TYPE` = `"audio/wav"`
   - `RELATIVE_PATH` = `Environment.DIRECTORY_DOWNLOADS + "/WildEar"`
-  - Open output stream, copy bytes from `file` with `use`.
-  - On copy failure: delete the partial entry via `contentResolver.delete(uri, null, null)`.
-  - Return `Uri` on success.
+- Open output stream, copy bytes from `file` with `use`.
+- On copy failure: delete the partial entry via `contentResolver.delete(uri, null, null)`, then rethrow.
+- Return `Uri` on success.
 
-- **API 28 (Android 9 — minSdk fallback):** Insert via `MediaStore.Audio.Media.EXTERNAL_CONTENT_URI` with `DISPLAY_NAME` and `MIME_TYPE` only (no `RELATIVE_PATH`). File lands in the device's default audio directory. No `WRITE_EXTERNAL_STORAGE` permission is needed on API 28 for own-app MediaStore writes when using the Audio collection. On copy failure: delete the partial entry.
-
-Full recording **Share** does not copy the file — FileProvider exposes the original `filesDir/recordings/<id>.wav` directly. Full recording **Save** copies the file to public storage.
+Full recording **Share** does not copy the file — FileProvider exposes the original `filesDir/recordings/<id>.wav` directly. Full recording **Save** copies the file to public storage. **Share works on all API levels (28+) via FileProvider.**
 
 ---
 
@@ -101,7 +102,17 @@ fun consumeExportEffect()
 private suspend fun prepareSpeciesClip(row: SpeciesRow): File
 ```
 
-Uses `WavTrimmer.trimMono16` with bounds `firstSeenMs - PADDING_MS .. lastSeenMs + PADDING_MS` (same as `INatSubmitter.cropPerSpecies`, `PADDING_MS = 1000`). Clip files live in `cacheDir/export_clips/`. Filename is stable:
+Uses `WavTrimmer.trimMono16`. Bounds must be clamped before the call:
+
+```kotlin
+val startMs = maxOf(0L, row.firstSeenMs - PADDING_MS)
+val endMs   = minOf(recordingDurationMs, row.lastSeenMs + PADDING_MS)
+require(endMs > startMs) { "clip range is empty" }
+```
+
+`PADDING_MS = 1000` (same constant as `INatSubmitter`). `recordingDurationMs` is read from `_state.value.durationMs`. If `endMs <= startMs`, emit `ShowSnackbar("Could not share audio")` / `"Could not save audio"` and return without calling `WavTrimmer`.
+
+Clip files live in `cacheDir/export_clips/`. Filename is stable:
 
 ```
 <draftId>__<sanitizedSpecies>__<firstSeenMs>_<lastSeenMs>.wav
@@ -167,7 +178,7 @@ Inject `AudioExportManager` and pass it into `ReviewViewModel.create(...)`.
 
 **Effect collection** — added to `ReviewPage` body:
 
-`FILE_PROVIDER_AUTHORITY` is the existing constant from `UiUtils.kt` (`"com.sound2inat.app.fileprovider"`). Do not hardcode the string in new code.
+`FILE_PROVIDER_AUTHORITY` is the existing constant from `UiUtils.kt`. Do not hardcode the string in new code. Verify it matches the `android:authorities` value in `AndroidManifest.xml` before using it here.
 
 ```kotlin
 val snackbarHostState = remember { SnackbarHostState() }
@@ -177,12 +188,14 @@ LaunchedEffect(state.exportEffect) {
     vm.consumeExportEffect()               // consume FIRST, before any side effect
     when (effect) {
         is ReviewExportEffect.ShareAudioFile -> {
+            val uri = FileProvider.getUriForFile(
+                context, FILE_PROVIDER_AUTHORITY, effect.file,
+            )
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = "audio/wav"
-                putExtra(
-                    Intent.EXTRA_STREAM,
-                    FileProvider.getUriForFile(context, FILE_PROVIDER_AUTHORITY, effect.file),
-                )
+                putExtra(Intent.EXTRA_STREAM, uri)
+                // ClipData ensures URI permissions propagate to all receiving apps
+                clipData = ClipData.newUri(context.contentResolver, effect.file.name, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             try {
@@ -274,13 +287,15 @@ Recording files are confirmed to live in `context.filesDir/recordings/` (via `Wa
 
 ## Error handling matrix
 
-| Condition                     | Action       | User-visible Snackbar              |
-|-------------------------------|--------------|------------------------------------|
-| Audio file missing or empty   | Share / Save | "Audio file is missing"            |
-| WavTrimmer crop failure       | Share / Save | "Could not share/save audio"       |
-| No app for share intent       | Share        | "Could not share audio"            |
-| MediaStore insert failed      | Save         | "Could not save audio"             |
-| Bytes copy failed             | Save         | "Could not save audio"             |
+| Condition                          | Action       | User-visible Snackbar                                          |
+|------------------------------------|--------------|----------------------------------------------------------------|
+| Audio file missing or empty        | Share        | "Audio file is missing"                                        |
+| Audio file missing or empty        | Save         | "Audio file is missing"                                        |
+| WavTrimmer crop failure (clip)     | Share clip   | "Could not share audio"                                        |
+| WavTrimmer crop failure (clip)     | Save clip    | "Could not save audio"                                         |
+| No app for share intent            | Share        | "Could not share audio"                                        |
+| MediaStore insert or copy failed   | Save         | "Could not save audio"                                         |
+| API 28 (save not supported)        | Save         | "Saving to Downloads is not supported on this Android version" |
 
 All user messages are Snackbars — no Toasts.
 
@@ -292,7 +307,7 @@ All user messages are Snackbars — no Toasts.
 - Recording / playback pipeline — untouched.
 - `WavTrimmer` — used as-is (public object, no modifications needed).
 - `AndroidManifest.xml` — `FileProvider` is already declared; only `file_paths.xml` needs updating.
-- `WRITE_EXTERNAL_STORAGE` — not requested. MediaStore on API 28+ for own-app writes does not require it.
+- `WRITE_EXTERNAL_STORAGE` — not requested. Save is only implemented for API 29+ where Scoped Storage removes the need. On API 28, Save shows a Snackbar instead of attempting a MediaStore write.
 
 ---
 
@@ -325,5 +340,5 @@ All user messages are Snackbars — no Toasts.
 - [ ] Species name with non-Latin characters → clip filename sanitized correctly
 - [ ] Double-tap Share → only one action runs (buttons disabled while exportingAction is set)
 - [ ] No share target available → Snackbar "Could not share audio" (no crash)
-- [ ] Android 9 (API 28) — save lands in audio collection, not Downloads
-- [ ] Android 10, 13, 14 — save lands in Downloads/WildEar/
+- [ ] Android 9 (API 28) — Save shows Snackbar "not supported"; Share still works
+- [ ] Android 10, 13, 14 — Save lands in Downloads/WildEar/
