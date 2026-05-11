@@ -951,10 +951,11 @@ class ReviewViewModel(
         _state.update { it.copy(exportingAction = ExportingAction.FullRecordingShare) }
         scope.launch(ioDispatcher) {
             try {
-                val path = _state.value.audioPath
+                val snapshot = _state.value
+                val path = snapshot.audioPath
                 val file = if (path != null) File(path) else null
                 require(file != null && file.exists() && file.isFile && file.length() > 0L)
-                emitEffect(ReviewExportEffect.ShareAudioFile(file))
+                emitEffect(ReviewExportEffect.ShareAudioFile(file, buildFullRecordingShareText(snapshot)))
             } catch (_: IllegalArgumentException) {
                 emitEffect(ReviewExportEffect.ShowSnackbar("Audio file is missing"))
             } catch (_: Exception) {
@@ -994,8 +995,9 @@ class ReviewViewModel(
         _state.update { it.copy(exportingAction = ExportingAction.SpeciesClipShare(row.detectionId)) }
         scope.launch(ioDispatcher) {
             try {
+                val snapshot = _state.value
                 val clip = prepareSpeciesClip(row)
-                emitEffect(ReviewExportEffect.ShareAudioFile(clip))
+                emitEffect(ReviewExportEffect.ShareAudioFile(clip, buildClipShareText(snapshot, row)))
             } catch (_: IllegalArgumentException) {
                 emitEffect(ReviewExportEffect.ShowSnackbar("Audio file is missing"))
             } catch (_: Exception) {
@@ -1078,6 +1080,53 @@ class ReviewViewModel(
             timeZone = java.util.TimeZone.getTimeZone("UTC")
         }
         return "${prefix}_${sdf.format(java.util.Date(_state.value.recordedAtUtcMs))}.wav"
+    }
+
+    private fun buildFullRecordingShareText(snapshot: ReviewUiState): String {
+        val sb = StringBuilder("WildEar recording — ")
+        sb.append(formatShareDateTime(snapshot.recordedAtUtcMs))
+        formatShareCoords(snapshot.latitude, snapshot.longitude)?.let {
+            sb.append("\nLocation: ").append(it)
+        }
+        val sorted = snapshot.species.sortedByDescending { it.maxConfidence }
+        if (sorted.isNotEmpty()) {
+            sb.append("\n\nDetected:")
+            sorted.forEach { row -> sb.append("\n• ").append(formatSpeciesLine(row)) }
+        }
+        return sb.toString()
+    }
+
+    private fun buildClipShareText(snapshot: ReviewUiState, row: SpeciesRow): String {
+        val sb = StringBuilder("WildEar — ")
+        sb.append(formatSpeciesLine(row))
+        sb.append("\n").append(formatShareDateTime(snapshot.recordedAtUtcMs))
+        formatShareCoords(snapshot.latitude, snapshot.longitude)?.let {
+            sb.append("\nLocation: ").append(it)
+        }
+        return sb.toString()
+    }
+
+    private fun formatSpeciesLine(row: SpeciesRow): String {
+        val name = if (row.taxonCommonName != null) {
+            "${row.taxonCommonName} (${row.taxonScientificName})"
+        } else {
+            row.taxonScientificName
+        }
+        return "$name — ${"%.0f".format(row.maxConfidence * 100)}%"
+    }
+
+    private fun formatShareDateTime(epochMs: Long): String {
+        val sdf = java.text.SimpleDateFormat("d MMM yyyy, HH:mm 'UTC'", java.util.Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }
+        return sdf.format(java.util.Date(epochMs))
+    }
+
+    private fun formatShareCoords(lat: Double?, lon: Double?): String? {
+        if (lat == null || lon == null) return null
+        val latStr = "${"%.4f".format(Math.abs(lat))}°${if (lat >= 0) "N" else "S"}"
+        val lonStr = "${"%.4f".format(Math.abs(lon))}°${if (lon >= 0) "E" else "W"}"
+        return "$latStr, $lonStr"
     }
 
     private companion object {

@@ -113,6 +113,6 @@ sealed interface ExportingAction {
 }
 
 sealed interface ReviewExportEffect {
-    data class ShareAudioFile(val file: File) : ReviewExportEffect
+    data class ShareAudioFile(val file: File, val shareText: String? = null) : ReviewExportEffect
     data class ShowSnackbar(val message: String) : ReviewExportEffect
 }

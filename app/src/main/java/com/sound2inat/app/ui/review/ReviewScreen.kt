@@ -196,6 +196,7 @@ private fun ReviewPage(
                             val intent = Intent(Intent.ACTION_SEND).apply {
                                 type = "audio/wav"
                                 putExtra(Intent.EXTRA_STREAM, uri)
+                                effect.shareText?.let { putExtra(Intent.EXTRA_TEXT, it) }
                                 clipData = ClipData.newUri(context.contentResolver, effect.file.name, uri)
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
