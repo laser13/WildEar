@@ -1,6 +1,5 @@
 package com.sound2inat.app.ui.review
 
-import com.sound2inat.inference.ModelIds
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -30,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.sound2inat.app.R
 import com.sound2inat.app.ui.formatDurationMs
 import com.sound2inat.app.ui.theme.iNatGreen
+import com.sound2inat.inference.ModelIds
 
 /**
  * Bottom sheet showing technical details for a single species detection.
@@ -197,13 +197,19 @@ internal fun SpeciesDetailsSheet(
                             DetailRow(
                                 label = stringResource(R.string.sheet_label_status),
                                 value = idText,
-                                valueColor = if (d.qualityGrade == "research") iNatGreen
-                                    else MaterialTheme.colorScheme.onSurface,
+                                valueColor = if (d.qualityGrade == "research") {
+                                    iNatGreen
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
                             )
                         }
                         if (d.taxonCommonName != null && d.qualityGrade == "research") {
                             item {
-                                DetailRow(label = stringResource(R.string.sheet_label_confirmed_as), value = d.taxonCommonName)
+                                DetailRow(
+                                    label = stringResource(R.string.sheet_label_confirmed_as),
+                                    value = d.taxonCommonName
+                                )
                             }
                         }
                         if (d.commentsCount > 0) {
@@ -313,7 +319,6 @@ private fun DetailRow(
  * may replace this with per-window ranges from the data layer.
  */
 internal data class SpeciesTimeRange(val startMs: Long, val endMs: Long)
-
 
 /**
  * Sorts ranges by start time and merges overlapping or adjacent ones into

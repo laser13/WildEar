@@ -4,7 +4,6 @@ import android.content.Context
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.app.data.Settings
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
@@ -60,7 +59,10 @@ class INatAuthRepositoryTest {
     fun `ensureMigrated runs at most once under concurrent calls`() = runTest {
         val migrationCalls = AtomicInteger(0)
         val repo = buildRepo(
-            legacySource = { migrationCalls.incrementAndGet(); null }  // null = no legacy token
+            legacySource = {
+                migrationCalls.incrementAndGet()
+                null
+            } // null = no legacy token
         )
         coroutineScope {
             repeat(50) { launch { repo.getValidToken() } }

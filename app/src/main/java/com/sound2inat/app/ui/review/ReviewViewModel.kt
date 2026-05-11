@@ -9,6 +9,7 @@ import com.sound2inat.app.data.Settings
 import com.sound2inat.app.inference.InferenceQueue
 import com.sound2inat.app.inference.JobStatus
 import com.sound2inat.app.inference.QueuedJob
+import com.sound2inat.app.ui.FILE_PROVIDER_AUTHORITY
 import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.ObservationDetail
@@ -19,18 +20,16 @@ import com.sound2inat.inference.FragmentRanges
 import com.sound2inat.inference.InferenceJob
 import com.sound2inat.inference.InferenceOutcome
 import com.sound2inat.inference.InferenceUseCase
-import com.sound2inat.inference.ModelIds
 import com.sound2inat.inference.PerchAnalysisJob
 import com.sound2inat.inference.PerchAnalysisOutcome
 import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.inference.SourceStats
 import com.sound2inat.inference.WavReader
-import com.sound2inat.inference.denoiseFull
-import com.sound2inat.recorder.WavWriter
 import com.sound2inat.inference.WindowPrediction
+import com.sound2inat.inference.denoiseFull
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
-import com.sound2inat.app.ui.FILE_PROVIDER_AUTHORITY
+import com.sound2inat.recorder.WavWriter
 import com.sound2inat.storage.DraftPhotoDao
 import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.DraftRepository
@@ -258,11 +257,14 @@ class ReviewViewModel(
                     _state.update { s ->
                         s.copy(
                             inferenceProgress = (status as? JobStatus.Running)?.birdnetProgress,
-                            perchProgress     = (status as? JobStatus.Running)?.perchProgress,
-                            queuePosition     = (status as? JobStatus.Queued)?.position,
-                            estimatedWaitMs   = (status as? JobStatus.Queued)?.estimatedWaitMs,
-                            inferenceError    = if (status is JobStatus.Failed) status.message
-                                                else s.inferenceError,
+                            perchProgress = (status as? JobStatus.Running)?.perchProgress,
+                            queuePosition = (status as? JobStatus.Queued)?.position,
+                            estimatedWaitMs = (status as? JobStatus.Queued)?.estimatedWaitMs,
+                            inferenceError = if (status is JobStatus.Failed) {
+                                status.message
+                            } else {
+                                s.inferenceError
+                            },
                         )
                     }
                     if (status is JobStatus.Failed) queue.clearError(draftId)
@@ -517,8 +519,11 @@ class ReviewViewModel(
         _state.update { cur ->
             cur.copy(
                 species = cur.species.map { row ->
-                    if (row.detectionId == detectionId) row.copy(includeHabitatPhoto = !row.includeHabitatPhoto)
-                    else row
+                    if (row.detectionId == detectionId) {
+                        row.copy(includeHabitatPhoto = !row.includeHabitatPhoto)
+                    } else {
+                        row
+                    }
                 },
             )
         }
@@ -532,7 +537,9 @@ class ReviewViewModel(
         checkNotNull(photoStore) { "Camera not available" }
         val file = photoStore.newPhotoFile(draftId, photoId)
         return androidx.core.content.FileProvider.getUriForFile(
-            context, FILE_PROVIDER_AUTHORITY, file,
+            context,
+            FILE_PROVIDER_AUTHORITY,
+            file,
         )
     }
 
@@ -551,7 +558,9 @@ class ReviewViewModel(
         checkNotNull(photoStore) { "Camera not available" }
         val file = photoStore.newPhotoFile(draftId, photoId)
         val uri = androidx.core.content.FileProvider.getUriForFile(
-            context, FILE_PROVIDER_AUTHORITY, file,
+            context,
+            FILE_PROVIDER_AUTHORITY,
+            file,
         )
         return uri to file.absolutePath
     }
@@ -559,7 +568,14 @@ class ReviewViewModel(
     /** Persists a newly captured photo entity to the database. */
     fun onPhotoTaken(draftId: String, photoId: String, photoPath: String) {
         scope.launch(Dispatchers.IO) {
-            photosDao?.insert(DraftPhotoEntity(id = photoId, draftId = draftId, photoPath = photoPath, takenAtMs = System.currentTimeMillis()))
+            photosDao?.insert(
+                DraftPhotoEntity(
+                    id = photoId,
+                    draftId = draftId,
+                    photoPath = photoPath,
+                    takenAtMs = System.currentTimeMillis()
+                )
+            )
         }
     }
 

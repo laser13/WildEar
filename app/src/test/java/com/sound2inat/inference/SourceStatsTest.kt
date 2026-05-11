@@ -8,10 +8,10 @@ class SourceStatsTest {
     @Test fun `encode round-trips through decode`() {
         val input = mapOf(
             "birdnet_v2_4" to SourceStat(0.85f, 3, 500L, 12_000L),
-            "perch_v2"     to SourceStat(0.62f, 1, 3_000L, 6_000L),
+            "perch_v2" to SourceStat(0.62f, 1, 3_000L, 6_000L),
         )
         val encoded = SourceStats.encode(input)!!
-        val decoded  = SourceStats.decode(encoded)
+        val decoded = SourceStats.decode(encoded)
         assertThat(decoded).isEqualTo(input)
     }
 
@@ -51,7 +51,7 @@ class SourceStatsTest {
 
     @Test fun `encode sorts entries by key for deterministic output`() {
         val input = mapOf(
-            "perch_v2"     to SourceStat(0.62f, 1, 0L, 5_000L),
+            "perch_v2" to SourceStat(0.62f, 1, 0L, 5_000L),
             "birdnet_v2_4" to SourceStat(0.85f, 3, 0L, 9_000L),
         )
         val encoded = SourceStats.encode(input)!!

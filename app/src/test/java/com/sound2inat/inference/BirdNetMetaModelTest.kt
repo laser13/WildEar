@@ -26,7 +26,11 @@ class BirdNetMetaModelTest {
         val modelFile = tmp.newFile("meta.tflite").apply { writeBytes(byteArrayOf(0)) }
         val labelsFile = tmp.newFile("labels.txt").apply { writeText(labelsContent) }
         val fakeFactory = object : InterpreterFactory {
-            override fun create(m: File, threads: Int, allowDelegate: Boolean): InterpreterApi = object : InterpreterApi {
+            override fun create(
+                m: File,
+                threads: Int,
+                allowDelegate: Boolean
+            ): InterpreterApi = object : InterpreterApi {
                 override val outputTensorCount = 1
                 override fun getOutputShape(index: Int) = intArrayOf(1, probs.size)
                 override fun run(input: Any, output: Any) {
@@ -92,7 +96,11 @@ class BirdNetMetaModelTest {
     @Test
     fun `priors returns null when the meta-model is not installed`() = runTest {
         val fakeFactory = object : InterpreterFactory {
-            override fun create(m: File, threads: Int, allowDelegate: Boolean): InterpreterApi = error("should not be called")
+            override fun create(
+                m: File,
+                threads: Int,
+                allowDelegate: Boolean
+            ): InterpreterApi = error("should not be called")
         }
         val fakeManager = object : ModelManager(tmp.root, OkHttpClient()) {
             override suspend fun stateFor(descriptor: ModelDescriptor) = ModelInstallState.NotInstalled
@@ -111,7 +119,11 @@ class BirdNetMetaModelTest {
         val modelFile = tmp.newFile("meta.tflite").apply { writeBytes(byteArrayOf(0)) }
         val labelsFile = tmp.newFile("labels.txt").apply { writeText(labelsContent) }
         val throwingFactory = object : InterpreterFactory {
-            override fun create(m: File, threads: Int, allowDelegate: Boolean): InterpreterApi = error("deliberate failure")
+            override fun create(
+                m: File,
+                threads: Int,
+                allowDelegate: Boolean
+            ): InterpreterApi = error("deliberate failure")
         }
         val fakeManager = object : ModelManager(tmp.root, OkHttpClient()) {
             override suspend fun stateFor(descriptor: ModelDescriptor) =

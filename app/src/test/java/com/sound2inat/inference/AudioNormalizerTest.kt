@@ -38,7 +38,7 @@ class AudioNormalizerTest {
         val input = shortArrayOf(Short.MAX_VALUE, -16383)
         val result = AudioNormalizer.normalizeSamples(input)
         assertEquals(Short.MAX_VALUE.toInt(), result[0].toInt())
-        assertEquals(-16383, result[1].toInt())  // scale=1.0 so input is unchanged
+        assertEquals(-16383, result[1].toInt()) // scale=1.0 so input is unchanged
     }
 
     @Test

@@ -10,7 +10,6 @@ import com.sound2inat.inference.LiveInferenceEngineFactory
 import com.sound2inat.inference.ModelIds
 import com.sound2inat.inference.PostRecordingProcessor
 import com.sound2inat.inference.RegionalStatus
-import java.io.File
 import com.sound2inat.location.Fix
 import com.sound2inat.location.LocationProvider
 import com.sound2inat.recorder.Recorder
@@ -31,6 +30,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -94,6 +94,7 @@ class DefaultRecordingController(
 
     private val scope: CoroutineScope = applicationScope
     private val startMutex = Mutex()
+
     /**
      * Tracks the in-flight tear-down launched by [cancel]. Subsequent [start]
      * calls join this job under [startMutex] before constructing a new engine,
@@ -197,8 +198,11 @@ class DefaultRecordingController(
                         .forEach { pendingDisplay.add(it) }
                 }
                 val cards = snap.mapNotNull { det ->
-                    if (det.taxonScientificName in pendingDisplay) null
-                    else det.toLiveCard(regionalStatusCache[det.taxonScientificName])
+                    if (det.taxonScientificName in pendingDisplay) {
+                        null
+                    } else {
+                        det.toLiveCard(regionalStatusCache[det.taxonScientificName])
+                    }
                 }
                 val last = cards.maxByOrNull { it.lastSeenMs }
                 updateRecording { copy(liveCards = cards, lastDetection = last) }
@@ -381,8 +385,11 @@ class DefaultRecordingController(
     private fun refreshLiveCards() {
         val snap = activeAggregator?.snapshot() ?: return
         val cards = snap.mapNotNull { det ->
-            if (det.taxonScientificName in pendingDisplay) null
-            else det.toLiveCard(regionalStatusCache[det.taxonScientificName])
+            if (det.taxonScientificName in pendingDisplay) {
+                null
+            } else {
+                det.toLiveCard(regionalStatusCache[det.taxonScientificName])
+            }
         }
         updateRecording { copy(liveCards = cards, lastDetection = cards.maxByOrNull { it.lastSeenMs }) }
     }

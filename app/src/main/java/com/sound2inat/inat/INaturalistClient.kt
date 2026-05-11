@@ -345,11 +345,14 @@ open class INaturalistClient(
         value: String,
     ) = withContext(ioDispatcher) {
         val payload = JSONObject().apply {
-            put("observation_field_value", JSONObject().apply {
-                put("observation_field_id", fieldId)
-                put("observation_id", observationUuid)
-                put("value", value)
-            })
+            put(
+                "observation_field_value",
+                JSONObject().apply {
+                    put("observation_field_id", fieldId)
+                    put("observation_id", observationUuid)
+                    put("value", value)
+                }
+            )
         }
         val req = Request.Builder()
             .url(baseUrl + "/observation_field_values")
@@ -517,7 +520,14 @@ open class INaturalistClient(
                 result
             }
         }
-        return if (taxonId != null) "taxon_id=$taxonId" else "taxon_name=${java.net.URLEncoder.encode(scientificName, "UTF-8")}"
+        return if (taxonId != null) {
+            "taxon_id=$taxonId"
+        } else {
+            "taxon_name=${java.net.URLEncoder.encode(
+                scientificName,
+                "UTF-8"
+            )}"
+        }
     }
 
     /**

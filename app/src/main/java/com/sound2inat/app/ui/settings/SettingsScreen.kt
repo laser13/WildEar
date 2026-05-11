@@ -34,12 +34,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sound2inat.app.R
 import com.sound2inat.app.data.ThemeMode
 import com.sound2inat.inat.INatWebLoginActivity
@@ -58,7 +58,10 @@ fun SettingsScreen(onBack: () -> Unit) {
                 title = { Text(stringResource(R.string.title_settings)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.cd_back))
+                        Icon(
+                            Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = stringResource(R.string.cd_back)
+                        )
                     }
                 },
             )
@@ -99,7 +102,10 @@ fun SettingsScreen(onBack: () -> Unit) {
     state.sections.firstOrNull { it.showLicenseSheet }?.let { sec ->
         ModalBottomSheet(onDismissRequest = { vm.cancelLicenseSheet(sec.modelId) }) {
             Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(R.string.settings_install_model_title, sec.displayName), style = MaterialTheme.typography.titleLarge)
+                Text(
+                    stringResource(R.string.settings_install_model_title, sec.displayName),
+                    style = MaterialTheme.typography.titleLarge
+                )
                 Text(
                     stringResource(R.string.model_license, sec.license),
                     style = MaterialTheme.typography.bodyMedium,
@@ -153,7 +159,9 @@ private fun ModelSectionRow(sec: ModelSection, vm: SettingsViewModel) {
             )
             Text(stringResource(R.string.model_license, sec.license), style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = { vm.openLicenseSheet(sec.modelId) }) { Text(stringResource(R.string.btn_reinstall)) }
+            OutlinedButton(
+                onClick = { vm.openLicenseSheet(sec.modelId) }
+            ) { Text(stringResource(R.string.btn_reinstall)) }
             Spacer(Modifier.height(4.dp))
             OutlinedButton(onClick = { vm.remove(sec.modelId) }) { Text(stringResource(R.string.btn_remove)) }
         }

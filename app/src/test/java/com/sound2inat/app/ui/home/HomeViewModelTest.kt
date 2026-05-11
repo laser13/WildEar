@@ -53,8 +53,11 @@ class HomeViewModelTest {
 
         val modelManager = mockk<ModelManager>(relaxed = true)
         coEvery { modelManager.stateFor(BirdNetV24.descriptor) } returns
-            if (modelReady) ModelInstallState.Ready(java.io.File("/m"), java.io.File("/l"))
-            else ModelInstallState.NotInstalled
+            if (modelReady) {
+                ModelInstallState.Ready(java.io.File("/m"), java.io.File("/l"))
+            } else {
+                ModelInstallState.NotInstalled
+            }
 
         val detectionDao = mockk<DetectionDao>(relaxed = true)
         every { detectionDao.observeCountsByDraft() } returns flowOf(emptyList<DraftDetectionCount>())

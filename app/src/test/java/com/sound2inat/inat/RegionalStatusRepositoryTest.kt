@@ -34,7 +34,7 @@ class RegionalStatusRepositoryTest {
     @Test fun `cached value matches fetched value`() = runTest {
         val fake = FakeFilter(RegionalStatus.NOT_CONFIRMED)
         val repo = RegionalStatusRepository.forTest(annotator = fake)
-        val first  = repo.get("Parus major", 51.5, 0.1)
+        val first = repo.get("Parus major", 51.5, 0.1)
         val second = repo.get("Parus major", 51.5, 0.1)
         assertThat(first).isEqualTo(RegionalStatus.NOT_CONFIRMED)
         assertThat(second).isEqualTo(RegionalStatus.NOT_CONFIRMED)
@@ -74,8 +74,8 @@ class RegionalStatusRepositoryTest {
         val repo = RegionalStatusRepository.forTest(annotator = fake)
 
         // ~1 000 km apart — definitely different buckets
-        repo.get("Parus major", 51.5, 0.1)   // London area
-        repo.get("Parus major", 42.0, 12.5)  // Rome area
+        repo.get("Parus major", 51.5, 0.1) // London area
+        repo.get("Parus major", 42.0, 12.5) // Rome area
         assertThat(fake.calls).isEqualTo(2)
     }
 

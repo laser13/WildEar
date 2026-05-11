@@ -86,7 +86,8 @@ class HomeViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
 
     val filteredDrafts: StateFlow<List<DraftSummary>> = combine(
-        enrichedDrafts, filterMode,
+        enrichedDrafts,
+        filterMode,
     ) { drafts, mode ->
         when (mode) {
             FilterMode.ALL -> drafts

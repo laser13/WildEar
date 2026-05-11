@@ -266,9 +266,13 @@ class InferenceUseCaseTest {
                 override val windowMs = 5_000L
                 override suspend fun load(modelFile: File, labelsFile: File) = Unit
                 override suspend fun predict(
-                    pcmFloat32: FloatArray, sampleRateHz: Int, latitude: Double?,
-                    longitude: Double?, observedAtMillis: Long,
-                    windowStartMs: Long, windowEndMs: Long,
+                    pcmFloat32: FloatArray,
+                    sampleRateHz: Int,
+                    latitude: Double?,
+                    longitude: Double?,
+                    observedAtMillis: Long,
+                    windowStartMs: Long,
+                    windowEndMs: Long,
                 ) = listOf(
                     WindowPrediction(windowStartMs, windowEndMs, "Rana temporaria", null, 0.5f, ModelIds.PERCH),
                 )
@@ -286,7 +290,7 @@ class InferenceUseCaseTest {
             modelManager = fakeModelManager(modelFile, labelsFile),
             settings = fakeSettings(),
             yamNetGate = null,
-            parallelism = 2,   // fails to compile until parameter exists
+            parallelism = 2, // fails to compile until parameter exists
         )
 
         val outcome = job.run(perchWav.absolutePath, null, null, 0L) {}
@@ -319,9 +323,13 @@ class InferenceUseCaseTest {
             override val windowMs = 5_000L
             override suspend fun load(modelFile: File, labelsFile: File) { loadCount++ }
             override suspend fun predict(
-                pcmFloat32: FloatArray, sampleRateHz: Int, latitude: Double?,
-                longitude: Double?, observedAtMillis: Long,
-                windowStartMs: Long, windowEndMs: Long,
+                pcmFloat32: FloatArray,
+                sampleRateHz: Int,
+                latitude: Double?,
+                longitude: Double?,
+                observedAtMillis: Long,
+                windowStartMs: Long,
+                windowEndMs: Long,
             ) = emptyList<WindowPrediction>()
             override fun close() { firstInstanceClosed = true }
             override fun newInstance(): BioacousticModel = this
@@ -336,9 +344,13 @@ class InferenceUseCaseTest {
                 throw RuntimeException("OOM on second load")
             }
             override suspend fun predict(
-                pcmFloat32: FloatArray, sampleRateHz: Int, latitude: Double?,
-                longitude: Double?, observedAtMillis: Long,
-                windowStartMs: Long, windowEndMs: Long,
+                pcmFloat32: FloatArray,
+                sampleRateHz: Int,
+                latitude: Double?,
+                longitude: Double?,
+                observedAtMillis: Long,
+                windowStartMs: Long,
+                windowEndMs: Long,
             ) = emptyList<WindowPrediction>()
             override fun close() { secondInstanceClosed = true }
             override fun newInstance(): BioacousticModel = this
@@ -351,9 +363,13 @@ class InferenceUseCaseTest {
             override val windowMs = 5_000L
             override suspend fun load(modelFile: File, labelsFile: File) = Unit // root is never loaded
             override suspend fun predict(
-                pcmFloat32: FloatArray, sampleRateHz: Int, latitude: Double?,
-                longitude: Double?, observedAtMillis: Long,
-                windowStartMs: Long, windowEndMs: Long,
+                pcmFloat32: FloatArray,
+                sampleRateHz: Int,
+                latitude: Double?,
+                longitude: Double?,
+                observedAtMillis: Long,
+                windowStartMs: Long,
+                windowEndMs: Long,
             ) = emptyList<WindowPrediction>()
             override fun close() = Unit // root is never closed (it's the DI singleton)
             override fun newInstance(): BioacousticModel {
@@ -381,8 +397,8 @@ class InferenceUseCaseTest {
         val outcome = job.run(shortWav.absolutePath, null, null, 0L) {}
 
         assertThat(outcome).isInstanceOf(PerchAnalysisOutcome.Failure::class.java)
-        assertThat(loadCount).isEqualTo(1)          // first instance loaded successfully
-        assertThat(firstInstanceClosed).isTrue()    // first instance closed in guard
-        assertThat(secondInstanceClosed).isFalse()  // second instance never loaded, so not closed
+        assertThat(loadCount).isEqualTo(1) // first instance loaded successfully
+        assertThat(firstInstanceClosed).isTrue() // first instance closed in guard
+        assertThat(secondInstanceClosed).isFalse() // second instance never loaded, so not closed
     }
 }

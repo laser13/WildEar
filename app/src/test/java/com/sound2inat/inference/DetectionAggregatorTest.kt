@@ -167,7 +167,7 @@ class DetectionAggregatorTest {
     @Test
     fun `per-source maps populated from source-tagged predictions`() {
         val preds = listOf(
-            WindowPrediction(0L,     3_000L, "Parus major", null, 0.85f, "birdnet_v2_4"),
+            WindowPrediction(0L, 3_000L, "Parus major", null, 0.85f, "birdnet_v2_4"),
             WindowPrediction(3_000L, 6_000L, "Parus major", null, 0.70f, "birdnet_v2_4"),
             WindowPrediction(1_000L, 6_000L, "Parus major", null, 0.62f, "perch_v2"),
         )
@@ -181,7 +181,7 @@ class DetectionAggregatorTest {
     @Test
     fun `per-source maps empty when all predictions have no source tag`() {
         val preds = listOf(
-            wp(0L, 3_000L, "Parus major", 0.8f),  // source = "" (default wp helper)
+            wp(0L, 3_000L, "Parus major", 0.8f), // source = "" (default wp helper)
             wp(1_000L, 4_000L, "Parus major", 0.6f),
         )
         val out = DetectionAggregator(minConfidence = 0.10f).aggregate(preds).first()

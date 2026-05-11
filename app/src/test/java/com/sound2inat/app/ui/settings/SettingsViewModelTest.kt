@@ -82,7 +82,7 @@ class SettingsViewModelTest {
             writeRegionRadiusKm = {},
             minWindowsFlow = MutableStateFlow(2),
             writeMinWindows = {},
-                yamNetGateEnabledFlow = MutableStateFlow(true),
+            yamNetGateEnabledFlow = MutableStateFlow(true),
             writeYamNetGateEnabled = {},
             birdNetMetaEnabledFlow = MutableStateFlow(true),
             writeBirdNetMetaEnabled = {},

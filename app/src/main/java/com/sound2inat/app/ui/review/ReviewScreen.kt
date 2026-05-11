@@ -4,8 +4,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,11 +20,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
@@ -40,7 +38,6 @@ import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -50,27 +47,19 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewModelScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -81,13 +70,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import com.sound2inat.app.R
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
-import coil.compose.AsyncImage
-import androidx.browser.customtabs.CustomTabsIntent
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import coil.compose.AsyncImage
+import com.sound2inat.app.R
 import com.sound2inat.app.ui.formatDurationMs
 import com.sound2inat.app.ui.theme.detectionCardLikelyDark
 import com.sound2inat.app.ui.theme.detectionCardLikelyLight
@@ -181,10 +170,12 @@ private fun ReviewPage(
     var pickerVisible by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var detailsRow by remember { mutableStateOf<SpeciesRow?>(null) }
-    val isAnalysisRunning = state.inferenceProgress != null
-        || state.perchProgress != null
-        || state.queuePosition != null
-    val uploadedUrls = remember(state.inatObservations) { state.inatObservations.associate { it.scientificName to it.url } }
+    val isAnalysisRunning = state.inferenceProgress != null ||
+        state.perchProgress != null ||
+        state.queuePosition != null
+    val uploadedUrls = remember(
+        state.inatObservations
+    ) { state.inatObservations.associate { it.scientificName to it.url } }
 
     Scaffold(
         topBar = {
@@ -192,7 +183,10 @@ private fun ReviewPage(
                 title = { Text(stringResource(R.string.title_review)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.cd_back))
+                        Icon(
+                            Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = stringResource(R.string.cd_back)
+                        )
                     }
                 },
                 actions = {
@@ -250,14 +244,15 @@ private fun ReviewPage(
                                     .padding(horizontal = 16.dp, vertical = 4.dp),
                             ) {
                                 Text(
-                                    text = if (position == 0)
+                                    text = if (position == 0) {
                                         stringResource(R.string.inference_queued_next)
-                                    else
+                                    } else {
                                         stringResource(
                                             R.string.inference_queued_position,
                                             position,
                                             (state.estimatedWaitMs ?: 0L) / 60_000L,
-                                        ),
+                                        )
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                                 Spacer(Modifier.height(2.dp))
@@ -652,7 +647,13 @@ private fun PlayerControls(state: ReviewUiState, vm: ReviewViewModel) {
             OutlinedButton(onClick = { if (isPlaying) vm.pause() else vm.play() }) {
                 Icon(
                     if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (isPlaying) stringResource(R.string.btn_pause) else stringResource(R.string.btn_play),
+                    contentDescription = if (isPlaying) {
+                        stringResource(
+                            R.string.btn_pause
+                        )
+                    } else {
+                        stringResource(R.string.btn_play)
+                    },
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(if (isPlaying) stringResource(R.string.btn_pause) else stringResource(R.string.btn_play))
@@ -701,10 +702,11 @@ private fun SpeciesListItem(
     onToggleHabitatPhoto: () -> Unit = {},
 ) {
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val tintColor = if (row.regionalStatus == RegionalStatus.NOT_CONFIRMED)
+    val tintColor = if (row.regionalStatus == RegionalStatus.NOT_CONFIRMED) {
         if (isDark) detectionCardUnlikelyDark else detectionCardUnlikelyLight
-    else
+    } else {
         if (isDark) detectionCardLikelyDark else detectionCardLikelyLight
+    }
     val containerColor = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer else tintColor
     val context = LocalContext.current
     ListItem(
@@ -779,11 +781,17 @@ private fun SpeciesListItem(
                 if (hasHabitatPhotos) {
                     IconButton(onClick = onToggleHabitatPhoto) {
                         Icon(
-                            imageVector = if (row.includeHabitatPhoto) Icons.Filled.CameraAlt
-                                          else Icons.Outlined.CameraAlt,
+                            imageVector = if (row.includeHabitatPhoto) {
+                                Icons.Filled.CameraAlt
+                            } else {
+                                Icons.Outlined.CameraAlt
+                            },
                             contentDescription = stringResource(R.string.label_include_habitat_photo),
-                            tint = if (row.includeHabitatPhoto) MaterialTheme.colorScheme.primary
-                                   else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (row.includeHabitatPhoto) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                             modifier = Modifier.size(20.dp),
                         )
                     }

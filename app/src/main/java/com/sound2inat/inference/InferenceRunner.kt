@@ -59,7 +59,7 @@ class InferenceRunner(
         Log.d(
             "InferenceTiming",
             "${model.modelId}: WAV read+resample ${System.currentTimeMillis() - t0}ms " +
-                "(${rawSamples.size}→${resampled.size} samples, ${nativeRate}→${targetRate}Hz)",
+                "(${rawSamples.size}→${resampled.size} samples, $nativeRate→${targetRate}Hz)",
         )
 
         val normalized = FloatArray(resampled.size) { i -> resampled[i] / Short.MAX_VALUE.toFloat() }

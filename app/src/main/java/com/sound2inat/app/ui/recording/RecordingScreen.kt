@@ -1,5 +1,7 @@
 package com.sound2inat.app.ui.recording
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,8 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Stop
@@ -28,7 +28,6 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -41,17 +40,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import java.util.UUID
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
-import kotlin.math.roundToInt
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sound2inat.app.R
 import com.sound2inat.app.permissions.LocalPermissionsController
 import com.sound2inat.app.ui.theme.detectionCardLikelyDark
@@ -60,6 +57,8 @@ import com.sound2inat.app.ui.theme.detectionCardUnlikelyDark
 import com.sound2inat.app.ui.theme.detectionCardUnlikelyLight
 import com.sound2inat.inference.RegionalStatus
 import kotlinx.coroutines.flow.SharedFlow
+import java.util.UUID
+import kotlin.math.roundToInt
 
 @Suppress("FunctionNaming")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -95,7 +94,10 @@ fun RecordingScreen(
                     audioBlocks = vm.audioBlocks,
                     sampleRateHz = vm.sampleRateHz,
                     onStop = { vm.stop() },
-                    onCancel = { vm.cancel(); onCancel() },
+                    onCancel = {
+                        vm.cancel()
+                        onCancel()
+                    },
                     vm = vm,
                 )
                 is RecordingUiState.Done -> LaunchedEffect(s.draftId) { onDone(s.draftId) }
@@ -310,10 +312,11 @@ private fun RecordingBody(
 @Composable
 private fun LiveCardRow(card: LiveCard) {
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val cardColor = if (card.regionalStatus == RegionalStatus.NOT_CONFIRMED)
+    val cardColor = if (card.regionalStatus == RegionalStatus.NOT_CONFIRMED) {
         if (isDark) detectionCardUnlikelyDark else detectionCardUnlikelyLight
-    else
+    } else {
         if (isDark) detectionCardLikelyDark else detectionCardLikelyLight
+    }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
@@ -412,6 +415,6 @@ private const val BACKLOG_VISIBLE_THRESHOLD = 1
 
 private const val GPS_DOT_DP = 10
 private const val GPS_DOT_GAP_DP = 6
-private val GPS_FIX_COLOR = Color(0xFF4CAF50)       // green
+private val GPS_FIX_COLOR = Color(0xFF4CAF50) // green
 private val GPS_ACQUIRING_COLOR = Color(0xFFFFA000) // amber
-private val GPS_NO_FIX_COLOR = Color(0xFFE53935)    // red
+private val GPS_NO_FIX_COLOR = Color(0xFFE53935) // red

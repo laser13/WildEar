@@ -23,8 +23,10 @@ import javax.inject.Singleton
 sealed class JobStatus {
     /** Waiting in queue. position=0 means this job is next; position=1 means one job is ahead. */
     data class Queued(val position: Int, val estimatedWaitMs: Long) : JobStatus()
+
     /** Currently executing. Either progress value may be null when that model hasn't started yet. */
     data class Running(val birdnetProgress: Float?, val perchProgress: Float?) : JobStatus()
+
     /** Terminal error. Cleared on the next enqueue for this draftId, or explicitly via clearError. */
     data class Failed(val message: String) : JobStatus()
 }
@@ -69,16 +71,22 @@ class InferenceQueue @Inject constructor(
         // Sync combine output into _status for reactive UI collectors.
         scope.launch {
             combine(
-                _pendingJobs, _runningDraftId, _runningStatus, _failedJobs,
+                _pendingJobs,
+                _runningDraftId,
+                _runningStatus,
+                _failedJobs,
             ) { pending, runningId, runningStatus, failed ->
                 buildMap {
                     runningId?.let { put(it, runningStatus ?: JobStatus.Running(null, null)) }
                     pending.forEachIndexed { idx, job ->
                         val position = if (runningId != null) idx + 1 else idx
-                        put(job.draftId, JobStatus.Queued(
-                            position = position,
-                            estimatedWaitMs = position.toLong() * recentDurationMs,
-                        ))
+                        put(
+                            job.draftId,
+                            JobStatus.Queued(
+                                position = position,
+                                estimatedWaitMs = position.toLong() * recentDurationMs,
+                            )
+                        )
                     }
                     putAll(failed)
                 }
@@ -101,9 +109,11 @@ class InferenceQueue @Inject constructor(
                     } catch (t: Throwable) {
                         if (t is CancellationException) throw t
                         _failedJobs.update {
-                            it + (job.draftId to JobStatus.Failed(
-                                t.message ?: t::class.simpleName.orEmpty()
-                            ))
+                            it + (
+                                job.draftId to JobStatus.Failed(
+                                    t.message ?: t::class.simpleName.orEmpty()
+                                )
+                                )
                         }
                     } finally {
                         _runningDraftId.value = null
@@ -118,10 +128,11 @@ class InferenceQueue @Inject constructor(
     }
 
     private suspend fun runJob(job: QueuedJob) {
-        val inferenceJob = if (job.skipYamNetGate)
+        val inferenceJob = if (job.skipYamNetGate) {
             inferenceUseCase.inferenceReanalysis
-        else
+        } else {
             inferenceUseCase.inference
+        }
 
         if (job.runBirdnet) {
             val outcome = inferenceJob.run(job.audioPath, job.lat, job.lon, job.recordedAt) { p ->
@@ -143,10 +154,11 @@ class InferenceQueue @Inject constructor(
         // Note: if BirdNET succeeded and Perch fails below, BirdNET results are already persisted.
         // The VM will see a Failed status for the draft but Room will show the BirdNET detections.
         if (job.runPerch) {
-            val perchJob = if (job.skipYamNetGate)
+            val perchJob = if (job.skipYamNetGate) {
                 inferenceUseCase.perchReanalysis
-            else
+            } else {
                 inferenceUseCase.perchAnalysis
+            }
             _runningStatus.value = JobStatus.Running(birdnetProgress = null, perchProgress = 0f)
             val outcome = perchJob.run(job.audioPath, job.lat, job.lon, job.recordedAt) { p ->
                 _runningStatus.value = JobStatus.Running(birdnetProgress = null, perchProgress = p)

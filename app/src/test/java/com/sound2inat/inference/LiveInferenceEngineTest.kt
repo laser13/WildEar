@@ -21,7 +21,7 @@ class LiveInferenceEngineTest {
         override val modelVersion = "0"
         override val expectedSampleRateHz = 48_000
         override val windowMs = 3_000L
-        override suspend fun load(modelFile: java.io.File, labelsFile: java.io.File) {}
+        override suspend fun load(modelFile: java.io.File, labelsFile: java.io.File) = Unit
         override suspend fun predict(
             pcmFloat32: FloatArray,
             sampleRateHz: Int,
@@ -40,7 +40,7 @@ class LiveInferenceEngineTest {
                 source = modelId,
             ),
         )
-        override fun close() {}
+        override fun close() = Unit
         override fun newInstance(): BioacousticModel = this
     }
 
@@ -104,7 +104,7 @@ class LiveInferenceEngineTest {
             override val modelVersion = "0"
             override val expectedSampleRateHz = 48_000
             override val windowMs = 3_000L
-            override suspend fun load(modelFile: java.io.File, labelsFile: java.io.File) {}
+            override suspend fun load(modelFile: java.io.File, labelsFile: java.io.File) = Unit
             override suspend fun predict(
                 pcmFloat32: FloatArray,
                 sampleRateHz: Int,
@@ -122,7 +122,7 @@ class LiveInferenceEngineTest {
                     confidence = 0.30f, // below 0.7 HIGH_CONFIDENCE_OVERRIDE
                 )
             )
-            override fun close() {}
+            override fun close() = Unit
             override fun newInstance(): BioacousticModel = this
         }
         // Gate returns DOWNRANK — low-confidence predictions should be suppressed
@@ -326,6 +326,7 @@ class LiveInferenceEngineTest {
         usePreprocessing = false,
     ) {
         override fun trySendWindow(window: Window): Boolean = false
+
         // Silence the architectural-drift assertion: this test deliberately
         // exercises the failure-accounting path, it is not a real drift event.
         override fun onSendRejected() = Unit
@@ -363,7 +364,7 @@ class LiveInferenceEngineTest {
             override val modelVersion = "0"
             override val expectedSampleRateHz = 48_000
             override val windowMs = 3_000L
-            override suspend fun load(modelFile: java.io.File, labelsFile: java.io.File) {}
+            override suspend fun load(modelFile: java.io.File, labelsFile: java.io.File) = Unit
             override suspend fun predict(
                 pcmFloat32: FloatArray,
                 sampleRateHz: Int,
@@ -379,7 +380,7 @@ class LiveInferenceEngineTest {
                 firstWindowProcessed.countDown()
                 return emptyList()
             }
-            override fun close() {}
+            override fun close() = Unit
             override fun newInstance(): BioacousticModel = this
         }
         val engine = LiveInferenceEngine(

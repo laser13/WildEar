@@ -6,7 +6,6 @@ import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.FragmentRange
-import com.sound2inat.inference.SourceStat
 import com.sound2inat.inference.SourceStats
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest

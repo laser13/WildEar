@@ -52,22 +52,30 @@ internal fun writeWav(samples: ShortArray, sampleRateHz: Int, dst: File) {
 private fun buildWavHeader(sampleRateHz: Int, dataSize: Int): ByteArray {
     val byteRate = sampleRateHz * 2 // mono 16-bit
     return ByteArray(44).also { h ->
-        h[0] = 'R'.code.toByte(); h[1] = 'I'.code.toByte()
-        h[2] = 'F'.code.toByte(); h[3] = 'F'.code.toByte()
+        h[0] = 'R'.code.toByte()
+        h[1] = 'I'.code.toByte()
+        h[2] = 'F'.code.toByte()
+        h[3] = 'F'.code.toByte()
         leInt(h, 4, dataSize + 36)
-        h[8] = 'W'.code.toByte(); h[9] = 'A'.code.toByte()
-        h[10] = 'V'.code.toByte(); h[11] = 'E'.code.toByte()
-        h[12] = 'f'.code.toByte(); h[13] = 'm'.code.toByte()
-        h[14] = 't'.code.toByte(); h[15] = ' '.code.toByte()
-        leInt(h, 16, 16)             // fmt chunk size
-        leShort(h, 20, 1)            // PCM
-        leShort(h, 22, 1)            // mono
+        h[8] = 'W'.code.toByte()
+        h[9] = 'A'.code.toByte()
+        h[10] = 'V'.code.toByte()
+        h[11] = 'E'.code.toByte()
+        h[12] = 'f'.code.toByte()
+        h[13] = 'm'.code.toByte()
+        h[14] = 't'.code.toByte()
+        h[15] = ' '.code.toByte()
+        leInt(h, 16, 16) // fmt chunk size
+        leShort(h, 20, 1) // PCM
+        leShort(h, 22, 1) // mono
         leInt(h, 24, sampleRateHz)
         leInt(h, 28, byteRate)
-        leShort(h, 32, 2)            // block align (1 ch * 2 bytes)
-        leShort(h, 34, 16)           // bits per sample
-        h[36] = 'd'.code.toByte(); h[37] = 'a'.code.toByte()
-        h[38] = 't'.code.toByte(); h[39] = 'a'.code.toByte()
+        leShort(h, 32, 2) // block align (1 ch * 2 bytes)
+        leShort(h, 34, 16) // bits per sample
+        h[36] = 'd'.code.toByte()
+        h[37] = 'a'.code.toByte()
+        h[38] = 't'.code.toByte()
+        h[39] = 'a'.code.toByte()
         leInt(h, 40, dataSize)
     }
 }

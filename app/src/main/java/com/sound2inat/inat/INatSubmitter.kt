@@ -310,7 +310,10 @@ class INatSubmitter(
             val siblingUrls = others.joinToString(" ") { it.first.entity.observationUrl }
             runCatching {
                 client.createObservationFieldValue(
-                    token, submitted.uuid, LINKED_OBS_FIELD_ID, siblingUrls,
+                    token,
+                    submitted.uuid,
+                    LINKED_OBS_FIELD_ID,
+                    siblingUrls,
                 )
             }.onFailure {
                 android.util.Log.w(

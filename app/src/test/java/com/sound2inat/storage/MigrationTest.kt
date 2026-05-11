@@ -35,7 +35,10 @@ class MigrationTest {
         }
 
         val db = helper.runMigrationsAndValidate(
-            dbName, 2, true, Sound2iNatDb.MIGRATION_1_2,
+            dbName,
+            2,
+            true,
+            Sound2iNatDb.MIGRATION_1_2,
         )
 
         db.query("SELECT inatObservationId, inatObservationUrl, inatLastError FROM drafts WHERE id='d1'").use { c ->
@@ -66,7 +69,10 @@ class MigrationTest {
         }
 
         val db = helper.runMigrationsAndValidate(
-            dbName, 3, true, Sound2iNatDb.MIGRATION_2_3,
+            dbName,
+            3,
+            true,
+            Sound2iNatDb.MIGRATION_2_3,
         )
 
         db.query("SELECT COUNT(*) FROM inat_observations").use { c ->
@@ -106,7 +112,10 @@ class MigrationTest {
         }
 
         val db = helper.runMigrationsAndValidate(
-            dbName, 4, true, Sound2iNatDb.MIGRATION_3_4,
+            dbName,
+            4,
+            true,
+            Sound2iNatDb.MIGRATION_3_4,
         )
 
         db.query("SELECT sources FROM detections WHERE draftId='d3'").use { c ->
@@ -143,7 +152,10 @@ class MigrationTest {
         }
 
         val db = helper.runMigrationsAndValidate(
-            dbName, 5, true, Sound2iNatDb.MIGRATION_4_5,
+            dbName,
+            5,
+            true,
+            Sound2iNatDb.MIGRATION_4_5,
         )
 
         db.query("SELECT fragmentRanges, aggregatedConfidence FROM detections WHERE draftId='d4'").use { c ->
@@ -173,7 +185,10 @@ class MigrationTest {
         }
 
         val db = helper.runMigrationsAndValidate(
-            dbName, 7, true, Sound2iNatDb.MIGRATION_6_7,
+            dbName,
+            7,
+            true,
+            Sound2iNatDb.MIGRATION_6_7,
         )
 
         db.query("SELECT id, audioPath, inatLastError FROM drafts WHERE id='d6'").use { c ->

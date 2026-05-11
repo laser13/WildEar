@@ -60,7 +60,7 @@ class ParallelInferenceRunnerTest {
      * 6 s at 48 kHz → 4 windows: frames = 1 + (6−3)×48000/48000 = 4
      */
     private fun writeSilentWav(durationSeconds: Int, sampleRate: Int = 48_000): File {
-        val file = tmp.newFile("sil_${durationSeconds}s_${sampleRate}.wav")
+        val file = tmp.newFile("sil_${durationSeconds}s_$sampleRate.wav")
         val writer = WavWriter(file, sampleRate = sampleRate, channels = 1, bitsPerSample = 16)
         writer.open()
         val total = durationSeconds * sampleRate
@@ -152,9 +152,13 @@ class ParallelInferenceRunnerTest {
             var closed = false
             override suspend fun load(modelFile: File, labelsFile: File) = Unit
             override suspend fun predict(
-                pcmFloat32: FloatArray, sampleRateHz: Int, latitude: Double?,
-                longitude: Double?, observedAtMillis: Long,
-                windowStartMs: Long, windowEndMs: Long,
+                pcmFloat32: FloatArray,
+                sampleRateHz: Int,
+                latitude: Double?,
+                longitude: Double?,
+                observedAtMillis: Long,
+                windowStartMs: Long,
+                windowEndMs: Long,
             ): List<WindowPrediction> = throw RuntimeException("intentional failure")
             override fun close() { closed = true }
             override fun newInstance(): BioacousticModel = FailingModel()

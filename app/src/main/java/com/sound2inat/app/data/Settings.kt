@@ -25,6 +25,7 @@ class Settings(private val ctx: Context) {
         val LAST_KNOWN_LAT = doublePreferencesKey("last_known_lat")
         val LAST_KNOWN_LON = doublePreferencesKey("last_known_lon")
         val MIN_WINDOWS = intPreferencesKey("min_windows")
+
         // spectral_subtraction_enabled key intentionally removed — denoising disabled
         val YAMNET_GATE_ENABLED = booleanPreferencesKey("yamnet_gate_enabled")
         val BIRDNET_META_ENABLED = booleanPreferencesKey("birdnet_meta_enabled")
@@ -58,6 +59,7 @@ class Settings(private val ctx: Context) {
         ctx.dataStore.data.map { it[K.ALLOW_DELETE_UPLOADED] ?: false }
     val audioSourceRaw: Flow<Boolean> =
         ctx.dataStore.data.map { it[K.AUDIO_SOURCE_RAW] ?: false }
+
     /** Consumed by PostRecordingProcessor — applied after recording stops. */
     val normalizeAudio: Flow<Boolean> =
         ctx.dataStore.data.map { it[K.NORMALIZE_AUDIO] ?: true }

@@ -109,7 +109,7 @@ class INatSubmitterTest {
     /** Like [draftWith] but sets [sources] on the first detection. */
     private fun draftWithSources(name: String, sources: String): DraftWithDetections {
         val base = draftWith(listOf(name))
-        val det  = base.detections.first().copy(sources = sources)
+        val det = base.detections.first().copy(sources = sources)
         return base.copy(detections = listOf(det))
     }
 
@@ -275,8 +275,8 @@ class INatSubmitterTest {
         submitter.submit("jwt", draft)
 
         // Drain taxa request, then inspect the createObservation POST body.
-        server.takeRequest()  // GET /taxa
-        val obsRequest = server.takeRequest()  // POST /observations
+        server.takeRequest() // GET /taxa
+        val obsRequest = server.takeRequest() // POST /observations
         val body = obsRequest.body.readUtf8()
 
         assertThat(body).contains("Recorded with WildEar.")

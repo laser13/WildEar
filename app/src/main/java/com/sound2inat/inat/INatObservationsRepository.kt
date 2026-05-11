@@ -6,7 +6,6 @@ import com.sound2inat.app.ui.radar.MapPin
 import com.sound2inat.app.ui.radar.SpeciesAggregate
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.ConcurrentHashMap

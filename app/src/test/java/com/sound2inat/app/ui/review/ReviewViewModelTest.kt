@@ -2,7 +2,6 @@ package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.app.inference.InferenceQueue
-import com.sound2inat.app.inference.JobStatus
 import com.sound2inat.app.inference.QueuedJob
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inat.RegionLookup
@@ -1032,10 +1031,10 @@ class ReviewViewModelTest {
                     detectedWindows = 2,
                     firstSeenMs = 0L,
                     lastSeenMs = 6_000L,
-                    confidenceBySource  = mapOf("birdnet_v2_4" to 0.85f),
-                    windowsBySource     = mapOf("birdnet_v2_4" to 2),
-                    firstSeenBySource   = mapOf("birdnet_v2_4" to 0L),
-                    lastSeenBySource    = mapOf("birdnet_v2_4" to 6_000L),
+                    confidenceBySource = mapOf("birdnet_v2_4" to 0.85f),
+                    windowsBySource = mapOf("birdnet_v2_4" to 2),
+                    firstSeenBySource = mapOf("birdnet_v2_4" to 0L),
+                    lastSeenBySource = mapOf("birdnet_v2_4" to 6_000L),
                 ),
             )
             val incoming = listOf(
@@ -1046,10 +1045,10 @@ class ReviewViewModelTest {
                     detectedWindows = 1,
                     firstSeenMs = 3_000L,
                     lastSeenMs = 8_000L,
-                    confidenceBySource  = mapOf("perch_v2" to 0.62f),
-                    windowsBySource     = mapOf("perch_v2" to 1),
-                    firstSeenBySource   = mapOf("perch_v2" to 3_000L),
-                    lastSeenBySource    = mapOf("perch_v2" to 8_000L),
+                    confidenceBySource = mapOf("perch_v2" to 0.62f),
+                    windowsBySource = mapOf("perch_v2" to 1),
+                    firstSeenBySource = mapOf("perch_v2" to 3_000L),
+                    lastSeenBySource = mapOf("perch_v2" to 8_000L),
                 ),
             )
             val result = repo(FakeDraftDao(), FakeDetectionDao()).mergeBySpecies(existing, incoming).first()
@@ -1237,9 +1236,21 @@ private class FakeDraftDao : DraftDao {
 
 private class FakeDraftPhotoDao(private val rows: MutableList<DraftPhotoEntity> = mutableListOf()) : DraftPhotoDao {
     private val emitter = MutableStateFlow(rows.toList())
-    override fun insert(photo: DraftPhotoEntity) { rows += photo; emitter.value = rows.toList() }
-    override fun deleteById(id: String): Int { val removed = rows.removeAll { it.id == id }; emitter.value = rows.toList(); return if (removed) 1 else 0 }
-    override fun deleteByDraftId(draftId: String): Int { val before = rows.size; rows.removeAll { it.draftId == draftId }; emitter.value = rows.toList(); return before - rows.size }
+    override fun insert(photo: DraftPhotoEntity) {
+        rows += photo
+        emitter.value = rows.toList()
+    }
+    override fun deleteById(id: String): Int {
+        val removed = rows.removeAll { it.id == id }
+        emitter.value = rows.toList()
+        return if (removed) 1 else 0
+    }
+    override fun deleteByDraftId(draftId: String): Int {
+        val before = rows.size
+        rows.removeAll { it.draftId == draftId }
+        emitter.value = rows.toList()
+        return before - rows.size
+    }
     override fun photosForDraft(draftId: String): kotlinx.coroutines.flow.Flow<List<DraftPhotoEntity>> =
         emitter.map { all -> all.filter { it.draftId == draftId } }
     override fun listForDraft(draftId: String): List<DraftPhotoEntity> = rows.filter { it.draftId == draftId }

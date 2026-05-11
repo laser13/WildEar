@@ -19,9 +19,11 @@ import java.util.Calendar
  */
 interface InferenceUseCase {
     val inference: InferenceJob
+
     /** YAMNet gate always disabled — use for user-triggered re-analysis. */
     val inferenceReanalysis: InferenceJob
     val perchAnalysis: PerchAnalysisJob
+
     /** YAMNet gate always disabled — use for user-triggered re-analysis. */
     val perchReanalysis: PerchAnalysisJob
 }

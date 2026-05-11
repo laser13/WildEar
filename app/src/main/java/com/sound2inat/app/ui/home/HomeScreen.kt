@@ -1,18 +1,18 @@
 package com.sound2inat.app.ui.home
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -54,7 +54,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,15 +65,16 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.sound2inat.app.R
-import com.sound2inat.app.ui.formatDurationMs
-import com.sound2inat.app.ui.theme.LocalIsDarkTheme
-import com.sound2inat.app.ui.theme.iNatGreen
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.sound2inat.app.R
 import com.sound2inat.app.inference.JobStatus
+import com.sound2inat.app.ui.formatDurationMs
+import com.sound2inat.app.ui.theme.LocalIsDarkTheme
+import com.sound2inat.app.ui.theme.iNatGreen
 import com.sound2inat.storage.DraftStatus
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
@@ -293,7 +293,9 @@ private fun RecordingCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
 ) {
-    val topLabel by remember(summary.id) { observeTopLabel(summary.id) }.collectAsStateWithLifecycle(initialValue = null)
+    val topLabel by remember(
+        summary.id
+    ) { observeTopLabel(summary.id) }.collectAsStateWithLifecycle(initialValue = null)
     val topSpecies by remember(summary.id) {
         observeTopSpecies(summary.id)
     }.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -317,8 +319,11 @@ private fun RecordingCard(
             .fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer
-                else MaterialTheme.colorScheme.surfaceContainerLow,
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            },
         ),
     ) {
         ListItem(
@@ -326,7 +331,10 @@ private fun RecordingCard(
                 containerColor = Color.Transparent,
             ),
             leadingContent = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     if (selectionMode) {
                         Checkbox(checked = selected, onCheckedChange = { onToggleSelection() })
                     }
@@ -364,8 +372,11 @@ private fun RecordingCard(
                         Text(
                             countText,
                             style = MaterialTheme.typography.titleLarge,
-                            color = if (inatCount > 0) iNatGreen
-                                else MaterialTheme.colorScheme.onSurface,
+                            color = if (inatCount > 0) {
+                                iNatGreen
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
                         )
                     }
                     badge?.invoke()
@@ -468,17 +479,22 @@ private fun statusHeadline(status: DraftStatus, analysedButEmpty: Boolean, jobSt
             is JobStatus.Failed -> stringResource(R.string.home_headline_analysis_failed)
             is JobStatus.Queued -> stringResource(R.string.home_headline_in_queue)
             is JobStatus.Running, null -> stringResource(
-                if (status == DraftStatus.PENDING_INFERENCE) R.string.home_headline_analyzing
-                else R.string.home_headline_reanalyzing
+                if (status == DraftStatus.PENDING_INFERENCE) {
+                    R.string.home_headline_analyzing
+                } else {
+                    R.string.home_headline_reanalyzing
+                }
             )
         }
     }
-    return stringResource(when (status) {
-        DraftStatus.PENDING_INFERENCE -> R.string.home_headline_analyzing
-        DraftStatus.PENDING_REVIEW -> R.string.home_headline_ready_review
-        DraftStatus.REVIEWED -> R.string.home_headline_ready_submit
-        DraftStatus.UPLOADED -> R.string.home_headline_submitted
-    })
+    return stringResource(
+        when (status) {
+            DraftStatus.PENDING_INFERENCE -> R.string.home_headline_analyzing
+            DraftStatus.PENDING_REVIEW -> R.string.home_headline_ready_review
+            DraftStatus.REVIEWED -> R.string.home_headline_ready_submit
+            DraftStatus.UPLOADED -> R.string.home_headline_submitted
+        }
+    )
 }
 
 @Composable
@@ -489,23 +505,31 @@ private fun homeStatusLabel(status: DraftStatus, analysedButEmpty: Boolean, jobS
             is JobStatus.Running -> {
                 val pct = (jobStatus.birdnetProgress ?: jobStatus.perchProgress)
                     ?.let { (it * 100).toInt() }
-                if (pct != null) stringResource(R.string.home_label_analyzing_progress, pct)
-                else stringResource(R.string.home_label_analyzing)
+                if (pct != null) {
+                    stringResource(R.string.home_label_analyzing_progress, pct)
+                } else {
+                    stringResource(R.string.home_label_analyzing)
+                }
             }
             is JobStatus.Queued -> {
-                if (jobStatus.position == 0) stringResource(R.string.home_label_up_next)
-                else stringResource(R.string.home_label_in_queue, jobStatus.position + 1)
+                if (jobStatus.position == 0) {
+                    stringResource(R.string.home_label_up_next)
+                } else {
+                    stringResource(R.string.home_label_in_queue, jobStatus.position + 1)
+                }
             }
             is JobStatus.Failed -> stringResource(R.string.home_label_analysis_failed)
             null -> stringResource(R.string.home_label_analyzing)
         }
     }
-    return stringResource(when (status) {
-        DraftStatus.PENDING_INFERENCE -> R.string.home_label_analyzing
-        DraftStatus.PENDING_REVIEW -> R.string.home_label_needs_review
-        DraftStatus.REVIEWED -> R.string.home_label_not_submitted
-        DraftStatus.UPLOADED -> R.string.home_label_submitted
-    })
+    return stringResource(
+        when (status) {
+            DraftStatus.PENDING_INFERENCE -> R.string.home_label_analyzing
+            DraftStatus.PENDING_REVIEW -> R.string.home_label_needs_review
+            DraftStatus.REVIEWED -> R.string.home_label_not_submitted
+            DraftStatus.UPLOADED -> R.string.home_label_submitted
+        }
+    )
 }
 
 private fun formatTimestamp(ms: Long): String {
@@ -626,8 +650,11 @@ private fun BulkActionsRow(
     ) {
         TextButton(onClick = if (allSelected) onClearSelection else onSelectAll) {
             Text(
-                if (allSelected) stringResource(R.string.filter_deselect_all)
-                else stringResource(R.string.filter_select_all),
+                if (allSelected) {
+                    stringResource(R.string.filter_deselect_all)
+                } else {
+                    stringResource(R.string.filter_select_all)
+                },
             )
         }
         Spacer(modifier = Modifier.weight(1f))
@@ -698,13 +725,21 @@ private fun BulkDeleteDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(pluralStringResource(R.plurals.dialog_bulk_delete_title, preview.toDelete.size, preview.toDelete.size)) },
+        title = {
+            Text(
+                pluralStringResource(R.plurals.dialog_bulk_delete_title, preview.toDelete.size, preview.toDelete.size)
+            )
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.dialog_bulk_delete_body))
                 if (preview.skippedUploaded > 0) {
                     Text(
-                        pluralStringResource(R.plurals.dialog_bulk_delete_skipped, preview.skippedUploaded, preview.skippedUploaded),
+                        pluralStringResource(
+                            R.plurals.dialog_bulk_delete_skipped,
+                            preview.skippedUploaded,
+                            preview.skippedUploaded
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -734,11 +769,24 @@ private fun SingleDeleteDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (blocked) stringResource(R.string.dialog_delete_single_blocked_title) else stringResource(R.string.dialog_delete_single_title)) },
+        title = {
+            Text(
+                if (blocked) {
+                    stringResource(
+                        R.string.dialog_delete_single_blocked_title
+                    )
+                } else {
+                    stringResource(R.string.dialog_delete_single_title)
+                }
+            )
+        },
         text = {
             Text(
-                if (blocked) stringResource(R.string.dialog_delete_single_blocked_body)
-                else stringResource(R.string.dialog_delete_single_body),
+                if (blocked) {
+                    stringResource(R.string.dialog_delete_single_blocked_body)
+                } else {
+                    stringResource(R.string.dialog_delete_single_body)
+                },
             )
         },
         confirmButton = {
@@ -752,7 +800,9 @@ private fun SingleDeleteDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(if (blocked) stringResource(R.string.btn_ok) else stringResource(R.string.btn_cancel)) }
+            TextButton(
+                onClick = onDismiss
+            ) { Text(if (blocked) stringResource(R.string.btn_ok) else stringResource(R.string.btn_cancel)) }
         },
     )
 }

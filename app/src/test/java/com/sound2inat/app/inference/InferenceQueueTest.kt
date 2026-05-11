@@ -75,7 +75,9 @@ class InferenceQueueTest {
     ) = QueuedJob(
         draftId = draftId,
         audioPath = "/tmp/$draftId.wav",
-        lat = null, lon = null, recordedAt = 0L,
+        lat = null,
+        lon = null,
+        recordedAt = 0L,
         runBirdnet = runBirdnet,
         runPerch = runPerch,
         skipYamNetGate = skipGate,
@@ -126,8 +128,14 @@ class InferenceQueueTest {
         val latch1 = CompletableDeferred<Unit>()
         var d2Ran = false
         val jobIndex = mutableListOf(
-            InferenceJob { _, _, _, _, _ -> latch1.await(); InferenceOutcome.Success("b", "1", emptyList()) },
-            InferenceJob { _, _, _, _, _ -> d2Ran = true; InferenceOutcome.Success("b", "1", emptyList()) },
+            InferenceJob { _, _, _, _, _ ->
+                latch1.await()
+                InferenceOutcome.Success("b", "1", emptyList())
+            },
+            InferenceJob { _, _, _, _, _ ->
+                d2Ran = true
+                InferenceOutcome.Success("b", "1", emptyList())
+            },
         )
         val queue = InferenceQueue(
             backgroundScope,
@@ -199,11 +207,16 @@ class InferenceQueueTest {
         var calls = 0
         val queue = InferenceQueue(
             backgroundScope,
-            useCase(birdnet = InferenceJob { _, _, _, _, _ ->
-                calls++
-                if (calls == 1) InferenceOutcome.Failure("first attempt")
-                else InferenceOutcome.Success("b", "1", emptyList())
-            }),
+            useCase(
+                birdnet = InferenceJob { _, _, _, _, _ ->
+                    calls++
+                    if (calls == 1) {
+                        InferenceOutcome.Failure("first attempt")
+                    } else {
+                        InferenceOutcome.Success("b", "1", emptyList())
+                    }
+                }
+            ),
             repo(),
         )
 
@@ -224,11 +237,13 @@ class InferenceQueueTest {
         val latch = CompletableDeferred<Unit>()
         val queue = InferenceQueue(
             backgroundScope,
-            useCase(birdnet = InferenceJob { _, _, _, _, onProgress ->
-                onProgress(0.5f)
-                latch.await()
-                InferenceOutcome.Success("b", "1", emptyList())
-            }),
+            useCase(
+                birdnet = InferenceJob { _, _, _, _, onProgress ->
+                    onProgress(0.5f)
+                    latch.await()
+                    InferenceOutcome.Success("b", "1", emptyList())
+                }
+            ),
             repo(),
         )
 
@@ -247,9 +262,11 @@ class InferenceQueueTest {
     fun `unexpected exception from inferenceJob is caught and surfaces as Failed`() = runTest {
         val queue = InferenceQueue(
             backgroundScope,
-            useCase(birdnet = InferenceJob { _, _, _, _, _ ->
-                throw RuntimeException("TFLite internal error")
-            }),
+            useCase(
+                birdnet = InferenceJob { _, _, _, _, _ ->
+                    throw RuntimeException("TFLite internal error")
+                }
+            ),
             repo(),
         )
 

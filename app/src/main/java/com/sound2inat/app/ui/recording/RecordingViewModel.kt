@@ -20,14 +20,14 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
@@ -107,7 +107,7 @@ class RecordingViewModel(
     val sampleRateHz: Int get() = controller.sampleRateHz
 
     fun start() {
-        hasSeenRecording = false  // reset so the Done guard works for this session
+        hasSeenRecording = false // reset so the Done guard works for this session
         viewModelScope.launch {
             val p = checkNotNull(perms) { "initWithPermissions must be called before start()" }
             val granted = p.request(RECORDING_PERMISSIONS)
