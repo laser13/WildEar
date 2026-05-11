@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import androidx.annotation.RequiresApi
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -53,11 +54,16 @@ class AudioExportManager @Inject constructor(
             }
             stream.use { out -> file.inputStream().use { it.copyTo(out) } }
         } catch (t: Throwable) {
-            runCatching { resolver.delete(uri, null, null) }
+            val deleted = runCatching { resolver.delete(uri, null, null) }.getOrElse { -1 }
+            if (deleted <= 0) Log.w(LOG_TAG, "Failed to clean up pending MediaStore entry: $uri")
             throw t
         }
         val updateValues = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
         resolver.update(uri, updateValues, null, null)
         return uri
+    }
+
+    companion object {
+        private const val LOG_TAG = "AudioExportManager"
     }
 }
