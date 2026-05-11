@@ -30,17 +30,25 @@ class AudioExportManager @Inject constructor(
 }
 ```
 
-`AudioExportManager` is responsible only for **saving** (MediaStore). Share intent construction is handled in the Composable (it needs `LocalContext` and is trivial — ~5 lines). This keeps `AudioExportManager` off the UI layer entirely.
+`AudioExportManager` is responsible only for **saving to public storage** (MediaStore). Share intent construction is handled in the Composable — it is ~5 lines using `LocalContext` and does not belong in a class. This keeps `AudioExportManager` off the UI layer entirely.
 
-**`saveToDownloads`:**
-- Inserts a `MediaStore.Audio.Media` entry with:
+**`saveToDownloads` — implementation:**
+
+`AudioExportManager` does **not** switch dispatchers internally. The caller (ReviewViewModel) must invoke it from `ioDispatcher`.
+
+API split by `Build.VERSION.SDK_INT`:
+
+- **API 29+ (Android 10+):** Insert via `MediaStore.Downloads.EXTERNAL_CONTENT_URI` with:
   - `DISPLAY_NAME` = `displayName`
   - `MIME_TYPE` = `"audio/wav"`
-  - `RELATIVE_PATH` = `Environment.DIRECTORY_DOWNLOADS + "/WildEar"` (Android 10+)
-- Opens the output stream, copies bytes from `file` using `use`.
-- On copy failure: deletes the partial MediaStore entry via `context.contentResolver.delete(uri, null, null)`.
-- Returns the `Uri` on success.
-- This is a suspend function; callers must dispatch on `Dispatchers.IO`.
+  - `RELATIVE_PATH` = `Environment.DIRECTORY_DOWNLOADS + "/WildEar"`
+  - Open output stream, copy bytes from `file` with `use`.
+  - On copy failure: delete the partial entry via `contentResolver.delete(uri, null, null)`.
+  - Return `Uri` on success.
+
+- **API 28 (Android 9 — minSdk fallback):** Insert via `MediaStore.Audio.Media.EXTERNAL_CONTENT_URI` with `DISPLAY_NAME` and `MIME_TYPE` only (no `RELATIVE_PATH`). File lands in the device's default audio directory. No `WRITE_EXTERNAL_STORAGE` permission is needed on API 28 for own-app MediaStore writes when using the Audio collection. On copy failure: delete the partial entry.
+
+Full recording **Share** does not copy the file — FileProvider exposes the original `filesDir/recordings/<id>.wav` directly. Full recording **Save** copies the file to public storage.
 
 ---
 
@@ -50,7 +58,7 @@ Add two fields:
 
 ```kotlin
 val exportingAction: ExportingAction? = null,
-val exportEffect: ReviewExportEffect? = null,   // one-shot, cleared after consumption
+val exportEffect: ReviewExportEffect? = null,   // one-shot, cleared before the side effect fires
 ```
 
 ```kotlin
@@ -62,12 +70,12 @@ sealed interface ExportingAction {
 }
 
 sealed interface ReviewExportEffect {
-    data class ShareAudioFile(val file: File)   : ReviewExportEffect
+    data class ShareAudioFile(val file: File)    : ReviewExportEffect
     data class ShowSnackbar(val message: String) : ReviewExportEffect
 }
 ```
 
-`ReviewExportEffect` is a one-shot field: the screen clears it by calling `vm.consumeExportEffect()` immediately after collecting it. This avoids duplicate shows on recomposition and removes the need for a `Channel`.
+`ReviewExportEffect` is a one-shot field. The screen must call `vm.consumeExportEffect()` **before** executing the side effect (before `startActivity` or before `showSnackbar`). This prevents the effect from being re-triggered by recomposition or config change, since by the time the side effect runs the state field is already `null`.
 
 ---
 
@@ -88,44 +96,55 @@ fun consumeExportEffect()
 ```
 
 **Internal helper:**
+
 ```kotlin
 private suspend fun prepareSpeciesClip(row: SpeciesRow): File
 ```
 
-Uses `WavTrimmer.trimMono16` with the same `firstSeenMs - PADDING_MS .. lastSeenMs + PADDING_MS` bounds as `INatSubmitter.cropPerSpecies`. Clip files live in `cacheDir/export_clips/`. Filename is stable:
+Uses `WavTrimmer.trimMono16` with bounds `firstSeenMs - PADDING_MS .. lastSeenMs + PADDING_MS` (same as `INatSubmitter.cropPerSpecies`, `PADDING_MS = 1000`). Clip files live in `cacheDir/export_clips/`. Filename is stable:
 
 ```
 <draftId>__<sanitizedSpecies>__<firstSeenMs>_<lastSeenMs>.wav
 ```
 
-If the file already exists and `size > 0`, it is reused without re-trimming.
+If the file already exists and `file.length() > 0`, it is reused without re-trimming.
+
+`cacheDir/export_clips/` is created with `mkdirs()` on first use.
+
+---
 
 **Flow for Share (full recording):**
+
 1. `onShareFullRecording()` sets `exportingAction = FullRecordingShare`.
-2. Gets `audioPath` from state; validates file exists.
-3. Calls `audioExport.createShareIntent(File(audioPath))`.
-4. Emits `ReviewExportEffect.ShareAudioFile(file)`.
-5. Clears `exportingAction`.
+2. Gets `audioPath` from state.
+3. Validates: file must exist and `length() > 0`. On failure → emit `ShowSnackbar("Audio file is missing / empty")`, clear `exportingAction`, return.
+4. Emits `ReviewExportEffect.ShareAudioFile(File(audioPath))`.
+5. Clears `exportingAction`. ← The Composable builds and starts the share intent.
 
 **Flow for Share (species clip):**
+
 1. `onShareSpeciesClip(row)` sets `exportingAction = SpeciesClipShare(row.detectionId)`.
-2. Launches coroutine on `ioDispatcher`:  
-   `val clip = prepareSpeciesClip(row)`
-3. Calls `audioExport.createShareIntent(clip)`.
-4. Emits `ReviewExportEffect.ShareAudioFile(clip)`.
-5. Clears `exportingAction`.
+2. Launches coroutine on `ioDispatcher`:
+   - `val clip = prepareSpeciesClip(row)` (reuses cached file if available).
+   - On `WavTrimmer` failure → emit `ShowSnackbar("Could not share audio")`, clear `exportingAction`, return.
+3. Emits `ReviewExportEffect.ShareAudioFile(clip)`.
+4. Clears `exportingAction`. ← The Composable builds and starts the share intent.
 
-**Flow for Save (full recording or clip):**
-1. Sets appropriate `exportingAction`.
-2. Calls `audioExport.saveToDownloads(file, displayName)` on `ioDispatcher`.
-3. On success: emits `ReviewExportEffect.ShowSnackbar("Audio saved to Downloads")`.
-4. On failure: emits `ReviewExportEffect.ShowSnackbar("Could not save audio")`.
-5. Clears `exportingAction`.
+**Flow for Save (full recording):**
 
-**Error handling in all actions:**
-- File missing → `ShowSnackbar("Audio file is missing")`
-- File empty → `ShowSnackbar("Audio file is empty")`
-- Any other exception → `ShowSnackbar("Could not share audio")` / `"Could not save audio"`
+1. `onSaveFullRecording()` sets `exportingAction = FullRecordingSave`.
+2. Validates file. On failure → emit `ShowSnackbar("Audio file is missing")`, clear, return.
+3. On `ioDispatcher`: `audioExport.saveToDownloads(file, displayName)`.
+4. On success → emit `ShowSnackbar("Audio saved to Downloads")`.
+5. On failure → emit `ShowSnackbar("Could not save audio")`.
+6. Clears `exportingAction`.
+
+**Flow for Save (species clip):**
+
+1. `onSaveSpeciesClip(row)` sets `exportingAction = SpeciesClipSave(row.detectionId)`.
+2. On `ioDispatcher`: `prepareSpeciesClip(row)` then `audioExport.saveToDownloads(clip, displayName)`.
+3. Same success/failure snackbars as above.
+4. Clears `exportingAction`.
 
 ---
 
@@ -143,19 +162,20 @@ Inject `AudioExportManager` and pass it into `ReviewViewModel.create(...)`.
 [Play/Pause]  [00:42 / 03:15]  [Share ↑]  [Save ⬇]
 ```
 
-- Share button: spinner while `exportingAction is FullRecordingShare`, else `Icons.Outlined.Share`.
-- Save button: spinner while `exportingAction is FullRecordingSave`, else `Icons.Outlined.FileDownload` (or `SaveAlt`).
-- Both call `vm.onShareFullRecording()` / `vm.onSaveFullRecording()`.
+- Share button: `CircularProgressIndicator` while `exportingAction is FullRecordingShare`, else `Icons.Outlined.Share`. Disabled while any `exportingAction` is active.
+- Save button: `CircularProgressIndicator` while `exportingAction is FullRecordingSave`, else `Icons.Outlined.FileDownload`. Disabled while any `exportingAction` is active.
 
-**Effect collection** (in `ReviewPage` body, via `LaunchedEffect`).
+**Effect collection** — added to `ReviewPage` body:
 
-The share intent is built inline in the Composable — `AudioExportManager` stays off the UI layer. `ActivityNotFoundException` is caught to show a Snackbar instead of crashing if no app can handle the intent.
+`FILE_PROVIDER_AUTHORITY` is the existing constant from `UiUtils.kt` (`"com.sound2inat.app.fileprovider"`). Do not hardcode the string in new code.
 
 ```kotlin
 val snackbarHostState = remember { SnackbarHostState() }
 
 LaunchedEffect(state.exportEffect) {
-    when (val effect = state.exportEffect) {
+    val effect = state.exportEffect ?: return@LaunchedEffect
+    vm.consumeExportEffect()               // consume FIRST, before any side effect
+    when (effect) {
         is ReviewExportEffect.ShareAudioFile -> {
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = "audio/wav"
@@ -170,46 +190,48 @@ LaunchedEffect(state.exportEffect) {
             } catch (_: ActivityNotFoundException) {
                 snackbarHostState.showSnackbar("Could not share audio")
             }
-            vm.consumeExportEffect()
         }
         is ReviewExportEffect.ShowSnackbar -> {
             snackbarHostState.showSnackbar(effect.message)
-            vm.consumeExportEffect()
         }
-        null -> Unit
     }
 }
 ```
 
-**`Scaffold`** needs a `SnackbarHost`: `ReviewPage`'s current `Scaffold` has no `snackbarHost` — add `snackbarHost = { SnackbarHost(snackbarHostState) }` and pass `snackbarHostState` down.
+**`Scaffold`** needs a `SnackbarHost`: `ReviewPage`'s current `Scaffold` has no `snackbarHost`. Add:
+
+```kotlin
+snackbarHost = { SnackbarHost(snackbarHostState) }
+```
 
 ---
 
 ### Modified: `SpeciesDetailsSheet.kt`
 
-Add a "Share clip / Save clip" row at the bottom of the sheet (after the time-ranges block, before the iNat section):
+Add a row with "Share clip" and "Save clip" buttons after the time-ranges block, before the iNat section:
 
 ```
-[Share clip ↑]  [Save clip ⬇]
+[Share clip ↑]   [Save clip ⬇]
 ```
 
-Implemented as `OutlinedButton`s (matching the player controls style) or `TextButton`s — match the existing button style in the sheet (`TextButton` used for "View" and "Retry").
+Use `TextButton`s (matching the existing "View" / "Retry" style in the sheet). Each shows `CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)` instead of text while loading.
 
-Use `Row(horizontalArrangement = Arrangement.spacedBy(8.dp))` with two buttons.
-
-Each button shows `CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)` in place of the icon/text while `exportingAction` matches this species. Loading state check:
+Loading state check:
 
 ```kotlin
 val isShareLoading = exportingAction is ExportingAction.SpeciesClipShare &&
-    exportingAction.detectionId == row.detectionId
+    (exportingAction as ExportingAction.SpeciesClipShare).detectionId == row.detectionId
+val isSaveLoading = exportingAction is ExportingAction.SpeciesClipSave &&
+    (exportingAction as ExportingAction.SpeciesClipSave).detectionId == row.detectionId
 ```
 
-The sheet receives `exportingAction` and the two callbacks as parameters. It does **not** hold its own `SnackbarHost` — snackbars are shown by the parent `ReviewPage`.
+The sheet does **not** hold a `SnackbarHost` — snackbars are shown by the parent `ReviewPage`.
 
 Signature addition:
+
 ```kotlin
 internal fun SpeciesDetailsSheet(
-    ...existing params...,
+    // ...existing params unchanged...
     exportingAction: ExportingAction? = null,
     onShareClip: () -> Unit = {},
     onSaveClip: () -> Unit = {},
@@ -220,28 +242,20 @@ internal fun SpeciesDetailsSheet(
 
 ### Modified: `file_paths.xml`
 
+Recording files are confirmed to live in `context.filesDir/recordings/` (via `WavFileStore`). Export clips live in `context.cacheDir/export_clips/`.
+
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <!-- Existing: habitat photos in internal storage -->
-    <files-path
-        name="habitat_photos_internal"
-        path="habitat_photos/" />
+    <!-- Existing -->
+    <files-path name="habitat_photos_internal" path="habitat_photos/" />
+    <external-files-path name="habitat_photos" path="habitat_photos/" />
 
-    <!-- Existing: habitat photos in external app storage -->
-    <external-files-path
-        name="habitat_photos"
-        path="habitat_photos/" />
+    <!-- New: full recordings for FileProvider share -->
+    <files-path name="recordings" path="recordings/" />
 
-    <!-- New: full recordings for share -->
-    <files-path
-        name="recordings"
-        path="recordings/" />
-
-    <!-- New: temporary export clips in cache -->
-    <cache-path
-        name="export_clips"
-        path="export_clips/" />
+    <!-- New: temporary export clips -->
+    <cache-path name="export_clips" path="export_clips/" />
 </paths>
 ```
 
@@ -249,61 +263,67 @@ internal fun SpeciesDetailsSheet(
 
 ## File naming
 
-| Type             | Example                                                   |
-|------------------|-----------------------------------------------------------|
-| Full recording   | `recording_2026-05-11_14-30-00.wav`                       |
-| Species clip     | `clip_Sylvia_atricapilla_2026-05-11_14-30-00.wav`         |
+| Type           | MediaStore displayName example                          |
+|----------------|--------------------------------------------------------|
+| Full recording | `recording_2026-05-11_14-30-00.wav`                    |
+| Species clip   | `clip_Sylvia_atricapilla_2026-05-11_14-30-00.wav`      |
 
-`displayName` for MediaStore is derived from the draft's `recordedAtUtcMs`. Species name is sanitized (`[^A-Za-z0-9]+` → `_`), matching `INatSubmitter.cropFileName` convention.
+`displayName` is derived from the draft's `recordedAtUtcMs`. Species name is sanitized (`[^A-Za-z0-9]+` → `_`), matching the convention in `INatSubmitter.cropFileName`.
 
 ---
 
 ## Error handling matrix
 
-| Condition                      | Action         | User message                |
-|-------------------------------|----------------|-----------------------------|
-| Audio file missing             | Share / Save   | "Audio file is missing"     |
-| Audio file empty               | Share / Save   | "Audio file is empty"       |
-| No app to handle share intent  | Share          | "Could not share audio"     |
-| MediaStore insert failed       | Save           | "Could not save audio"      |
-| Bytes copy failed              | Save           | "Could not save audio"      |
-| MediaStore entry cleaned up    | (internal)     | "Could not save audio"      |
+| Condition                     | Action       | User-visible Snackbar              |
+|-------------------------------|--------------|------------------------------------|
+| Audio file missing or empty   | Share / Save | "Audio file is missing"            |
+| WavTrimmer crop failure       | Share / Save | "Could not share/save audio"       |
+| No app for share intent       | Share        | "Could not share audio"            |
+| MediaStore insert failed      | Save         | "Could not save audio"             |
+| Bytes copy failed             | Save         | "Could not save audio"             |
 
-ActivityNotFoundException (no share target) is caught around `startActivity(chooser)` in the Composable.
+All user messages are Snackbars — no Toasts.
 
 ---
 
 ## What is NOT changed
 
 - `INatSubmitter` — untouched; it keeps its own `cropPerSpecies` / `WavTrimmer` call.
-- Recording/playback pipeline — untouched.
+- Recording / playback pipeline — untouched.
 - `WavTrimmer` — used as-is (public object, no modifications needed).
-- `WRITE_EXTERNAL_STORAGE` permission — not requested; MediaStore on API 29+ does not need it.
+- `AndroidManifest.xml` — `FileProvider` is already declared; only `file_paths.xml` needs updating.
+- `WRITE_EXTERNAL_STORAGE` — not requested. MediaStore on API 28+ for own-app writes does not require it.
 
 ---
 
 ## Manual QA checklist
 
 **Share — full recording:**
+
 - [ ] Tap Share on Review screen → Sharesheet opens
 - [ ] Share to Telegram — file arrives and can be played
 - [ ] Share to Gmail — file attaches
 - [ ] Share to Google Drive — file uploads
 
 **Share — species clip:**
+
 - [ ] Open SpeciesDetailsSheet → tap Share clip → spinner shows → Sharesheet opens
 - [ ] Clip duration matches detection window ± 1 s padding
 - [ ] Share to Telegram — clip plays correctly
+- [ ] Second tap reuses cached clip file (no re-trim)
 
 **Save:**
-- [ ] Save full recording → Toast "Audio saved to Downloads"
-- [ ] File visible in Files app under Downloads/WildEar/
+
+- [ ] Save full recording → Snackbar "Audio saved to Downloads"
+- [ ] File visible in Files app under Downloads/WildEar/ (API 29+)
 - [ ] File playable in Files app
-- [ ] Save species clip → correct file name includes species name
+- [ ] Save species clip → file name includes species name
 
 **Edge cases:**
+
 - [ ] Share when audio file deleted → Snackbar "Audio file is missing"
-- [ ] Filename with spaces / non-Latin species name → file saved correctly
-- [ ] Double-tap Share → only one Sharesheet opens (spinner disabled during export)
-- [ ] Second share of same clip reuses cached file (no re-trim)
-- [ ] Android 10, 13, 14 tested
+- [ ] Species name with non-Latin characters → clip filename sanitized correctly
+- [ ] Double-tap Share → only one action runs (buttons disabled while exportingAction is set)
+- [ ] No share target available → Snackbar "Could not share audio" (no crash)
+- [ ] Android 9 (API 28) — save lands in audio collection, not Downloads
+- [ ] Android 10, 13, 14 — save lands in Downloads/WildEar/
