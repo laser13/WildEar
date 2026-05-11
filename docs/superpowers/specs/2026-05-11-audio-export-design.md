@@ -110,7 +110,9 @@ val endMs   = minOf(recordingDurationMs, row.lastSeenMs + PADDING_MS)
 require(endMs > startMs) { "clip range is empty" }
 ```
 
-`PADDING_MS = 1000` (same constant as `INatSubmitter`). `recordingDurationMs` is read from `_state.value.durationMs`. If `endMs <= startMs`, emit `ShowSnackbar("Could not share audio")` / `"Could not save audio"` and return without calling `WavTrimmer`.
+`PADDING_MS = 1000` (same constant as `INatSubmitter`). `recordingDurationMs` is read from `_state.value.durationMs`.
+
+`prepareSpeciesClip` is a pure helper — it **throws** on any failure (invalid bounds, `WavTrimmer` error, I/O error). It has no knowledge of UI messages. The calling action method (`onShareSpeciesClip` / `onSaveSpeciesClip`) maps all exceptions to the appropriate `ShowSnackbar` in its `catch` block.
 
 Clip files live in `cacheDir/export_clips/`. Filename is stable:
 
@@ -124,38 +126,55 @@ If the file already exists and `file.length() > 0`, it is reused without re-trim
 
 ---
 
+All four action methods follow the same try/catch/finally structure:
+
+```kotlin
+// exportingAction is set at the top of each method (before the try block)
+try {
+    // validate, prepare, call audioExport, emit effect
+} catch (_: UnsupportedOperationException) {
+    // API 28 save path only
+    emitEffect(ShowSnackbar("Saving to Downloads is not supported on this Android version"))
+} catch (_: Exception) {
+    emitEffect(ShowSnackbar("Could not share/save audio"))   // use specific message per action
+} finally {
+    clearExportingAction()   // always clears, even on uncaught errors
+}
+```
+
 **Flow for Share (full recording):**
 
-1. `onShareFullRecording()` sets `exportingAction = FullRecordingShare`.
-2. Gets `audioPath` from state.
-3. Validates: file must exist and `length() > 0`. On failure → emit `ShowSnackbar("Audio file is missing / empty")`, clear `exportingAction`, return.
-4. Emits `ReviewExportEffect.ShareAudioFile(File(audioPath))`.
-5. Clears `exportingAction`. ← The Composable builds and starts the share intent.
+1. Set `exportingAction = FullRecordingShare`.
+2. `try`: validate `File(audioPath)` exists and `length() > 0`; if not, throw `IllegalStateException`.
+3. Emit `ReviewExportEffect.ShareAudioFile(File(audioPath))`.
+4. `catch (Exception)` → emit `ShowSnackbar("Audio file is missing")` (file check) or `"Could not share audio"` (other).
+5. `finally` → clear `exportingAction`. The Composable builds and starts the share intent.
 
 **Flow for Share (species clip):**
 
-1. `onShareSpeciesClip(row)` sets `exportingAction = SpeciesClipShare(row.detectionId)`.
-2. Launches coroutine on `ioDispatcher`:
-   - `val clip = prepareSpeciesClip(row)` (reuses cached file if available).
-   - On `WavTrimmer` failure → emit `ShowSnackbar("Could not share audio")`, clear `exportingAction`, return.
-3. Emits `ReviewExportEffect.ShareAudioFile(clip)`.
-4. Clears `exportingAction`. ← The Composable builds and starts the share intent.
+1. Set `exportingAction = SpeciesClipShare(row.detectionId)`.
+2. `try` on `ioDispatcher`: `val clip = prepareSpeciesClip(row)` (throws on any failure).
+3. Emit `ReviewExportEffect.ShareAudioFile(clip)`.
+4. `catch (Exception)` → emit `ShowSnackbar("Could not share audio")`.
+5. `finally` → clear `exportingAction`. The Composable builds and starts the share intent.
 
 **Flow for Save (full recording):**
 
-1. `onSaveFullRecording()` sets `exportingAction = FullRecordingSave`.
-2. Validates file. On failure → emit `ShowSnackbar("Audio file is missing")`, clear, return.
-3. On `ioDispatcher`: `audioExport.saveToDownloads(file, displayName)`.
-4. On success → emit `ShowSnackbar("Audio saved to Downloads")`.
-5. On failure → emit `ShowSnackbar("Could not save audio")`.
-6. Clears `exportingAction`.
+1. Set `exportingAction = FullRecordingSave`.
+2. `try` on `ioDispatcher`: validate file, then `audioExport.saveToDownloads(file, displayName)`.
+3. On success → emit `ShowSnackbar("Audio saved to Downloads")`.
+4. `catch (UnsupportedOperationException)` → emit `ShowSnackbar("Saving to Downloads is not supported on this Android version")`.
+5. `catch (Exception)` → emit `ShowSnackbar("Could not save audio")`.
+6. `finally` → clear `exportingAction`.
 
 **Flow for Save (species clip):**
 
-1. `onSaveSpeciesClip(row)` sets `exportingAction = SpeciesClipSave(row.detectionId)`.
-2. On `ioDispatcher`: `prepareSpeciesClip(row)` then `audioExport.saveToDownloads(clip, displayName)`.
-3. Same success/failure snackbars as above.
-4. Clears `exportingAction`.
+1. Set `exportingAction = SpeciesClipSave(row.detectionId)`.
+2. `try` on `ioDispatcher`: `prepareSpeciesClip(row)` then `audioExport.saveToDownloads(clip, displayName)`.
+3. On success → emit `ShowSnackbar("Audio saved to Downloads")`.
+4. `catch (UnsupportedOperationException)` → emit `ShowSnackbar("Saving to Downloads is not supported on this Android version")`.
+5. `catch (Exception)` → emit `ShowSnackbar("Could not save audio")`.
+6. `finally` → clear `exportingAction`.
 
 ---
 
@@ -289,13 +308,14 @@ Recording files are confirmed to live in `context.filesDir/recordings/` (via `Wa
 
 | Condition                          | Action       | User-visible Snackbar                                          |
 |------------------------------------|--------------|----------------------------------------------------------------|
-| Audio file missing or empty        | Share        | "Audio file is missing"                                        |
-| Audio file missing or empty        | Save         | "Audio file is missing"                                        |
-| WavTrimmer crop failure (clip)     | Share clip   | "Could not share audio"                                        |
-| WavTrimmer crop failure (clip)     | Save clip    | "Could not save audio"                                         |
+| Condition                          | Action       | User-visible Snackbar                                          |
+|------------------------------------|--------------|----------------------------------------------------------------|
+| Audio file missing or empty        | Share / Save | "Audio file is missing"                                        |
+| prepareSpeciesClip failure         | Share clip   | "Could not share audio"                                        |
+| prepareSpeciesClip failure         | Save clip    | "Could not save audio"                                         |
 | No app for share intent            | Share        | "Could not share audio"                                        |
 | MediaStore insert or copy failed   | Save         | "Could not save audio"                                         |
-| API 28 (save not supported)        | Save         | "Saving to Downloads is not supported on this Android version" |
+| API 28 (UnsupportedOperationException) | Save     | "Saving to Downloads is not supported on this Android version" |
 
 All user messages are Snackbars — no Toasts.
 
