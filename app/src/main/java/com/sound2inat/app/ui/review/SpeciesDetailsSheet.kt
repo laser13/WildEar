@@ -9,11 +9,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -38,6 +43,7 @@ import com.sound2inat.inference.ModelIds
  * Fragment time ranges are tappable — tapping calls [onSeekTo] with the
  * fragment's start position.
  */
+@Suppress("LongParameterList")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SpeciesDetailsSheet(
@@ -46,6 +52,9 @@ internal fun SpeciesDetailsSheet(
     onSeekTo: (Long) -> Unit,
     uploadedUrl: String? = null,
     onLoadDetail: (() -> Unit)? = null,
+    exportingAction: ExportingAction? = null,
+    onShareClip: () -> Unit = {},
+    onSaveClip: () -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
@@ -159,6 +168,50 @@ internal fun SpeciesDetailsSheet(
                         .padding(vertical = 4.dp)
                         .fillMaxWidth(),
                 )
+            }
+
+            // Clip export buttons — Share clip / Save clip
+            item {
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Start,
+                ) {
+                    val isShareLoading = (exportingAction as? ExportingAction.SpeciesClipShare)
+                        ?.detectionId == row.detectionId
+                    val isSaveLoading = (exportingAction as? ExportingAction.SpeciesClipSave)
+                        ?.detectionId == row.detectionId
+                    val isAnyExporting = exportingAction != null
+
+                    TextButton(onClick = onShareClip, enabled = !isAnyExporting) {
+                        if (isShareLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                Icons.Outlined.Share,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        Text(stringResource(R.string.btn_share_clip))
+                    }
+                    TextButton(onClick = onSaveClip, enabled = !isAnyExporting) {
+                        if (isSaveLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                Icons.Outlined.FileDownload,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        Text(stringResource(R.string.btn_save_clip))
+                    }
+                }
             }
 
             if (uploadedUrl != null) {

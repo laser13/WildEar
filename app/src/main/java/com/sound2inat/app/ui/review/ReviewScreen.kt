@@ -1,5 +1,8 @@
 package com.sound2inat.app.ui.review
 
+import android.content.ClipData
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -33,11 +36,14 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.MicNone
 import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -48,6 +54,8 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,6 +68,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,11 +81,13 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import coil.compose.AsyncImage
 import com.sound2inat.app.R
+import com.sound2inat.app.ui.FILE_PROVIDER_AUTHORITY
 import com.sound2inat.app.ui.formatDurationMs
 import com.sound2inat.app.ui.theme.detectionCardLikelyDark
 import com.sound2inat.app.ui.theme.detectionCardLikelyLight
@@ -162,9 +173,42 @@ private fun ReviewPage(
     val spectrogramFile by vm.spectrogramFile.collectAsStateWithLifecycle()
     val waveformPeaks by vm.waveformPeaks.collectAsStateWithLifecycle()
     val highlight by vm.highlight.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
     LaunchedEffect(state.audioPath) {
         if (state.audioPath != null) vm.ensureVisuals(filesDir)
+    }
+
+    LaunchedEffect(Unit) {
+        snapshotFlow { state.exportEffect }
+            .collect { effect ->
+                if (effect == null) return@collect
+                vm.consumeExportEffect() // consume BEFORE the side effect fires
+                when (effect) {
+                    is ReviewExportEffect.ShareAudioFile -> {
+                        try {
+                            val uri: Uri = FileProvider.getUriForFile(
+                                context,
+                                FILE_PROVIDER_AUTHORITY,
+                                effect.file,
+                            )
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "audio/wav"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                clipData = ClipData.newUri(context.contentResolver, effect.file.name, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(intent, null))
+                        } catch (_: Exception) {
+                            snackbarHostState.showSnackbar("Could not share audio")
+                        }
+                    }
+                    is ReviewExportEffect.ShowSnackbar -> {
+                        snackbarHostState.showSnackbar(effect.message)
+                    }
+                }
+            }
     }
 
     var pickerVisible by remember { mutableStateOf(false) }
@@ -197,6 +241,7 @@ private fun ReviewPage(
             )
         },
         bottomBar = { SubmitBottomBar(state = state, vm = vm) },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         // PullToRefreshBox handles the gesture animation; we never set
         // isRefreshing=true (no async work to await) — instead we treat
@@ -430,6 +475,9 @@ private fun ReviewPage(
             },
             uploadedUrl = obsEntry?.url,
             onLoadDetail = obsEntry?.let { { vm.loadObservationDetail(snapshot.detectionId, it.observationId) } },
+            exportingAction = state.exportingAction,
+            onShareClip = { vm.onShareSpeciesClip(liveRow) },
+            onSaveClip = { vm.onSaveSpeciesClip(liveRow) },
         )
     }
 }
@@ -659,6 +707,27 @@ private fun PlayerControls(state: ReviewUiState, vm: ReviewViewModel) {
                 Text(if (isPlaying) stringResource(R.string.btn_pause) else stringResource(R.string.btn_play))
             }
             Text("${formatDurationMs(positionMs)} / ${formatDurationMs(state.durationMs)}")
+            val isExporting = state.exportingAction != null
+            IconButton(
+                onClick = { vm.onShareFullRecording() },
+                enabled = !isExporting,
+            ) {
+                if (state.exportingAction is ExportingAction.FullRecordingShare) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Outlined.Share, contentDescription = stringResource(R.string.cd_share_recording))
+                }
+            }
+            IconButton(
+                onClick = { vm.onSaveFullRecording() },
+                enabled = !isExporting,
+            ) {
+                if (state.exportingAction is ExportingAction.FullRecordingSave) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Outlined.FileDownload, contentDescription = stringResource(R.string.cd_save_recording))
+                }
+            }
         }
         if (state.playback is PlaybackState.Error) {
             Text(state.playback.message, color = MaterialTheme.colorScheme.error)
