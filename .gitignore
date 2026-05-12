@@ -37,3 +37,4 @@ image*.png
 /qodana.yaml
 /docs/temp/
 /docs/private/
+/CLAUDE.md

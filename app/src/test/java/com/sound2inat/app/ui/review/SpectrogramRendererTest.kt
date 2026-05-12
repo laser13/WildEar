@@ -93,10 +93,14 @@ class SpectrogramRendererTest {
     fun `PER_FREQUENCY_MEDIAN and NONE produce different output`() {
         val samples = sine(1_000.0, n = params.sampleRate * 3)
         val withMedian = SpectrogramRenderer(
-            params, targetWidth = 64, noiseFloorMode = SpectrogramNoiseFloorMode.PER_FREQUENCY_MEDIAN
+            params,
+            targetWidth = 64,
+            noiseFloorMode = SpectrogramNoiseFloorMode.PER_FREQUENCY_MEDIAN,
         ).render(samples)
         val noMedian = SpectrogramRenderer(
-            params, targetWidth = 64, noiseFloorMode = SpectrogramNoiseFloorMode.NONE
+            params,
+            targetWidth = 64,
+            noiseFloorMode = SpectrogramNoiseFloorMode.NONE,
         ).render(samples)
         assertThat(withMedian).isNotEqualTo(noMedian)
     }
@@ -106,7 +110,9 @@ class SpectrogramRendererTest {
         val samples = sine(1_000.0, n = params.sampleRate * 3)
         val default = SpectrogramRenderer(params, targetWidth = 32).render(samples)
         val explicit = SpectrogramRenderer(
-            params, targetWidth = 32, noiseFloorMode = SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN
+            params,
+            targetWidth = 32,
+            noiseFloorMode = SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN,
         ).render(samples)
         assertThat(default).isEqualTo(explicit)
     }
@@ -118,10 +124,14 @@ class SpectrogramRendererTest {
         // 100 Hz component is below BIRD_FOCUSED minimum (400 Hz) but inside FULL (0 Hz).
         val samples = mixedSine(100.0, 5_000.0, n = params.sampleRate * 3)
         val birdFocused = SpectrogramRenderer(
-            params, targetWidth = 64, displayRange = SpectrogramDisplayRange.BIRD_FOCUSED
+            params,
+            targetWidth = 64,
+            displayRange = SpectrogramDisplayRange.BIRD_FOCUSED,
         ).render(samples)
         val full = SpectrogramRenderer(
-            params, targetWidth = 64, displayRange = SpectrogramDisplayRange.FULL
+            params,
+            targetWidth = 64,
+            displayRange = SpectrogramDisplayRange.FULL,
         ).render(samples)
         assertThat(birdFocused).isNotEqualTo(full)
     }
@@ -131,7 +141,9 @@ class SpectrogramRendererTest {
         val samples = sine(1_000.0, n = params.sampleRate * 3)
         val default = SpectrogramRenderer(params, targetWidth = 32).render(samples)
         val explicit = SpectrogramRenderer(
-            params, targetWidth = 32, displayRange = SpectrogramDisplayRange.BIRD_FOCUSED
+            params,
+            targetWidth = 32,
+            displayRange = SpectrogramDisplayRange.BIRD_FOCUSED,
         ).render(samples)
         assertThat(default).isEqualTo(explicit)
     }
@@ -141,8 +153,10 @@ class SpectrogramRendererTest {
     @Test
     fun `INK and VIRIDIS palettes produce different pixel output`() {
         val samples = sine(1_000.0, n = params.sampleRate * 3)
-        val ink = SpectrogramRenderer(params, targetWidth = 64, palette = SpectrogramPalette.INK).render(samples)
-        val viridis = SpectrogramRenderer(params, targetWidth = 64, palette = SpectrogramPalette.VIRIDIS).render(samples)
+        val ink =
+            SpectrogramRenderer(params, targetWidth = 64, palette = SpectrogramPalette.INK).render(samples)
+        val viridis =
+            SpectrogramRenderer(params, targetWidth = 64, palette = SpectrogramPalette.VIRIDIS).render(samples)
         assertThat(ink).isNotEqualTo(viridis)
     }
 
@@ -150,7 +164,8 @@ class SpectrogramRendererTest {
     fun `default palette output matches explicit INK palette`() {
         val samples = sine(1_000.0, n = params.sampleRate * 3)
         val default = SpectrogramRenderer(params, targetWidth = 64).render(samples)
-        val explicit = SpectrogramRenderer(params, targetWidth = 64, palette = SpectrogramPalette.INK).render(samples)
+        val explicit =
+            SpectrogramRenderer(params, targetWidth = 64, palette = SpectrogramPalette.INK).render(samples)
         assertThat(default).isEqualTo(explicit)
     }
 

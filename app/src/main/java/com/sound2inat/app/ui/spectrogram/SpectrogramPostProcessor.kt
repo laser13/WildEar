@@ -5,12 +5,14 @@ import kotlin.math.pow
 enum class SpectrogramNoiseFloorMode {
     /** No noise floor removal — raw dB values pass through unchanged. */
     NONE,
+
     /**
      * Per-column (per-time-frame) median subtraction. Designed for live streaming
      * where the full recording is not yet available. See `whitenInPlace` in
      * `LiveSpectrogramView` for the streaming implementation.
      */
     PER_COLUMN_MEDIAN,
+
     /**
      * Per-frequency-bin median subtraction across all time frames. Removes
      * constant background (road noise, HVAC hum) that is stable over time,
@@ -18,6 +20,7 @@ enum class SpectrogramNoiseFloorMode {
      * the full recording — not suitable for live streaming.
      */
     PER_FREQUENCY_MEDIAN,
+
     /**
      * Per-frequency-bin percentile subtraction across all time frames. A lower
      * percentile keeps the estimated background closer to the quiet floor than
