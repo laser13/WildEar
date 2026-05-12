@@ -204,7 +204,33 @@ class MigrationTest {
     }
 
     @Test
-    fun `migrate all versions 1 through 7 preserves seed data`() {
+    fun `migrate 7 to 8 creates photo album tables`() {
+        helper.createDatabase(dbName, 7).close()
+
+        val db = helper.runMigrationsAndValidate(
+            dbName,
+            8,
+            true,
+            Sound2iNatDb.MIGRATION_7_8,
+        )
+
+        db.query("SELECT COUNT(*) FROM photo_drafts").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getInt(0)).isEqualTo(0)
+        }
+        db.query("SELECT COUNT(*) FROM photo_draft_images").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getInt(0)).isEqualTo(0)
+        }
+        db.query(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='index_photo_draft_images_photoDraftId'",
+        ).use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+        }
+    }
+
+    @Test
+    fun `migrate all versions 1 through 8 preserves seed data`() {
         helper.createDatabase(dbName, 1).use { db ->
             db.execSQL(
                 """INSERT INTO drafts (id, audioPath, recordedAtUtcMs, durationMs,
@@ -223,13 +249,14 @@ class MigrationTest {
         }
 
         val db = helper.runMigrationsAndValidate(
-            dbName, 7, true,
+            dbName, 8, true,
             Sound2iNatDb.MIGRATION_1_2,
             Sound2iNatDb.MIGRATION_2_3,
             Sound2iNatDb.MIGRATION_3_4,
             Sound2iNatDb.MIGRATION_4_5,
             Sound2iNatDb.MIGRATION_5_6,
             Sound2iNatDb.MIGRATION_6_7,
+            Sound2iNatDb.MIGRATION_7_8,
         )
 
         db.query("SELECT COUNT(*) FROM drafts WHERE id='d5'").use { c ->
@@ -246,6 +273,10 @@ class MigrationTest {
             assertThat(c.getDouble(3)).isEqualTo(0.0)
         }
         db.query("SELECT COUNT(*) FROM inat_observations").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getInt(0)).isEqualTo(0)
+        }
+        db.query("SELECT COUNT(*) FROM photo_drafts").use { c ->
             assertThat(c.moveToFirst()).isTrue()
             assertThat(c.getInt(0)).isEqualTo(0)
         }

@@ -7,8 +7,15 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [DraftEntity::class, DetectionEntity::class, InatObservationEntity::class, DraftPhotoEntity::class],
-    version = 7,
+    entities = [
+        DraftEntity::class,
+        DetectionEntity::class,
+        InatObservationEntity::class,
+        DraftPhotoEntity::class,
+        PhotoDraftEntity::class,
+        PhotoDraftImageEntity::class,
+    ],
+    version = 8,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -17,6 +24,8 @@ abstract class Sound2iNatDb : RoomDatabase() {
     abstract fun detections(): DetectionDao
     abstract fun inatObservations(): InatObservationDao
     abstract fun photos(): DraftPhotoDao
+    abstract fun photoDrafts(): PhotoDraftDao
+    abstract fun photoDraftImages(): PhotoDraftImageDao
 
     companion object {
         // v2: iNaturalist submission tracking columns on `drafts`.
@@ -126,6 +135,53 @@ abstract class Sound2iNatDb : RoomDatabase() {
                 )
                 db.execSQL("DROP TABLE drafts")
                 db.execSQL("ALTER TABLE drafts_new RENAME TO drafts")
+            }
+        }
+
+        // v8: standalone photo-observation albums. This is intentionally
+        // separate from draft_photos, which remains audio habitat-photo support.
+        val MIGRATION_7_8: Migration = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS photo_drafts (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        createdAtUtcMs INTEGER NOT NULL,
+                        updatedAtUtcMs INTEGER NOT NULL,
+                        observedAtUtcMs INTEGER NOT NULL,
+                        latitude REAL,
+                        longitude REAL,
+                        locationAccuracyMeters REAL,
+                        status TEXT NOT NULL,
+                        taxonScientificName TEXT,
+                        taxonCommonName TEXT,
+                        taxonInatId INTEGER,
+                        description TEXT,
+                        inatObservationId INTEGER,
+                        inatObservationUrl TEXT,
+                        inatLastError TEXT
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS photo_draft_images (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        photoDraftId TEXT NOT NULL,
+                        photoPath TEXT NOT NULL,
+                        takenAtUtcMs INTEGER NOT NULL,
+                        sortOrder INTEGER NOT NULL,
+                        width INTEGER,
+                        height INTEGER,
+                        mimeType TEXT NOT NULL,
+                        FOREIGN KEY(photoDraftId) REFERENCES photo_drafts(id)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_photo_draft_images_photoDraftId ON photo_draft_images(photoDraftId)",
+                )
             }
         }
     }

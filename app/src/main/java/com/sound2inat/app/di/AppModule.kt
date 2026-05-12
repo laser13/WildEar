@@ -15,7 +15,10 @@ import com.sound2inat.storage.DetectionDao
 import com.sound2inat.storage.DraftDao
 import com.sound2inat.storage.DraftPhotoDao
 import com.sound2inat.storage.DraftRepository
+import com.sound2inat.storage.PhotoDraftDao
+import com.sound2inat.storage.PhotoDraftImageDao
 import com.sound2inat.storage.PhotoFileStore
+import com.sound2inat.storage.PhotoObservationFileStore
 import com.sound2inat.storage.Sound2iNatDb
 import com.sound2inat.storage.WavFileStore
 import dagger.Module
@@ -60,6 +63,7 @@ object AppModule {
                 Sound2iNatDb.MIGRATION_4_5,
                 Sound2iNatDb.MIGRATION_5_6,
                 Sound2iNatDb.MIGRATION_6_7,
+                Sound2iNatDb.MIGRATION_7_8,
             )
             .build()
 
@@ -69,12 +73,20 @@ object AppModule {
 
     @Provides fun provideDraftPhotoDao(db: Sound2iNatDb): DraftPhotoDao = db.photos()
 
+    @Provides fun providePhotoDraftDao(db: Sound2iNatDb): PhotoDraftDao = db.photoDrafts()
+
+    @Provides fun providePhotoDraftImageDao(db: Sound2iNatDb): PhotoDraftImageDao = db.photoDraftImages()
+
     @Provides @Singleton
     fun providePhotoFileStore(@ApplicationContext ctx: Context): PhotoFileStore =
         PhotoFileStore(
             ctx.getExternalFilesDir("habitat_photos")
                 ?: File(ctx.filesDir, "habitat_photos"),
         )
+
+    @Provides @Singleton
+    fun providePhotoObservationFileStore(@ApplicationContext ctx: Context): PhotoObservationFileStore =
+        PhotoObservationFileStore(File(ctx.filesDir, "photo_observations"))
 
     @Provides fun provideInatObservationDao(db: Sound2iNatDb): com.sound2inat.storage.InatObservationDao =
         db.inatObservations()

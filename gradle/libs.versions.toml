@@ -32,6 +32,7 @@ detekt = "1.23.7"
 securityCrypto = "1.1.0"
 osmdroid = "6.1.18"
 androidxBrowser = "1.8.0"
+camerax = "1.5.3"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version = "1.16.0" }
@@ -81,6 +82,10 @@ coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
 androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "securityCrypto" }
 osmdroid-android = { module = "org.osmdroid:osmdroid-android", version.ref = "osmdroid" }
 androidx-browser = { module = "androidx.browser:browser", version.ref = "androidxBrowser" }
+androidx-camera-core = { module = "androidx.camera:camera-core", version.ref = "camerax" }
+androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -8,4 +8,10 @@ class Converters {
 
     @TypeConverter
     fun toStatus(v: String): DraftStatus = DraftStatus.valueOf(v)
+
+    @TypeConverter
+    fun fromPhotoStatus(s: PhotoDraftStatus): String = s.name
+
+    @TypeConverter
+    fun toPhotoStatus(v: String): PhotoDraftStatus = PhotoDraftStatus.valueOf(v)
 }
