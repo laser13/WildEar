@@ -39,3 +39,4 @@ image*.png
 /docs/temp/
 /docs/private/
 /CLAUDE.md
+/release.keystore.b64
