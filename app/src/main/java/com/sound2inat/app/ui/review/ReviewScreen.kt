@@ -171,6 +171,7 @@ private fun ReviewPage(
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val spectrogramFile by vm.spectrogramFile.collectAsStateWithLifecycle()
+    val displayRange by vm.displayRange.collectAsStateWithLifecycle()
     val waveformPeaks by vm.waveformPeaks.collectAsStateWithLifecycle()
     val highlight by vm.highlight.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -272,6 +273,8 @@ private fun ReviewPage(
                         durationMs = state.durationMs,
                         positionFlow = vm.playerPosition,
                         onSeek = vm::seekTo,
+                        displayRange = displayRange,
+                        onDisplayRangeChange = vm::setDisplayRange,
                     )
                 }
                 item {

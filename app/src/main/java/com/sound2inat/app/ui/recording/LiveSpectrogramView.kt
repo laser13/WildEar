@@ -1,7 +1,6 @@
 package com.sound2inat.app.ui.recording
 
 import android.graphics.Bitmap
-import android.graphics.Color
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -14,6 +13,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
+import com.sound2inat.app.ui.spectrogram.SpectrogramColorMap
+import com.sound2inat.app.ui.spectrogram.SpectrogramRenderProfile
 import com.sound2inat.audio.Spectrogram
 import com.sound2inat.audio.SpectrogramRingBuffer
 import kotlinx.coroutines.Dispatchers
@@ -21,7 +22,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.withContext
 import kotlin.math.exp
 import kotlin.math.ln
-import kotlin.math.sqrt
+import kotlin.math.pow
 
 private const val BITMAP_WIDTH_COLS = 940 // ~10 sec at 48k / hop 512
 private const val BITMAP_HEIGHT_BINS = 256 // log-binned from 1025 to 256
@@ -32,35 +33,16 @@ private const val HOP_SIZE = 512
 private const val DISPLAY_MAX_HZ = 10_000
 
 /**
- * Display window in **dB above the per-column noise floor** (set by
- * [whitenInPlace]). Independent of recording gain / mic sensitivity:
- * 0 = at noise floor → white, [DB_DISPLAY_MAX] dB above floor → black.
+ * Display window in **dB above the per-column noise floor** after a light
+ * gate. Independent of recording gain / mic sensitivity:
+ * 0 = at or below gate → white, [DB_DISPLAY_RANGE] dB above gate → near-black.
  * Needed because UNPROCESSED audio source produces much lower absolute
  * dBFS than gain-controlled sources, so a fixed-dBFS window can't hit
  * both quiet whistles and clean background simultaneously.
  */
-private const val DB_DISPLAY_MIN = 0f
-private const val DB_DISPLAY_MAX = 35f
-
-private const val LUT_SIZE = 256
-
-/**
- * Builds a Merlin-style ink LUT that blends from [bgArgb] (silence) to near-black
- * (loud peak). Parameterised so the spectrogram background matches the app theme.
- */
-private fun buildInkLut(bgArgb: Int): IntArray {
-    val bgR = (bgArgb shr 16) and 0xFF
-    val bgG = (bgArgb shr 8) and 0xFF
-    val bgB = bgArgb and 0xFF
-    return IntArray(LUT_SIZE) { i ->
-        val t = i / (LUT_SIZE - 1f)
-        val tGamma = sqrt(t)
-        val r = (bgR * (1f - tGamma)).toInt().coerceIn(0, 255)
-        val g = (bgG * (1f - tGamma)).toInt().coerceIn(0, 255)
-        val b = (bgB * (1f - tGamma)).toInt().coerceIn(0, 255)
-        Color.rgb(r, g, b)
-    }
-}
+private const val DB_GATE = 6f
+private const val DB_DISPLAY_RANGE = 30f
+private const val DISPLAY_GAMMA = 1.5f
 
 /**
  * Renders a [SharedFlow] of float audio blocks as a scrolling sonogram with
@@ -80,7 +62,7 @@ fun LiveSpectrogramView(
     backgroundColor: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.White,
 ) {
     val bgArgb = backgroundColor.toArgb()
-    val lut = remember(bgArgb) { buildInkLut(bgArgb) }
+    val lut = remember(bgArgb) { SpectrogramColorMap.ink(bgArgb, SpectrogramRenderProfile.MAX_INK_ARGB) }
 
     val pixels = remember(bgArgb) { IntArray(BITMAP_WIDTH_COLS * BITMAP_HEIGHT_BINS) { bgArgb } }
     val ring = remember { SpectrogramRingBuffer(BITMAP_WIDTH_COLS, BITMAP_HEIGHT_BINS) }
@@ -196,8 +178,6 @@ private fun fillPixels(
 ) {
     val drawCols = ring.size.coerceAtMost(w)
     val xOffset = w - drawCols
-    val span = DB_DISPLAY_MAX - DB_DISPLAY_MIN
-    val lutMax = LUT_SIZE - 1
     if (xOffset > 0) {
         for (y in 0 until h) {
             val rowStart = y * w
@@ -209,9 +189,9 @@ private fun fillPixels(
         val px = xOffset + x
         for (y in 0 until h) {
             val db = col[h - 1 - y]
-            val linear = ((db - DB_DISPLAY_MIN) / span).coerceIn(0f, 1f)
-            val lutIdx = (linear * lutMax).toInt().coerceIn(0, lutMax)
-            out[y * w + px] = lut[lutIdx]
+            val gated = (db - DB_GATE).coerceIn(0f, DB_DISPLAY_RANGE)
+            val ink = (gated / DB_DISPLAY_RANGE).pow(DISPLAY_GAMMA)
+            out[y * w + px] = SpectrogramColorMap.map(ink, lut)
         }
     }
 }

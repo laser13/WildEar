@@ -1,5 +1,10 @@
 package com.sound2inat.app.ui.review
 
+import com.sound2inat.app.ui.spectrogram.SpectrogramColorMap
+import com.sound2inat.app.ui.spectrogram.SpectrogramNoiseFloorMode
+import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
+import com.sound2inat.app.ui.spectrogram.SpectrogramPostProcessor
+import com.sound2inat.app.ui.spectrogram.SpectrogramRenderProfile
 import com.sound2inat.inference.MelParams
 import com.sound2inat.inference.MelSpectrogram
 
@@ -7,14 +12,13 @@ import com.sound2inat.inference.MelSpectrogram
  * Pure-JVM spectrogram pixel renderer. Produces a `[height][width]` matrix
  * of ARGB ints from raw mono audio samples by:
  *
- *   1. Computing the mel-spectrogram via [MelSpectrogram] (Task 4).
- *   2. Applying a top-dB clamp so the dynamic range is at most [TOP_DB] dB.
- *   3. Normalising dB values per rendered window using percentile bounds
- *      (p5 → 0, p95 → 1) to prevent loud low-frequency rumble from flattening
- *      quiet calls.
+ *   1. Computing the mel-spectrogram via [MelSpectrogram].
+ *   2. Applying [SpectrogramNoiseFloorMode] background subtraction (default: per-frequency p20).
+ *   3. Applying display-only gate/range/gamma mapping so low-level texture
+ *      stays pale instead of being over-normalized.
  *   4. Downsampling along the time axis to at most [targetWidth] columns.
  *   5. Flipping the Y axis so high frequencies render at the top.
- *   6. Mapping each cell through the [Colormap.viridis] LUT.
+ *   6. Mapping each cell through the configured [SpectrogramPalette] (default: [SpectrogramPalette.INK]).
  *
  * The result has `height == melParams.melBins` and `width <= targetWidth`.
  *
@@ -24,32 +28,39 @@ import com.sound2inat.inference.MelSpectrogram
 class SpectrogramRenderer(
     private val melParams: MelParams = MelParams(),
     private val targetWidth: Int = DEFAULT_TARGET_WIDTH,
+    private val palette: SpectrogramPalette = SpectrogramPalette.INK,
+    private val backgroundArgb: Int = WHITE_ARGB,
+    private val displayRange: SpectrogramDisplayRange = SpectrogramDisplayRange.BIRD_FOCUSED,
+    private val noiseFloorMode: SpectrogramNoiseFloorMode = SpectrogramNoiseFloorMode.PER_FREQUENCY_PERCENTILE,
+    private val noiseFloorPercentile: Float = 20f,
+    private val gateDb: Float = 8f,
+    private val displayRangeDb: Float = 30f,
+    private val gamma: Float = 1.5f,
+    private val maxInkArgb: Int = SpectrogramRenderProfile.MAX_INK_ARGB,
+    private val smoothingTimeRadius: Int = 1,
+    private val smoothingFrequencyRadius: Int = 1,
 ) {
+    private val inkLut: IntArray by lazy { SpectrogramColorMap.ink(backgroundArgb, maxInkArgb) }
+
+    // displayRange overrides fMin/fMax from melParams so the visible band is always
+    // determined by the display range, not by whatever MelParams was constructed with.
+    private val effectiveMelParams: MelParams = melParams.copy(
+        fMin = displayRange.fMinHz.toFloat(),
+        fMax = displayRange.fMaxHz.toFloat(),
+    )
 
     /**
      * Render [samples] (mono float, normalised to roughly `[-1, 1]`).
      * Returns an empty array if the audio is shorter than one FFT window.
      */
     fun render(samples: FloatArray): Array<IntArray> {
-        if (samples.size < melParams.nFft) return emptyArray()
-        val mel = MelSpectrogram(melParams).compute(samples)
+        if (samples.size < effectiveMelParams.nFft) return emptyArray()
+        val rawMel = MelSpectrogram(effectiveMelParams).compute(samples)
+        val mel = SpectrogramPostProcessor.applyNoiseFloor(rawMel, noiseFloorMode, noiseFloorPercentile)
         val melBins = mel.size
         val frames = mel[0].size
         if (frames == 0) return emptyArray()
-
-        // Flatten mel matrix for global normalization operations.
-        val allValues = FloatArray(melBins * frames)
-        var idx = 0
-        for (m in 0 until melBins) {
-            val row = mel[m]
-            for (f in 0 until frames) allValues[idx++] = row[f]
-        }
-
-        // Apply top-dB clamp: restrict dynamic range to at most TOP_DB decibels.
-        val topDbClampedValues = applyTopDbClamp(allValues, TOP_DB)
-
-        // Percentile normalization: p5 → 0, p95 → 1.
-        val normalizedValues = percentileNormalize(topDbClampedValues)
+        val normalized = normalizeForDisplay(mel, melBins, frames)
 
         val width = minOf(targetWidth, frames)
         val out = Array(melBins) { IntArray(width) }
@@ -61,15 +72,52 @@ class SpectrogramRenderer(
             for (m in 0 until melBins) {
                 var acc = 0f
                 for (f in start until start + span) {
-                    acc += normalizedValues[m * frames + f]
+                    acc += normalized[m][f]
                 }
                 val norm = (acc / span).coerceIn(0f, 1f)
                 // Flip Y: highest mel bin (top of image) gets the largest m.
                 val y = melBins - 1 - m
-                out[y][x] = Colormap.viridis(norm)
+                out[y][x] = when (palette) {
+                    SpectrogramPalette.INK -> SpectrogramColorMap.map(norm, inkLut)
+                    SpectrogramPalette.VIRIDIS -> Colormap.viridis(norm)
+                }
             }
         }
         return out
+    }
+
+    private fun normalizeForDisplay(
+        mel: Array<FloatArray>,
+        melBins: Int,
+        frames: Int,
+    ): Array<FloatArray> {
+        val normalized = if (noiseFloorMode == SpectrogramNoiseFloorMode.NONE) {
+            val allValues = FloatArray(melBins * frames)
+            var idx = 0
+            for (m in 0 until melBins) {
+                val row = mel[m]
+                for (f in 0 until frames) allValues[idx++] = row[f]
+            }
+            val clamped = applyTopDbClamp(allValues, displayRangeDb)
+            val flat = percentileNormalize(clamped)
+            Array(melBins) { m ->
+                FloatArray(frames) { f -> flat[m * frames + f] }
+            }
+        } else {
+            Array(melBins) { m ->
+                SpectrogramPostProcessor.applyDisplayCurve(
+                    values = mel[m],
+                    gateDb = gateDb,
+                    displayRangeDb = displayRangeDb,
+                    gamma = gamma,
+                )
+            }
+        }
+        return SpectrogramPostProcessor.smoothNormalized(
+            normalized,
+            timeRadius = smoothingTimeRadius,
+            frequencyRadius = smoothingFrequencyRadius,
+        )
     }
 
     companion object {
@@ -77,6 +125,8 @@ class SpectrogramRenderer(
 
         /** Maximum dynamic range in decibels. Values below (max - TOP_DB) are lifted to the floor. */
         const val TOP_DB = 75f
+
+        private const val WHITE_ARGB = -1 // 0xFFFFFFFF: fully opaque white
 
         /**
          * Clamps [values] so the dynamic range is at most [topDb] dB.

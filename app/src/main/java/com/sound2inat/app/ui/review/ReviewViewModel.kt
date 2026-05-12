@@ -12,6 +12,8 @@ import com.sound2inat.app.inference.InferenceQueue
 import com.sound2inat.app.inference.JobStatus
 import com.sound2inat.app.inference.QueuedJob
 import com.sound2inat.app.ui.FILE_PROVIDER_AUTHORITY
+import com.sound2inat.app.ui.spectrogram.SpectrogramNoiseFloorMode
+import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
 import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.ObservationDetail
@@ -69,7 +71,12 @@ import javax.inject.Singleton
  * [WaveformBitmap.peaks].
  */
 fun interface VisualsProvider {
-    suspend fun build(audioPath: String, draftId: String, filesDir: File): Visuals
+    suspend fun build(
+        audioPath: String,
+        draftId: String,
+        filesDir: File,
+        displayRange: SpectrogramDisplayRange,
+    ): Visuals
 }
 
 /**
@@ -208,6 +215,12 @@ class ReviewViewModel(
 
     private val _spectrogramFile = MutableStateFlow<File?>(null)
     val spectrogramFile: StateFlow<File?> = _spectrogramFile
+
+    private val _displayRange = MutableStateFlow(SpectrogramDisplayRange.BIRD_FOCUSED)
+    val displayRange: StateFlow<SpectrogramDisplayRange> = _displayRange
+
+    /** Cached so [setDisplayRange] can trigger a re-render without re-reading context. */
+    private var cachedFilesDir: File? = null
 
     private val _waveformPeaks = MutableStateFlow<FloatArray?>(null)
     val waveformPeaks: StateFlow<FloatArray?> = _waveformPeaks
@@ -738,12 +751,15 @@ class ReviewViewModel(
      */
     @Suppress("TooGenericExceptionCaught")
     fun ensureVisuals(filesDir: File) {
+        cachedFilesDir = filesDir
         if (visualsStarted) return
         val path = _state.value.audioPath ?: return
         visualsStarted = true
         visualsJob = scope.launch {
             try {
-                val v = withContext(ioDispatcher) { visuals.build(path, draftId, filesDir) }
+                val v = withContext(ioDispatcher) {
+                    visuals.build(path, draftId, filesDir, _displayRange.value)
+                }
                 _spectrogramFile.value = v.spectrogramFile
                 _waveformPeaks.value = v.waveformPeaks
             } catch (t: Throwable) {
@@ -753,6 +769,17 @@ class ReviewViewModel(
                 android.util.Log.w("ReviewViewModel", "ensureVisuals failed for draft $draftId", t)
             }
         }
+    }
+
+    /** Switches the spectrogram display range and re-renders. No-op if already on [range]. */
+    fun setDisplayRange(range: SpectrogramDisplayRange) {
+        if (_displayRange.value == range) return
+        _displayRange.value = range
+        val filesDir = cachedFilesDir ?: return
+        visualsJob?.cancel()
+        visualsStarted = false
+        _spectrogramFile.value = null
+        ensureVisuals(filesDir)
     }
 
     fun play() {
@@ -1236,8 +1263,12 @@ class ReviewPagerViewModel @Inject constructor(
 
 /** Default sink used in tests; never builds anything. */
 internal object NoopVisualsProvider : VisualsProvider {
-    override suspend fun build(audioPath: String, draftId: String, filesDir: File): Visuals =
-        error("NoopVisualsProvider should not be invoked; supply a real VisualsProvider")
+    override suspend fun build(
+        audioPath: String,
+        draftId: String,
+        filesDir: File,
+        displayRange: SpectrogramDisplayRange,
+    ): Visuals = error("NoopVisualsProvider should not be invoked; supply a real VisualsProvider")
 }
 
 /**
@@ -1251,16 +1282,34 @@ internal object NoopVisualsProvider : VisualsProvider {
  * keeps the second open instant for the spectrogram while the cheap peak
  * computation runs again on each open.
  */
-internal class ProductionVisualsProvider(
-    private val renderer: SpectrogramRenderer = SpectrogramRenderer(),
-) : VisualsProvider {
+internal class ProductionVisualsProvider : VisualsProvider {
 
-    override suspend fun build(audioPath: String, draftId: String, filesDir: File): Visuals {
+    override suspend fun build(
+        audioPath: String,
+        draftId: String,
+        filesDir: File,
+        displayRange: SpectrogramDisplayRange,
+    ): Visuals {
         val (shorts, _) = WavReader.readMono16(File(audioPath))
         val floats = FloatArray(shorts.size) { i -> shorts[i] / Short.MAX_VALUE.toFloat() }
         val pngDir = File(filesDir, "spectrograms").apply { mkdirs() }
-        val pngFile = File(pngDir, "$draftId.png")
+        // Cache key includes range so Bird/Owl/Full each get their own PNG.
+        val pngFile = File(pngDir, "${draftId}_${displayRange.name.lowercase()}.png")
         if (!pngFile.exists()) {
+            val renderer = if (displayRange == SpectrogramDisplayRange.FULL) {
+                SpectrogramRenderer(
+                    palette = SpectrogramPalette.VIRIDIS,
+                    displayRange = displayRange,
+                    noiseFloorMode = SpectrogramNoiseFloorMode.NONE,
+                    gateDb = 0f,
+                    displayRangeDb = 80f,
+                    gamma = 1f,
+                    smoothingTimeRadius = 0,
+                    smoothingFrequencyRadius = 0,
+                )
+            } else {
+                SpectrogramRenderer(displayRange = displayRange)
+            }
             val pixels = renderer.render(floats)
             if (pixels.isNotEmpty()) {
                 SpectrogramBitmap.writePng(pixels, pngFile)

@@ -4,13 +4,17 @@ import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -30,6 +34,18 @@ import kotlinx.coroutines.flow.StateFlow
  * Compose dp sizes individual peaks were unreadable and the strip just
  * stole vertical space from the spectrogram.
  */
+private val RANGE_SELECTOR_OPTIONS = listOf(
+    SpectrogramDisplayRange.BIRD_FOCUSED,
+    SpectrogramDisplayRange.OWL_LOW_VOICE,
+    SpectrogramDisplayRange.FULL,
+)
+
+private val RANGE_SHORT_LABELS = mapOf(
+    SpectrogramDisplayRange.BIRD_FOCUSED to "Bird",
+    SpectrogramDisplayRange.OWL_LOW_VOICE to "Owl",
+    SpectrogramDisplayRange.FULL to "Full",
+)
+
 @Suppress("FunctionNaming")
 @Composable
 internal fun WaveformAndSpectrogram(
@@ -38,6 +54,8 @@ internal fun WaveformAndSpectrogram(
     durationMs: Long,
     positionFlow: StateFlow<Long>,
     onSeek: (Long) -> Unit,
+    displayRange: SpectrogramDisplayRange = SpectrogramDisplayRange.BIRD_FOCUSED,
+    onDisplayRangeChange: (SpectrogramDisplayRange) -> Unit = {},
 ) {
     // Position read is local to this subtree so the 50 ms tick from
     // MediaPlayer does not trigger recomposition of the entire Review screen.
@@ -52,6 +70,18 @@ internal fun WaveformAndSpectrogram(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(bottom = 4.dp),
+        ) {
+            RANGE_SELECTOR_OPTIONS.forEach { range ->
+                FilterChip(
+                    selected = range == displayRange,
+                    onClick = { onDisplayRangeChange(range) },
+                    label = { Text(RANGE_SHORT_LABELS[range] ?: range.label) },
+                )
+            }
+        }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
