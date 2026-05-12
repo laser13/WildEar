@@ -1,6 +1,6 @@
 # Wild Ear
 
-![CI](https://github.com/laser13/WildEar/actions/workflows/ci.yml/badge.svg)
+[![CI](https://github.com/laser13/WildEar/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/laser13/WildEar/actions/workflows/ci.yml)
 
 Wild Ear is an Android app for field naturalists, birders, and wildlife observers who want a simple way to record sounds, review detections, and turn them into observations for iNaturalist.
 
