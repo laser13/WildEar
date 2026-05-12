@@ -18,6 +18,9 @@ interface PhotoDraftDao {
     @Query("SELECT * FROM photo_drafts WHERE id = :id LIMIT 1")
     fun getById(id: String): PhotoDraftEntity?
 
+    @Query("SELECT * FROM photo_drafts ORDER BY observedAtUtcMs DESC")
+    fun observeAll(): Flow<List<PhotoDraftEntity>>
+
     @Transaction
     @Query("SELECT * FROM photo_drafts WHERE id = :id LIMIT 1")
     fun observeWithImages(id: String): Flow<PhotoDraftWithImages?>

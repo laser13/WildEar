@@ -9,6 +9,9 @@ interface PhotoDraftImageDao {
     @Insert
     fun insert(image: PhotoDraftImageEntity)
 
+    @Query("SELECT * FROM photo_draft_images WHERE id = :id LIMIT 1")
+    fun getById(id: String): PhotoDraftImageEntity?
+
     @Query("DELETE FROM photo_draft_images WHERE id = :id")
     fun deleteById(id: String): Int
 

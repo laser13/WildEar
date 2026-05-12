@@ -17,6 +17,7 @@ import com.sound2inat.storage.DraftPhotoDao
 import com.sound2inat.storage.DraftRepository
 import com.sound2inat.storage.PhotoDraftDao
 import com.sound2inat.storage.PhotoDraftImageDao
+import com.sound2inat.storage.PhotoDraftRepository
 import com.sound2inat.storage.PhotoFileStore
 import com.sound2inat.storage.PhotoObservationFileStore
 import com.sound2inat.storage.Sound2iNatDb
@@ -87,6 +88,19 @@ object AppModule {
     @Provides @Singleton
     fun providePhotoObservationFileStore(@ApplicationContext ctx: Context): PhotoObservationFileStore =
         PhotoObservationFileStore(File(ctx.filesDir, "photo_observations"))
+
+    @Provides @Singleton
+    fun providePhotoDraftRepository(
+        db: Sound2iNatDb,
+        draftDao: PhotoDraftDao,
+        imageDao: PhotoDraftImageDao,
+        fileStore: PhotoObservationFileStore,
+    ): PhotoDraftRepository = PhotoDraftRepository(
+        draftDao = draftDao,
+        imageDao = imageDao,
+        fileStore = fileStore,
+        runInTransaction = { block -> db.runInTransaction(block) },
+    )
 
     @Provides fun provideInatObservationDao(db: Sound2iNatDb): com.sound2inat.storage.InatObservationDao =
         db.inatObservations()
