@@ -121,6 +121,19 @@ class INaturalistClientTest {
         assertThat(res.url).isEqualTo("https://www.inaturalist.org/observations/11")
     }
 
+    @Test fun `updateObservationTags puts wrapped JSON to v2 observations endpoint`() = runTest {
+        server.enqueue(MockResponse().setBody("""{"id":11}"""))
+        client.updateObservationTags("jwt", observationUuid = "abc-uuid", tagList = "WildEar")
+        val req = server.takeRequest()
+        assertThat(req.method).isEqualTo("PUT")
+        assertThat(req.path).isEqualTo("/v2/observations/abc-uuid")
+        assertThat(req.getHeader("Authorization")).isEqualTo("jwt")
+        val body = req.body.readUtf8()
+        assertThat(body).contains("\"ignore_photos\":true")
+        assertThat(body).contains("\"observation\"")
+        assertThat(body).contains("\"tag_list\":\"WildEar\"")
+    }
+
     @Test fun `uploadSound posts multipart to v2 with file field and uuid`() = runTest {
         val wav = tmp.newFile("clip.wav").apply { writeBytes(ByteArray(64)) }
         // v2 wraps single resources in { results: [...] }.

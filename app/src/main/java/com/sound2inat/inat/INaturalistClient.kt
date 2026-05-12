@@ -298,6 +298,30 @@ open class INaturalistClient(
     }
 
     /**
+     * Updates the observation's tag list on the v2 observations endpoint.
+     * Used after creation to apply the stable app tag without changing the
+     * narrower submitter flow.
+     */
+    suspend fun updateObservationTags(
+        token: String,
+        observationUuid: String,
+        tagList: String,
+    ) = withContext(ioDispatcher) {
+        val payload = JSONObject().apply {
+            put("observation", JSONObject().apply { put("tag_list", tagList) })
+            put("ignore_photos", true)
+        }
+        val req = Request.Builder()
+            .url("$v2BaseUrl/observations/$observationUuid")
+            .header("Authorization", token)
+            .header("Accept", "application/json")
+            .put(payload.toString().toRequestBody(JSON))
+            .build()
+        executeJsonOrArrayFirst(req)
+        Unit
+    }
+
+    /**
      * Attaches a single annotation (controlled-term value) to an existing
      * observation. Best-effort: a 4xx here does NOT invalidate the parent
      * observation, so callers should not roll back the upload on failure.
