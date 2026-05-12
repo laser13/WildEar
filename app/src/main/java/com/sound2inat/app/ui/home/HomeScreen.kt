@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Visibility
@@ -37,7 +36,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -86,7 +84,6 @@ import java.util.Calendar
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
-    onRecord: () -> Unit,
     onOpenDraft: (String) -> Unit,
     onSettings: () -> Unit,
 ) {
@@ -143,13 +140,6 @@ fun HomeScreen(
                 onFilterChange = { vm.setFilterMode(it) },
                 onSettings = onSettings,
                 showFilterChips = enrichedDrafts.isNotEmpty(),
-            )
-        },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onRecord,
-                icon = { Icon(Icons.Filled.Mic, contentDescription = null) },
-                text = { Text(stringResource(R.string.fab_record)) },
             )
         },
     ) { padding ->
