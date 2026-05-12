@@ -263,6 +263,46 @@ class ReviewViewModelTest {
         }
 
     @Test
+    fun `submitToINaturalist forwards the spectrogram PNG to submission`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "d7_submit"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val expectedPng = tmp.newFile("spectrogram-submit.png").apply {
+                writeBytes(byteArrayOf(0x01, 0x02, 0x03))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(draftRepo = repo)
+            var capturedSpectrogram: File? = null
+            val submission = InatSubmissionJob { _, _, _, _, spectrogramPhoto ->
+                capturedSpectrogram = spectrogramPhoto
+                InatSubmissionOutcome.Success(emptyList())
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                visuals = VisualsProvider { _, _, _, _ ->
+                    Visuals(spectrogramFile = expectedPng, waveformPeaks = floatArrayOf(-1f, 1f))
+                },
+                submission = submission,
+                tokenProvider = { "jwt" },
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+
+            vm.ensureVisuals(tmp.root)
+            advanceUntilIdle()
+            vm.submitToINaturalist()
+            advanceUntilIdle()
+
+            assertThat(capturedSpectrogram).isEqualTo(expectedPng)
+        }
+
+    @Test
     fun `inference failure surfaces error and clears progress`() =
         runTest(UnconfinedTestDispatcher()) {
             val draftId = "d6"

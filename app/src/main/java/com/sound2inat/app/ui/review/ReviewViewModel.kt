@@ -112,8 +112,9 @@ fun interface InatSubmissionJob {
     suspend fun submit(
         token: String,
         draftId: String,
-        habitatPhotos: List<java.io.File>,
+        habitatPhotos: List<File>,
         includeHabitatPhotoByTaxon: Map<String, Boolean>,
+        spectrogramPhoto: File?,
     ): InatSubmissionOutcome
 }
 
@@ -141,7 +142,7 @@ class ReviewViewModel(
     private val inference: InferenceJob,
     private val visuals: VisualsProvider = NoopVisualsProvider,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val submission: InatSubmissionJob = InatSubmissionJob { _, _, _, _ ->
+    private val submission: InatSubmissionJob = InatSubmissionJob { _, _, _, _, _ ->
         InatSubmissionOutcome.Failure("No iNaturalist submitter configured")
     },
     private val tokenProvider: suspend () -> String? = { null },
@@ -723,7 +724,14 @@ class ReviewViewModel(
             val includeByTaxon = _state.value.species.associate {
                 it.taxonScientificName to it.includeHabitatPhoto
             }
-            val outcome = submission.submit(token, draftId, photos, includeByTaxon)
+            val spectrogramPhoto = spectrogramFile.value?.takeIf { it.exists() }
+            val outcome = submission.submit(
+                token = token,
+                draftId = draftId,
+                habitatPhotos = photos,
+                includeHabitatPhotoByTaxon = includeByTaxon,
+                spectrogramPhoto = spectrogramPhoto,
+            )
             _state.update {
                 it.copy(
                     inatSubmission = when (outcome) {
@@ -1199,11 +1207,17 @@ class ReviewViewModelFactory @Inject constructor(
         player = MediaPlayerAudioPlayer(),
         inference = inferenceUseCase.inference,
         visuals = ProductionVisualsProvider(),
-        submission = InatSubmissionJob { token, id, photoFiles, includeByTaxon ->
+        submission = InatSubmissionJob { token, id, photoFiles, includeByTaxon, spectrogramPhoto ->
             // Pulling the freshest draft + detections so the submitter sees the
             // user's current selection, not a stale snapshot.
             val dwd = repo.observeWithDetections(id).first()
-            when (val r = submitter.submit(token, dwd, photoFiles, includeByTaxon)) {
+            when (val r = submitter.submit(
+                token = token,
+                draft = dwd,
+                habitatPhotos = photoFiles,
+                includeHabitatPhotoByTaxon = includeByTaxon,
+                spectrogramPhoto = spectrogramPhoto,
+            )) {
                 is INatSubmitter.Result.Ok -> InatSubmissionOutcome.Success(r.urls)
                 is INatSubmitter.Result.Failure -> InatSubmissionOutcome.Failure(r.message)
             }

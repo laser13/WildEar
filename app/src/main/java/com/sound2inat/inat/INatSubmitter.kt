@@ -71,6 +71,7 @@ class INatSubmitter(
         draft: DraftWithDetections,
         habitatPhotos: List<File> = emptyList(),
         includeHabitatPhotoByTaxon: Map<String, Boolean> = emptyMap(),
+        spectrogramPhoto: File? = null,
     ): Result = withContext(ioDispatcher) {
         if (token.isBlank()) return@withContext Result.Failure("No iNaturalist token in Settings")
         val selected = draft.detections.filter { it.isSelectedByUser }
@@ -82,13 +83,29 @@ class INatSubmitter(
         val pendingRows = mutableListOf<InatObservationEntity>()
         val createdPairs = mutableListOf<Pair<SubmittedObs, DetectionEntity>>()
         val failures = mutableListOf<String>()
+        var spectrogramPhotoUploaded = false
 
         for (det in selected) {
+            val attachSpectrogramPhoto = !spectrogramPhotoUploaded &&
+                spectrogramPhoto != null &&
+                spectrogramPhoto.exists() &&
+                spectrogramPhoto.length() > 0L
             val outcome = runCatching {
-                submitOne(token, draft, srcAudio, cropDir, det, habitatPhotos, includeHabitatPhotoByTaxon)
+                submitOne(
+                    token,
+                    draft,
+                    srcAudio,
+                    cropDir,
+                    det,
+                    habitatPhotos,
+                    includeHabitatPhotoByTaxon,
+                    spectrogramPhoto,
+                    attachSpectrogramPhoto,
+                )
             }
             outcome.onSuccess { submitted ->
                 if (submitted != null) {
+                    spectrogramPhotoUploaded = spectrogramPhotoUploaded || attachSpectrogramPhoto
                     android.util.Log.i(
                         LOG_TAG,
                         "Uploaded ${det.taxonScientificName} -> ${submitted.entity.observationUrl}",
@@ -174,6 +191,8 @@ class INatSubmitter(
         det: DetectionEntity,
         habitatPhotos: List<File> = emptyList(),
         includeHabitatPhotoByTaxon: Map<String, Boolean> = emptyMap(),
+        spectrogramPhoto: File? = null,
+        uploadSpectrogramPhoto: Boolean = false,
     ): SubmittedObs? {
         val genusId = client.resolveGenus(det.taxonScientificName, token) ?: return null
         val cropFile = File(cropDir, cropFileName(draft.draft.id, det))
@@ -202,6 +221,16 @@ class INatSubmitter(
             runCatching { client.deleteObservation(token, created.id) }
                 .onFailure { android.util.Log.w(LOG_TAG, "Cleanup failed for ${created.id}", it) }
             throw t
+        }
+        if (uploadSpectrogramPhoto && spectrogramPhoto != null) {
+            runCatching { client.uploadObservationPhoto(token, created.uuid, spectrogramPhoto) }
+                .onFailure {
+                    android.util.Log.w(
+                        LOG_TAG,
+                        "Spectrogram photo upload failed for ${created.id}",
+                        it,
+                    )
+                }
         }
         runCatching {
             client.updateObservationTags(token, created.uuid, APP_TAG)

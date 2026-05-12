@@ -70,13 +70,17 @@ class INatSubmitterPhotoTest {
     ) : INaturalistClient(http, baseUrl, ioDispatcher = ioDispatcher) {
         /** Collected (observationUuid, photoFile) pairs in call order. */
         val uploadedPhotos = mutableListOf<Pair<String, File>>()
+        val photoUploadRequestCounts = mutableListOf<Int>()
+        var failPhotoUploads: Boolean = false
 
         override suspend fun uploadObservationPhoto(
             token: String,
             observationUuid: String,
             photoFile: File,
         ): Long {
+            photoUploadRequestCounts += server.requestCount
             uploadedPhotos += observationUuid to photoFile
+            if (failPhotoUploads) throw RuntimeException("spectrogram upload failed")
             return uploadedPhotos.size.toLong()
         }
     }
@@ -101,8 +105,8 @@ class INatSubmitterPhotoTest {
         nowMs = { 0L },
     )
 
-    /** Builds a minimal real WAV file and returns a [DraftWithDetections] for [taxon]. */
-    private fun draftWith(taxon: String, draftId: String = "d-photo-1"): DraftWithDetections {
+    /** Builds a minimal real WAV file and returns a [DraftWithDetections] for [selected]. */
+    private fun draftWith(selected: List<String>, draftId: String = "d-photo-1"): DraftWithDetections {
         val wav = tmp.newFile("$draftId-clip.wav")
         val writer = WavWriter(wav, sampleRate = 48_000, channels = 1, bitsPerSample = 16)
         writer.open()
@@ -123,28 +127,34 @@ class INatSubmitterPhotoTest {
             createdAtUtcMs = 0L,
             updatedAtUtcMs = 0L,
         )
-        val det = DetectionEntity(
-            id = 1L,
-            draftId = draftId,
-            taxonScientificName = taxon,
-            taxonCommonName = null,
-            maxConfidence = 0.9f,
-            detectedWindows = 5,
-            firstSeenMs = 500L,
-            lastSeenMs = 2_500L,
-            isSelectedByUser = true,
-        )
-        return DraftWithDetections(draft, listOf(det))
+        val detections = selected.mapIndexed { index, taxon ->
+            DetectionEntity(
+                id = (index + 1).toLong(),
+                draftId = draftId,
+                taxonScientificName = taxon,
+                taxonCommonName = null,
+                maxConfidence = 0.9f - index * 0.1f,
+                detectedWindows = 5,
+                firstSeenMs = 500L + index * 1000L,
+                lastSeenMs = 2_500L + index * 1000L,
+                isSelectedByUser = true,
+            )
+        }
+        return DraftWithDetections(draft, detections)
     }
+
+    private fun draftWith(taxon: String, draftId: String = "d-photo-1"): DraftWithDetections =
+        draftWith(listOf(taxon), draftId)
 
     /**
      * Enqueues the minimum set of mock responses needed for one successful species submission:
-     * resolveGenus → createObservation → uploadSound → 2 annotations → addIdentification.
+     * resolveGenus → createObservation → uploadSound → updateObservationTags → 2 annotations → addIdentification.
      */
-    private fun enqueueSuccessfulSubmit(uuid: String = "u-photo-1") {
+    private fun enqueueSuccessfulSubmit(uuid: String = "u-photo-1", observationId: Long = 900L) {
         server.enqueue(MockResponse().setBody("""{"results":[{"id":12345,"iconic_taxon_name":"Aves"}]}"""))
-        server.enqueue(MockResponse().setBody("""{"id":900,"uuid":"$uuid"}"""))
+        server.enqueue(MockResponse().setBody("""{"id":$observationId,"uuid":"$uuid"}"""))
         server.enqueue(MockResponse().setBody("""{"results":[{"id":1}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":9}""")) // tag update
         server.enqueue(MockResponse().setBody("""{"id":11}""")) // Alive annotation
         server.enqueue(MockResponse().setBody("""{"id":12}""")) // Organism annotation
         server.enqueue(MockResponse().setBody("""{"id":21}""")) // addIdentification
@@ -236,6 +246,59 @@ class INatSubmitterPhotoTest {
 
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
         assertThat(trackingClient.uploadedPhotos).hasSize(2)
+    }
+
+    @Test
+    fun `spectrogram photo uploads once after the first successful sound upload`() = runTest {
+        val trackingClient = makeTrackingClient()
+        val draftDao = LocalFakeDraftDao()
+        val submitter = makeSubmitter(trackingClient, draftDao, LocalFakeInatDao(), tmp.newFolder("cache-5"))
+
+        enqueueSuccessfulSubmit(uuid = "u-spec-1", observationId = 910L)
+        enqueueSuccessfulSubmit(uuid = "u-spec-2", observationId = 911L)
+        server.enqueue(MockResponse().setBody("""{"id":700}"""))
+        server.enqueue(MockResponse().setBody("""{"id":701}"""))
+        server.enqueue(MockResponse().setBody("""{"id":702}"""))
+        server.enqueue(MockResponse().setBody("""{"id":703}"""))
+
+        val spectrogram = tmp.newFile("spectrogram.png").apply {
+            writeBytes(ByteArray(128) { 0x7F.toByte() })
+        }
+        val result = submitter.submit(
+            token = "jwt",
+            draft = draftWith(listOf("Parus major", "Sylvia"), draftId = "d-spec-1"),
+            spectrogramPhoto = spectrogram,
+        )
+
+        assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
+        assertThat(trackingClient.uploadedPhotos).hasSize(1)
+        assertThat(trackingClient.uploadedPhotos.first().first).isEqualTo("u-spec-1")
+        assertThat(trackingClient.uploadedPhotos.first().second).isEqualTo(spectrogram)
+        assertThat(trackingClient.photoUploadRequestCounts).containsExactly(3)
+    }
+
+    @Test
+    fun `spectrogram photo failure does not fail overall submission`() = runTest {
+        val taxon = "Parus major"
+        val trackingClient = makeTrackingClient().apply {
+            failPhotoUploads = true
+        }
+        val submitter = makeSubmitter(trackingClient, LocalFakeDraftDao(), LocalFakeInatDao(), tmp.newFolder("cache-6"))
+
+        enqueueSuccessfulSubmit(uuid = "u-spec-fail", observationId = 920L)
+
+        val spectrogram = tmp.newFile("spectrogram-fail.png").apply {
+            writeBytes(ByteArray(64) { 0x5A.toByte() })
+        }
+        val result = submitter.submit(
+            token = "jwt",
+            draft = draftWith(listOf(taxon), draftId = "d-spec-2"),
+            spectrogramPhoto = spectrogram,
+        )
+
+        assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
+        assertThat(trackingClient.uploadedPhotos).hasSize(1)
+        assertThat(trackingClient.photoUploadRequestCounts).containsExactly(3)
     }
 }
 
