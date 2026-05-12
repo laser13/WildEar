@@ -238,7 +238,7 @@ class ReviewViewModelTest {
             val expectedPng = tmp.newFile("expected.png")
             val expectedPeaks = floatArrayOf(-0.5f, 0.5f, -0.25f, 0.25f)
             var calls = 0
-            val provider = VisualsProvider { _, _, _ ->
+            val provider = VisualsProvider { _, _, _, _ ->
                 calls++
                 Visuals(spectrogramFile = expectedPng, waveformPeaks = expectedPeaks)
             }
