@@ -101,11 +101,13 @@ class INatSubmitter(
                     includeHabitatPhotoByTaxon,
                     spectrogramPhoto,
                     attachSpectrogramPhoto,
+                    onSpectrogramPhotoAttempt = {
+                        spectrogramPhotoUploaded = true
+                    },
                 )
             }
             outcome.onSuccess { submitted ->
                 if (submitted != null) {
-                    spectrogramPhotoUploaded = spectrogramPhotoUploaded || attachSpectrogramPhoto
                     android.util.Log.i(
                         LOG_TAG,
                         "Uploaded ${det.taxonScientificName} -> ${submitted.entity.observationUrl}",
@@ -193,6 +195,7 @@ class INatSubmitter(
         includeHabitatPhotoByTaxon: Map<String, Boolean> = emptyMap(),
         spectrogramPhoto: File? = null,
         uploadSpectrogramPhoto: Boolean = false,
+        onSpectrogramPhotoAttempt: () -> Unit = {},
     ): SubmittedObs? {
         val genusId = client.resolveGenus(det.taxonScientificName, token) ?: return null
         val cropFile = File(cropDir, cropFileName(draft.draft.id, det))
@@ -223,14 +226,18 @@ class INatSubmitter(
             throw t
         }
         if (uploadSpectrogramPhoto && spectrogramPhoto != null) {
-            runCatching { client.uploadObservationPhoto(token, created.uuid, spectrogramPhoto) }
-                .onFailure {
-                    android.util.Log.w(
-                        LOG_TAG,
-                        "Spectrogram photo upload failed for ${created.id}",
-                        it,
-                    )
-                }
+            try {
+                runCatching { client.uploadObservationPhoto(token, created.uuid, spectrogramPhoto) }
+                    .onFailure {
+                        android.util.Log.w(
+                            LOG_TAG,
+                            "Spectrogram photo upload failed for ${created.id}",
+                            it,
+                        )
+                    }
+            } finally {
+                onSpectrogramPhotoAttempt()
+            }
         }
         runCatching {
             client.updateObservationTags(token, created.uuid, APP_TAG)

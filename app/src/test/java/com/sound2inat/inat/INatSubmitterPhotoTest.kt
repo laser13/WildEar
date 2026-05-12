@@ -279,25 +279,59 @@ class INatSubmitterPhotoTest {
 
     @Test
     fun `spectrogram photo failure does not fail overall submission`() = runTest {
-        val taxon = "Parus major"
         val trackingClient = makeTrackingClient().apply {
             failPhotoUploads = true
         }
         val submitter = makeSubmitter(trackingClient, LocalFakeDraftDao(), LocalFakeInatDao(), tmp.newFolder("cache-6"))
 
-        enqueueSuccessfulSubmit(uuid = "u-spec-fail", observationId = 920L)
+        enqueueSuccessfulSubmit(uuid = "u-spec-fail-1", observationId = 920L)
+        enqueueSuccessfulSubmit(uuid = "u-spec-fail-2", observationId = 921L)
+        server.enqueue(MockResponse().setBody("""{"id":704}"""))
+        server.enqueue(MockResponse().setBody("""{"id":705}"""))
+        server.enqueue(MockResponse().setBody("""{"id":706}"""))
+        server.enqueue(MockResponse().setBody("""{"id":707}"""))
 
         val spectrogram = tmp.newFile("spectrogram-fail.png").apply {
             writeBytes(ByteArray(64) { 0x5A.toByte() })
         }
         val result = submitter.submit(
             token = "jwt",
-            draft = draftWith(listOf(taxon), draftId = "d-spec-2"),
+            draft = draftWith(listOf("Parus major", "Sylvia"), draftId = "d-spec-2"),
             spectrogramPhoto = spectrogram,
         )
 
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
         assertThat(trackingClient.uploadedPhotos).hasSize(1)
+        assertThat(trackingClient.uploadedPhotos.first().first).isEqualTo("u-spec-fail-1")
+        assertThat(trackingClient.uploadedPhotos.first().second).isEqualTo(spectrogram)
+    }
+
+    @Test
+    fun `spectrogram photo failure is not retried for later species in same batch`() = runTest {
+        val trackingClient = makeTrackingClient().apply {
+            failPhotoUploads = true
+        }
+        val submitter = makeSubmitter(trackingClient, LocalFakeDraftDao(), LocalFakeInatDao(), tmp.newFolder("cache-7"))
+
+        enqueueSuccessfulSubmit(uuid = "u-spec-batch-1", observationId = 930L)
+        enqueueSuccessfulSubmit(uuid = "u-spec-batch-2", observationId = 931L)
+        server.enqueue(MockResponse().setBody("""{"id":708}"""))
+        server.enqueue(MockResponse().setBody("""{"id":709}"""))
+        server.enqueue(MockResponse().setBody("""{"id":710}"""))
+        server.enqueue(MockResponse().setBody("""{"id":711}"""))
+
+        val spectrogram = tmp.newFile("spectrogram-batch.png").apply {
+            writeBytes(ByteArray(64) { 0x33.toByte() })
+        }
+        val result = submitter.submit(
+            token = "jwt",
+            draft = draftWith(listOf("Parus major", "Sylvia"), draftId = "d-spec-3"),
+            spectrogramPhoto = spectrogram,
+        )
+
+        assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
+        assertThat(trackingClient.uploadedPhotos).hasSize(1)
+        assertThat(trackingClient.uploadedPhotos.first().first).isEqualTo("u-spec-batch-1")
         assertThat(trackingClient.photoUploadRequestCounts).containsExactly(3)
     }
 }
