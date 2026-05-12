@@ -124,6 +124,8 @@ class INatSubmitterTest {
         server.enqueue(MockResponse().setBody("""{"id":900,"uuid":"u-1"}"""))
         // uploadSound (v2 wraps in { results: [...] })
         server.enqueue(MockResponse().setBody("""{"results":[{"id":1}]}"""))
+        // updateObservationTags (best-effort v2 metadata step)
+        server.enqueue(MockResponse().setBody("""{"id":9}"""))
         // Two best-effort annotations after sound upload (Alive + Organism).
         server.enqueue(MockResponse().setBody("""{"id":11}"""))
         server.enqueue(MockResponse().setBody("""{"id":12}"""))
@@ -136,14 +138,43 @@ class INatSubmitterTest {
         assertThat(ok.urls).hasSize(1)
         assertThat(ok.primaryUrl).isEqualTo("https://www.inaturalist.org/observations/900")
 
+        val taxaReq = server.takeRequest()
+        assertThat(taxaReq.path).contains("/taxa")
+        val createReq = server.takeRequest()
+        assertThat(createReq.method).isEqualTo("POST")
+        assertThat(createReq.path).isEqualTo("/v1/observations")
+        val soundReq = server.takeRequest()
+        assertThat(soundReq.path).isEqualTo("/v2/observation_sounds")
+        val tagReq = server.takeRequest()
+        assertThat(tagReq.method).isEqualTo("PUT")
+        assertThat(tagReq.path).isEqualTo("/v2/observations/u-1")
+        assertThat(tagReq.body.readUtf8()).contains("\"tag_list\":\"WildEar\"")
+
         // Persistence: draft marked UPLOADED + one row in inat_observations.
         assertThat(dao.inserted.first().status).isEqualTo(DraftStatus.UPLOADED)
         assertThat(inatDao.rows).hasSize(1)
         assertThat(inatDao.rows.first().taxonScientificName).isEqualTo("Parus major")
         assertThat(inatDao.rows.first().observationId).isEqualTo(900L)
 
-        // resolve + create + sound + 2 annotations + identification = 6; no PUT for a single obs.
-        assertThat(server.requestCount).isEqualTo(6)
+        // resolve + create + sound + tag + 2 annotations + identification = 7.
+        assertThat(server.requestCount).isEqualTo(7)
+    }
+
+    @Test fun `tag update failure does not roll back the submission`() = runTest {
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":12345,"iconic_taxon_name":"Aves"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":900,"uuid":"u-1"}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":1}]}"""))
+        server.enqueue(MockResponse().setResponseCode(500).setBody("""{"error":"boom"}"""))
+        server.enqueue(MockResponse().setBody("""{"id":11}"""))
+        server.enqueue(MockResponse().setBody("""{"id":12}"""))
+        server.enqueue(MockResponse().setBody("""{"id":21}"""))
+
+        val result = submitter.submit("jwt", draftWith(listOf("Parus major")))
+
+        assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
+        assertThat(dao.inserted.first().status).isEqualTo(DraftStatus.UPLOADED)
+        assertThat(inatDao.rows).hasSize(1)
+        assertThat(server.requestCount).isEqualTo(7)
     }
 
     @Test fun `multi-species creates separate observations and PUT cross-links`() = runTest {
@@ -153,29 +184,33 @@ class INatSubmitterTest {
         server.enqueue(MockResponse().setBody("""{"id":700,"uuid":"u-A"}"""))
         // 3.  upload sound for Parus (v2 wraps)
         server.enqueue(MockResponse().setBody("""{"results":[{"id":555}]}"""))
-        // 4-5. annotations Alive + Organism for Parus.
+        // 4. updateObservationTags for Parus.
+        server.enqueue(MockResponse().setBody("""{"id":9}"""))
+        // 5-6. annotations Alive + Organism for Parus.
         server.enqueue(MockResponse().setBody("""{"id":11}"""))
         server.enqueue(MockResponse().setBody("""{"id":12}"""))
-        // 6.  addIdentification for Parus (best-effort).
+        // 7. addIdentification for Parus (best-effort).
         server.enqueue(MockResponse().setBody("""{"id":21}"""))
-        // 7.  resolve Sylvia
+        // 8.  resolve Sylvia
         server.enqueue(MockResponse().setBody("""{"results":[{"id":2,"iconic_taxon_name":"Aves"}]}"""))
-        // 8.  create observation for Sylvia
+        // 9.  create observation for Sylvia
         server.enqueue(MockResponse().setBody("""{"id":701,"uuid":"u-B"}"""))
-        // 9.  upload sound for Sylvia (v2 wraps)
+        // 10. upload sound for Sylvia (v2 wraps)
         server.enqueue(MockResponse().setBody("""{"results":[{"id":556}]}"""))
-        // 10-11. annotations Alive + Organism for Sylvia.
+        // 11. updateObservationTags for Sylvia.
+        server.enqueue(MockResponse().setBody("""{"id":10}"""))
+        // 12-13. annotations Alive + Organism for Sylvia.
         server.enqueue(MockResponse().setBody("""{"id":13}"""))
         server.enqueue(MockResponse().setBody("""{"id":14}"""))
-        // 12. addIdentification for Sylvia (best-effort).
+        // 14. addIdentification for Sylvia (best-effort).
         server.enqueue(MockResponse().setBody("""{"id":22}"""))
-        // 13. PUT description on observation 700
+        // 15. PUT description on observation 700
         server.enqueue(MockResponse().setBody("""{"id":700}"""))
-        // 14. POST observation_field_values for observation u-A (Linked Observation)
+        // 16. POST observation_field_values for observation u-A (Linked Observation)
         server.enqueue(MockResponse().setBody("""{"id":31}"""))
-        // 15. PUT description on observation 701
+        // 17. PUT description on observation 701
         server.enqueue(MockResponse().setBody("""{"id":701}"""))
-        // 16. POST observation_field_values for observation u-B (Linked Observation)
+        // 18. POST observation_field_values for observation u-B (Linked Observation)
         server.enqueue(MockResponse().setBody("""{"id":32}"""))
 
         val result = submitter.submit("jwt", draftWith(listOf("Parus major", "Sylvia")))
@@ -184,8 +219,8 @@ class INatSubmitterTest {
         assertThat(ok.urls).hasSize(2)
         assertThat(inatDao.rows).hasSize(2)
 
-        // Drain the first 12 requests (resolve/create/upload + 2 annotations + identification × 2).
-        repeat(12) { server.takeRequest() }
+        // Drain the first 14 requests (resolve/create/upload/tag + 2 annotations + identification × 2).
+        repeat(14) { server.takeRequest() }
         val put1 = server.takeRequest()
         assertThat(put1.method).isEqualTo("PUT")
         assertThat(put1.path).endsWith("/observations/700")
@@ -202,6 +237,7 @@ class INatSubmitterTest {
         server.enqueue(MockResponse().setBody("""{"results":[{"id":1,"iconic_taxon_name":"Aves"}]}"""))
         server.enqueue(MockResponse().setBody("""{"id":700,"uuid":"u-A"}"""))
         server.enqueue(MockResponse().setBody("""{"results":[{"id":555}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":9}"""))
         // Annotations Alive + Organism for Parus.
         server.enqueue(MockResponse().setBody("""{"id":11}"""))
         server.enqueue(MockResponse().setBody("""{"id":12}"""))
@@ -236,6 +272,7 @@ class INatSubmitterTest {
         server.enqueue(MockResponse().setBody("""{"results":[{"id":1,"iconic_taxon_name":"Aves"}]}"""))
         server.enqueue(MockResponse().setBody("""{"id":900,"uuid":"u-1"}"""))
         server.enqueue(MockResponse().setBody("""{"results":[{"id":1}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":9}"""))
         // Annotations Alive + Organism after the (single) sound upload.
         server.enqueue(MockResponse().setBody("""{"id":11}"""))
         server.enqueue(MockResponse().setBody("""{"id":12}"""))
@@ -268,6 +305,7 @@ class INatSubmitterTest {
         server.enqueue(MockResponse().setBody("""{"results":[{"id":12345,"iconic_taxon_name":"Aves"}]}"""))
         server.enqueue(MockResponse().setBody("""{"id":900,"uuid":"u-1"}"""))
         server.enqueue(MockResponse().setBody("""{"results":[{"id":1}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":9}"""))
         server.enqueue(MockResponse().setBody("""{"id":11}"""))
         server.enqueue(MockResponse().setBody("""{"id":12}"""))
         server.enqueue(MockResponse().setBody("""{"id":21}"""))
@@ -296,6 +334,7 @@ class INatSubmitterTest {
         server.enqueue(MockResponse().setBody("""{"results":[{"id":1,"iconic_taxon_name":"Aves"}]}"""))
         server.enqueue(MockResponse().setBody("""{"id":700,"uuid":"u-A"}"""))
         server.enqueue(MockResponse().setBody("""{"results":[{"id":555}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":9}"""))
         server.enqueue(MockResponse().setBody("""{"id":11}"""))
         server.enqueue(MockResponse().setBody("""{"id":12}"""))
         server.enqueue(MockResponse().setBody("""{"id":21}""")) // addIdentification Parus
@@ -303,6 +342,7 @@ class INatSubmitterTest {
         server.enqueue(MockResponse().setBody("""{"results":[{"id":2,"iconic_taxon_name":"Aves"}]}"""))
         server.enqueue(MockResponse().setBody("""{"id":701,"uuid":"u-B"}"""))
         server.enqueue(MockResponse().setBody("""{"results":[{"id":556}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":10}"""))
         server.enqueue(MockResponse().setBody("""{"id":13}"""))
         server.enqueue(MockResponse().setBody("""{"id":14}"""))
         server.enqueue(MockResponse().setBody("""{"id":22}""")) // addIdentification Sylvia
@@ -316,7 +356,7 @@ class INatSubmitterTest {
 
         submitter.submit("jwt", draft)
 
-        repeat(12) { server.takeRequest() }
+        repeat(14) { server.takeRequest() }
 
         val put1Body = server.takeRequest().body.readUtf8()
         assertThat(put1Body).contains("Recorded with WildEar.")
@@ -389,12 +429,14 @@ class INatSubmitterTest {
         server.enqueue(MockResponse().setBody("""{"results":[{"id":1,"iconic_taxon_name":"Aves"}]}"""))
         server.enqueue(MockResponse().setBody("""{"id":700,"uuid":"u-A"}"""))
         server.enqueue(MockResponse().setBody("""{"results":[{"id":555}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":9}"""))
         server.enqueue(MockResponse().setBody("""{"id":11}"""))
         server.enqueue(MockResponse().setBody("""{"id":12}"""))
         server.enqueue(MockResponse().setBody("""{"id":21}"""))
         server.enqueue(MockResponse().setBody("""{"results":[{"id":2,"iconic_taxon_name":"Aves"}]}"""))
         server.enqueue(MockResponse().setBody("""{"id":701,"uuid":"u-B"}"""))
         server.enqueue(MockResponse().setBody("""{"results":[{"id":556}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":10}"""))
         server.enqueue(MockResponse().setBody("""{"id":13}"""))
         server.enqueue(MockResponse().setBody("""{"id":14}"""))
         server.enqueue(MockResponse().setBody("""{"id":22}"""))

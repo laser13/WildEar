@@ -30,10 +30,11 @@ import java.util.TimeZone
  *      (`firstSeenMs..lastSeenMs` ± [PADDING_MS]) into a per-species temp file.
  *   3. POST /observations with the resolved taxon, GPS, and observed_on.
  *   4. POST /observation_sounds attaching the per-species clip.
- *   5. Persist a row in `inat_observations`.
+ *   5. PUT /observations/{uuid} on the v2 API to apply the stable app tag.
+ *   6. Persist a row in `inat_observations`.
  *
  * After all observations are created:
- *   6. PUT /observations/{id} on each, writing a description that links to
+ *   7. PUT /observations/{id} on each, writing a description that links to
  *      the sibling observations in the same recording.
  *
  * Failure model:
@@ -201,6 +202,11 @@ class INatSubmitter(
             runCatching { client.deleteObservation(token, created.id) }
                 .onFailure { android.util.Log.w(LOG_TAG, "Cleanup failed for ${created.id}", it) }
             throw t
+        }
+        runCatching {
+            client.updateObservationTags(token, created.uuid, APP_TAG)
+        }.onFailure {
+            android.util.Log.w(LOG_TAG, "Tag update failed for ${created.id}", it)
         }
         // Best-effort iNaturalist annotations: every recorded vocalisation is
         // by definition a living organism, so we set "Alive or Dead = Alive"
@@ -370,6 +376,7 @@ class INatSubmitter(
         private const val MS = 1000L
         private const val PCT = 100f
         private const val LOG_TAG = "INatSubmitter"
+        private const val APP_TAG = "WildEar"
 
         // iNaturalist controlled-vocabulary IDs. Source: iNaturalist Helper
         // Chrome extension (`scripts/vision.js`). The pairs we apply to every
