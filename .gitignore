@@ -30,3 +30,10 @@ __pycache__/
 *.zip
 log.txt
 image*.png
+/docs/superpowers/
+/wildear_specs/
+/wild_ear_android_icons_fixed/
+/qodana.sarif.json
+/qodana.yaml
+/docs/temp/
+/docs/private/
