@@ -65,6 +65,7 @@ class AndroidPermissionsController(private val activity: ComponentActivity) : Pe
         Permission.RECORD_AUDIO -> Manifest.permission.RECORD_AUDIO
         Permission.ACCESS_FINE_LOCATION -> Manifest.permission.ACCESS_FINE_LOCATION
         Permission.POST_NOTIFICATIONS -> Manifest.permission.POST_NOTIFICATIONS
+        Permission.CAMERA -> Manifest.permission.CAMERA
     }
 
     private fun permissionFromRaw(raw: String): Permission =
