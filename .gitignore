@@ -13,6 +13,7 @@ captures/
 # Keystores
 *.jks
 *.keystore
+keystore.properties
 
 # Local artifacts
 /app/release/
