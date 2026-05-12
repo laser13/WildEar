@@ -29,11 +29,11 @@ class SpectrogramRendererTest {
     }
 
     @Test
-    fun `render produces height equal to melBins and width capped to target`() {
+    fun `render produces shared live-style height and width capped to target`() {
         val renderer = SpectrogramRenderer(params, targetWidth = 256)
         val samples = sine(1_000.0, n = params.sampleRate * 3)
         val pixels = renderer.render(samples)
-        assertThat(pixels.size).isEqualTo(params.melBins)
+        assertThat(pixels.size).isEqualTo(256)
         assertThat(pixels[0].size).isAtMost(256)
         assertThat(pixels[0].size).isGreaterThan(0)
     }
@@ -41,7 +41,7 @@ class SpectrogramRendererTest {
     @Test
     fun `render returns empty when samples shorter than nFft`() {
         val renderer = SpectrogramRenderer(params)
-        val pixels = renderer.render(FloatArray(params.nFft - 1))
+        val pixels = renderer.render(FloatArray(2_047))
         assertThat(pixels).isEmpty()
     }
 
@@ -102,11 +102,11 @@ class SpectrogramRendererTest {
     }
 
     @Test
-    fun `default noise floor mode matches explicit PER_FREQUENCY_PERCENTILE`() {
+    fun `default noise floor mode matches explicit PER_COLUMN_MEDIAN`() {
         val samples = sine(1_000.0, n = params.sampleRate * 3)
         val default = SpectrogramRenderer(params, targetWidth = 32).render(samples)
         val explicit = SpectrogramRenderer(
-            params, targetWidth = 32, noiseFloorMode = SpectrogramNoiseFloorMode.PER_FREQUENCY_PERCENTILE
+            params, targetWidth = 32, noiseFloorMode = SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN
         ).render(samples)
         assertThat(default).isEqualTo(explicit)
     }

@@ -1294,7 +1294,7 @@ internal class ProductionVisualsProvider : VisualsProvider {
         val floats = FloatArray(shorts.size) { i -> shorts[i] / Short.MAX_VALUE.toFloat() }
         val pngDir = File(filesDir, "spectrograms").apply { mkdirs() }
         // Cache key includes range so Bird/Owl/Full each get their own PNG.
-        val pngFile = File(pngDir, "${draftId}_${displayRange.name.lowercase()}.png")
+        val pngFile = File(pngDir, "${draftId}_${displayRange.name.lowercase()}_render_v3.png")
         if (!pngFile.exists()) {
             val renderer = if (displayRange == SpectrogramDisplayRange.FULL) {
                 SpectrogramRenderer(

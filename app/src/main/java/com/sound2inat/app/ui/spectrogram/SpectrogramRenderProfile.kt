@@ -16,9 +16,9 @@ data class SpectrogramRenderProfile(
         val ReviewBird = SpectrogramRenderProfile(
             minFrequencyHz = 600,
             maxFrequencyHz = 10_000,
-            noiseFloorMode = SpectrogramNoiseFloorMode.PER_FREQUENCY_PERCENTILE,
+            noiseFloorMode = SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN,
             noiseFloorPercentile = 20f,
-            gateDb = 8f,
+            gateDb = 6f,
             displayRangeDb = 30f,
             gamma = 1.5f,
             maxInkArgb = MAX_INK_ARGB,
@@ -27,16 +27,16 @@ data class SpectrogramRenderProfile(
         )
 
         val LiveBird = SpectrogramRenderProfile(
-            minFrequencyHz = 0,
+            minFrequencyHz = 500,
             maxFrequencyHz = 10_000,
             noiseFloorMode = SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN,
             noiseFloorPercentile = 20f,
-            gateDb = 6f,
-            displayRangeDb = 30f,
-            gamma = 1.5f,
+            gateDb = 0f,
+            displayRangeDb = 40f,
+            gamma = 1.25f,
             maxInkArgb = MAX_INK_ARGB,
-            smoothingTimeRadius = 0,
-            smoothingFrequencyRadius = 0,
+            smoothingTimeRadius = 2,
+            smoothingFrequencyRadius = 2,
         )
 
         val DebugFull = SpectrogramRenderProfile(

@@ -5,22 +5,23 @@ import com.sound2inat.app.ui.spectrogram.SpectrogramNoiseFloorMode
 import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
 import com.sound2inat.app.ui.spectrogram.SpectrogramPostProcessor
 import com.sound2inat.app.ui.spectrogram.SpectrogramRenderProfile
+import com.sound2inat.app.ui.spectrogram.SpectrogramVisualPipeline
+import com.sound2inat.audio.Spectrogram
 import com.sound2inat.inference.MelParams
-import com.sound2inat.inference.MelSpectrogram
 
 /**
  * Pure-JVM spectrogram pixel renderer. Produces a `[height][width]` matrix
  * of ARGB ints from raw mono audio samples by:
  *
- *   1. Computing the mel-spectrogram via [MelSpectrogram].
- *   2. Applying [SpectrogramNoiseFloorMode] background subtraction (default: per-frequency p20).
+ *   1. Computing the same STFT columns used by the live spectrogram.
+ *   2. Applying [SpectrogramNoiseFloorMode] background subtraction (default: per-column median).
  *   3. Applying display-only gate/range/gamma mapping so low-level texture
  *      stays pale instead of being over-normalized.
  *   4. Downsampling along the time axis to at most [targetWidth] columns.
  *   5. Flipping the Y axis so high frequencies render at the top.
  *   6. Mapping each cell through the configured [SpectrogramPalette] (default: [SpectrogramPalette.INK]).
  *
- * The result has `height == melParams.melBins` and `width <= targetWidth`.
+ * The result has `height == DISPLAY_HEIGHT_BINS` and `width <= targetWidth`.
  *
  * Android-specific PNG persistence lives in [SpectrogramBitmap] so this
  * class stays unit-testable on the JVM.
@@ -31,9 +32,9 @@ class SpectrogramRenderer(
     private val palette: SpectrogramPalette = SpectrogramPalette.INK,
     private val backgroundArgb: Int = WHITE_ARGB,
     private val displayRange: SpectrogramDisplayRange = SpectrogramDisplayRange.BIRD_FOCUSED,
-    private val noiseFloorMode: SpectrogramNoiseFloorMode = SpectrogramNoiseFloorMode.PER_FREQUENCY_PERCENTILE,
+    private val noiseFloorMode: SpectrogramNoiseFloorMode = SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN,
     private val noiseFloorPercentile: Float = 20f,
-    private val gateDb: Float = 8f,
+    private val gateDb: Float = 6f,
     private val displayRangeDb: Float = 30f,
     private val gamma: Float = 1.5f,
     private val maxInkArgb: Int = SpectrogramRenderProfile.MAX_INK_ARGB,
@@ -42,41 +43,34 @@ class SpectrogramRenderer(
 ) {
     private val inkLut: IntArray by lazy { SpectrogramColorMap.ink(backgroundArgb, maxInkArgb) }
 
-    // displayRange overrides fMin/fMax from melParams so the visible band is always
-    // determined by the display range, not by whatever MelParams was constructed with.
-    private val effectiveMelParams: MelParams = melParams.copy(
-        fMin = displayRange.fMinHz.toFloat(),
-        fMax = displayRange.fMaxHz.toFloat(),
-    )
-
     /**
      * Render [samples] (mono float, normalised to roughly `[-1, 1]`).
      * Returns an empty array if the audio is shorter than one FFT window.
      */
     fun render(samples: FloatArray): Array<IntArray> {
-        if (samples.size < effectiveMelParams.nFft) return emptyArray()
-        val rawMel = MelSpectrogram(effectiveMelParams).compute(samples)
-        val mel = SpectrogramPostProcessor.applyNoiseFloor(rawMel, noiseFloorMode, noiseFloorPercentile)
-        val melBins = mel.size
-        val frames = mel[0].size
+        if (samples.size < FFT_SIZE) return emptyArray()
+        val columns = Spectrogram(fftSize = FFT_SIZE, hopSize = HOP_SIZE, sampleRateHz = melParams.sampleRate)
+            .process(samples)
+        val frames = columns.size
         if (frames == 0) return emptyArray()
-        val normalized = normalizeForDisplay(mel, melBins, frames)
+        val binned = buildBinnedMatrix(columns, frames)
+        val normalized = normalizeForDisplay(binned, DISPLAY_HEIGHT_BINS, frames)
 
         val width = minOf(targetWidth, frames)
-        val out = Array(melBins) { IntArray(width) }
+        val out = Array(DISPLAY_HEIGHT_BINS) { IntArray(width) }
         for (x in 0 until width) {
             // Map output column [x] → input frame range [start, end).
             val start = (x.toLong() * frames / width).toInt()
             val end = ((x + 1).toLong() * frames / width).toInt().coerceAtMost(frames)
             val span = (end - start).coerceAtLeast(1)
-            for (m in 0 until melBins) {
+            for (m in 0 until DISPLAY_HEIGHT_BINS) {
                 var acc = 0f
                 for (f in start until start + span) {
                     acc += normalized[m][f]
                 }
                 val norm = (acc / span).coerceIn(0f, 1f)
-                // Flip Y: highest mel bin (top of image) gets the largest m.
-                val y = melBins - 1 - m
+                // Flip Y: highest frequency bin (top of image) gets the largest m.
+                val y = DISPLAY_HEIGHT_BINS - 1 - m
                 out[y][x] = when (palette) {
                     SpectrogramPalette.INK -> SpectrogramColorMap.map(norm, inkLut)
                     SpectrogramPalette.VIRIDIS -> Colormap.viridis(norm)
@@ -84,6 +78,31 @@ class SpectrogramRenderer(
             }
         }
         return out
+    }
+
+    private fun buildBinnedMatrix(columns: List<FloatArray>, frames: Int): Array<FloatArray> {
+        val matrix = Array(DISPLAY_HEIGHT_BINS) { FloatArray(frames) }
+        val sortBuf = FloatArray(FFT_SIZE / 2 + 1)
+        columns.forEachIndexed { frame, col ->
+            if (noiseFloorMode == SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN) {
+                SpectrogramVisualPipeline.whitenColumnInPlace(col, sortBuf)
+            }
+            val binned = SpectrogramVisualPipeline.logBinDown(
+                src = col,
+                outBins = DISPLAY_HEIGHT_BINS,
+                sampleRateHz = melParams.sampleRate,
+                minFrequencyHz = displayRange.fMinHz,
+                maxFrequencyHz = displayRange.fMaxHz,
+            )
+            for (row in 0 until DISPLAY_HEIGHT_BINS) matrix[row][frame] = binned[row]
+        }
+        return when (noiseFloorMode) {
+            SpectrogramNoiseFloorMode.NONE,
+            SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN -> matrix
+            SpectrogramNoiseFloorMode.PER_FREQUENCY_MEDIAN,
+            SpectrogramNoiseFloorMode.PER_FREQUENCY_PERCENTILE ->
+                SpectrogramPostProcessor.applyNoiseFloor(matrix, noiseFloorMode, noiseFloorPercentile)
+        }
     }
 
     private fun normalizeForDisplay(
@@ -122,6 +141,10 @@ class SpectrogramRenderer(
 
     companion object {
         const val DEFAULT_TARGET_WIDTH = 2048
+        const val DISPLAY_HEIGHT_BINS = 256
+
+        private const val FFT_SIZE = 2048
+        private const val HOP_SIZE = 512
 
         /** Maximum dynamic range in decibels. Values below (max - TOP_DB) are lifted to the floor. */
         const val TOP_DB = 75f
