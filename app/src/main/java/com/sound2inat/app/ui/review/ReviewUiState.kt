@@ -51,6 +51,8 @@ data class ReviewUiState(
     val audioProcessingConfig: ReviewAudioProcessingConfig = processingProfile.audioProcessingConfig,
     val processedAudioPath: String? = null,
     val processingAudio: Boolean = false,
+    val visualsLoading: Boolean = false,
+    val visualsError: String? = null,
     /** Persisted observations attached to this draft from prior submissions. */
     val inatObservations: List<InatObsEntry> = emptyList(),
     val inatSubmission: InatSubmissionState = InatSubmissionState.Idle,

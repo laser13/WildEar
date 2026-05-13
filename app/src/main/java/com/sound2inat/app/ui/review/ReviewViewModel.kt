@@ -11,9 +11,13 @@ import com.sound2inat.app.data.Settings
 import com.sound2inat.app.inference.InferenceQueue
 import com.sound2inat.app.inference.JobStatus
 import com.sound2inat.app.inference.QueuedJob
+import com.sound2inat.audio.Spectrogram
 import com.sound2inat.app.ui.FILE_PROVIDER_AUTHORITY
+import com.sound2inat.app.ui.spectrogram.SpectrogramColorMap
 import com.sound2inat.app.ui.spectrogram.SpectrogramNoiseFloorMode
 import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
+import com.sound2inat.app.ui.spectrogram.SpectrogramPostProcessor
+import com.sound2inat.app.ui.spectrogram.SpectrogramVisualPipeline
 import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.ObservationDetail
@@ -58,8 +62,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.RandomAccessFile
+import java.util.concurrent.CancellationException
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.coroutineContext
 
 /**
  * Builds (or loads cached) waveform and spectrogram artifacts for a draft.
@@ -239,6 +246,14 @@ class ReviewViewModel(
 
     private val _displayRange = MutableStateFlow(SpectrogramDisplayRange.BIRDNET_BIRD)
     val displayRange: StateFlow<SpectrogramDisplayRange> = _displayRange
+
+    val visualsLoading: StateFlow<Boolean> = _state
+        .map { it.visualsLoading }
+        .stateIn(scope, SharingStarted.Eagerly, false)
+
+    val visualsError: StateFlow<String?> = _state
+        .map { it.visualsError }
+        .stateIn(scope, SharingStarted.Eagerly, null)
 
     /** Cached so [setDisplayRange] can trigger a re-render without re-reading context. */
     private var cachedFilesDir: File? = null
@@ -802,6 +817,7 @@ class ReviewViewModel(
         if (visualsStarted) return
         val path = _state.value.audioPath ?: return
         visualsStarted = true
+        _state.update { it.copy(visualsLoading = true, visualsError = null) }
         visualsJob = scope.launch {
             try {
                 val snapshot = _processingProfile.value
@@ -814,10 +830,16 @@ class ReviewViewModel(
                 _spectrogramFile.value = v.spectrogramFile
                 _waveformPeaks.value = v.waveformPeaks
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 // Reset so a later retry (e.g. process restart, screen re-entry)
                 // can run. State stays null, screen renders without visuals.
                 visualsStarted = false
+                _state.update { it.copy(visualsError = "Preview failed to render") }
                 android.util.Log.w("ReviewViewModel", "ensureVisuals failed for draft $draftId", t)
+            } finally {
+                if (visualsJob === coroutineContext[Job]) {
+                    _state.update { it.copy(visualsLoading = false) }
+                }
             }
         }
     }
@@ -874,6 +896,7 @@ class ReviewViewModel(
                 processingProfile = profile,
                 audioProcessingConfig = profile.audioProcessingConfig,
                 processedAudioPath = null,
+                visualsError = null,
             )
         }
         val filesDir = cachedFilesDir ?: return
@@ -1410,13 +1433,13 @@ internal object NoopVisualsProvider : VisualsProvider {
 }
 
 /**
- * Production [VisualsProvider]. Reads the WAV via [WavReader.readMono16],
- * normalises to `[-1, 1]`, runs [SpectrogramRenderer] + [SpectrogramBitmap]
- * to cache a PNG under `<filesDir>/spectrograms/<draftId>.png`, and computes
- * waveform peaks via [WaveformBitmap.peaks].
+ * Production [VisualsProvider]. Streams the WAV off disk so the preview can be
+ * built without loading the full file into memory, then caches a PNG under
+ * `<filesDir>/spectrograms/<draftId>.png` and computes waveform peaks from the
+ * same stream.
  *
  * Cache policy: if the PNG already exists, the spectrogram step is skipped
- * (we only re-read the WAV for waveform peaks, which are not cached). This
+ * (we still re-read the WAV for waveform peaks, which are not cached). This
  * keeps the second open instant for the spectrogram while the cheap peak
  * computation runs again on each open.
  */
@@ -1429,8 +1452,8 @@ internal class ProductionVisualsProvider : VisualsProvider {
         config: ReviewSpectrogramConfig,
         audioProcessingConfig: ReviewAudioProcessingConfig,
     ): Visuals {
-        val (shorts, _) = WavReader.readMono16(File(audioPath))
-        val floats = FloatArray(shorts.size) { i -> shorts[i] / Short.MAX_VALUE.toFloat() }
+        val input = File(audioPath)
+        val wavInfo = readMono16Info(input)
         val pngDir = File(filesDir, "spectrograms").apply { mkdirs() }
         val rendererConfig = if (config.displayRange == SpectrogramDisplayRange.FULL) {
             config.copy(
@@ -1452,16 +1475,224 @@ internal class ProductionVisualsProvider : VisualsProvider {
             "${draftId}_${rendererConfig.cacheSuffix()}_${audioProcessingConfig.cacheSuffix()}.png",
         )
         if (!pngFile.exists()) {
-            val renderer = SpectrogramRenderer(config = rendererConfig)
-            val pixels = renderer.render(floats)
+            val pixels = buildSpectrogramPreview(input, wavInfo, rendererConfig)
             if (pixels.isNotEmpty()) {
                 SpectrogramBitmap.writePng(pixels, pngFile)
             }
         }
-        val peaks = WaveformBitmap.peaks(floats)
+        val peaks = buildWaveformPeaks(input, wavInfo)
         return Visuals(spectrogramFile = pngFile, waveformPeaks = peaks)
     }
 }
+
+internal data class Mono16Info(
+    val sampleRateHz: Int,
+    val totalSamples: Long,
+)
+
+internal fun readMono16Info(file: File): Mono16Info {
+    RandomAccessFile(file, "r").use { raf ->
+        val header = ByteArray(WAV_HEADER_SIZE).also { raf.readFully(it) }
+        require(String(header, 0, 4) == "RIFF" && String(header, 8, 4) == "WAVE") {
+            "Not a WAV file"
+        }
+        val channels = leU16(header, 22)
+        val sampleRateHz = leU32(header, 24).toInt()
+        val bitsPerSample = leU16(header, 34)
+        require(channels == 1 && bitsPerSample == WAV_BITS_PER_SAMPLE) {
+            "Mono 16-bit PCM only (got ch=$channels bits=$bitsPerSample)"
+        }
+        require(String(header, 36, 4) == "data") {
+            "WAV 'data' chunk not at offset 36 — unsupported chunk layout"
+        }
+        val dataSize = leU32(header, 40)
+        require(dataSize in 0L..Long.MAX_VALUE / WAV_BYTES_PER_SAMPLE) {
+            "WAV dataSize out of safe range: $dataSize bytes"
+        }
+        return Mono16Info(sampleRateHz = sampleRateHz, totalSamples = dataSize / WAV_BYTES_PER_SAMPLE)
+    }
+}
+
+internal fun buildWaveformPeaks(file: File, info: Mono16Info): FloatArray {
+    if (info.totalSamples <= 0L) return FloatArray(0)
+    val width = minOf(WaveformBitmap.DEFAULT_TARGET_WIDTH, info.totalSamples.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+    if (width <= 0) return FloatArray(0)
+    val lows = FloatArray(width) { Float.POSITIVE_INFINITY }
+    val highs = FloatArray(width) { Float.NEGATIVE_INFINITY }
+    streamMono16(file) { chunk, startSample ->
+        for (i in chunk.indices) {
+            val sampleIndex = startSample + i
+            val bucket = ((sampleIndex * width) / info.totalSamples).toInt().coerceIn(0, width - 1)
+            val value = chunk[i] / Short.MAX_VALUE.toFloat()
+            if (value < lows[bucket]) lows[bucket] = value
+            if (value > highs[bucket]) highs[bucket] = value
+        }
+    }
+    return FloatArray(width * 2) { idx ->
+        val bucket = idx / 2
+        if (idx % 2 == 0) lows[bucket].takeIf { it.isFinite() } ?: 0f
+        else highs[bucket].takeIf { it.isFinite() } ?: 0f
+    }
+}
+
+internal fun buildSpectrogramPreview(
+    file: File,
+    info: Mono16Info,
+    config: ReviewSpectrogramConfig,
+): Array<IntArray> {
+    if (info.totalSamples < PREVIEW_FFT_SIZE.toLong()) return emptyArray()
+    val frames = ((info.totalSamples - PREVIEW_FFT_SIZE) / PREVIEW_HOP_SIZE + 1)
+        .coerceAtLeast(1L)
+        .toInt()
+    val width = minOf(SpectrogramRenderer.DEFAULT_TARGET_WIDTH, frames)
+    val accum = Array(SpectrogramRenderer.DISPLAY_HEIGHT_BINS) { FloatArray(width) }
+    val counts = IntArray(width)
+    val spectrogram = Spectrogram(
+        fftSize = PREVIEW_FFT_SIZE,
+        hopSize = PREVIEW_HOP_SIZE,
+        sampleRateHz = info.sampleRateHz,
+    )
+    val sortBuf = FloatArray(PREVIEW_FFT_SIZE / 2 + 1)
+    var frameIndex = 0
+    streamMono16(file) { chunk, _ ->
+        val floats = FloatArray(chunk.size) { i -> chunk[i] / Short.MAX_VALUE.toFloat() }
+        val columns = spectrogram.process(floats)
+        for (column in columns) {
+            if (width == 0) continue
+            val bucket = ((frameIndex.toLong() * width) / frames).toInt().coerceIn(0, width - 1)
+            val working = column.copyOf()
+            if (config.noiseFloorMode == SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN) {
+                SpectrogramVisualPipeline.whitenColumnInPlace(working, sortBuf)
+            }
+            val binned = SpectrogramVisualPipeline.logBinDown(
+                src = working,
+                outBins = SpectrogramRenderer.DISPLAY_HEIGHT_BINS,
+                sampleRateHz = info.sampleRateHz,
+                minFrequencyHz = config.displayRange.fMinHz,
+                maxFrequencyHz = config.displayRange.fMaxHz,
+            )
+            for (row in 0 until SpectrogramRenderer.DISPLAY_HEIGHT_BINS) {
+                accum[row][bucket] += binned[row] + config.gainDb
+            }
+            counts[bucket]++
+            frameIndex++
+        }
+    }
+    if (frameIndex == 0) return emptyArray()
+
+    val averaged = Array(SpectrogramRenderer.DISPLAY_HEIGHT_BINS) { row ->
+        FloatArray(width) { col ->
+            val count = counts[col].coerceAtLeast(1)
+            accum[row][col] / count
+        }
+    }
+    val normalized = if (config.noiseFloorMode == SpectrogramNoiseFloorMode.NONE) {
+        val flattened = FloatArray(averaged.size * width)
+        var index = 0
+        for (row in averaged) {
+            for (value in row) flattened[index++] = value
+        }
+        val clamped = SpectrogramRenderer.applyTopDbClamp(flattened, config.displayRangeDb)
+        val norm = SpectrogramRenderer.percentileNormalize(
+            clamped,
+            lowPercentile = config.lowPercentile,
+            highPercentile = config.highPercentile,
+        )
+        Array(SpectrogramRenderer.DISPLAY_HEIGHT_BINS) { row ->
+            FloatArray(width) { col -> norm[row * width + col] }
+        }
+    } else {
+        Array(SpectrogramRenderer.DISPLAY_HEIGHT_BINS) { row ->
+            SpectrogramPostProcessor.applyDisplayCurve(
+                values = averaged[row],
+                gateDb = config.gateDb,
+                displayRangeDb = config.displayRangeDb,
+                gamma = config.gamma,
+            )
+        }
+    }
+    val smoothed = SpectrogramPostProcessor.smoothNormalized(
+        normalized,
+        timeRadius = config.smoothingTimeRadius,
+        frequencyRadius = config.smoothingFrequencyRadius,
+    )
+    return renderPixels(smoothed, config)
+}
+
+private fun renderPixels(
+    normalized: Array<FloatArray>,
+    config: ReviewSpectrogramConfig,
+): Array<IntArray> {
+    if (normalized.isEmpty()) return emptyArray()
+    val width = normalized[0].size
+    if (width == 0) return emptyArray()
+    val lut = when (config.palette) {
+        SpectrogramPalette.INK -> SpectrogramColorMap.ink(-1, config.maxInkArgb)
+        SpectrogramPalette.VIRIDIS -> SpectrogramColorMap.viridis()
+        SpectrogramPalette.MAGMA -> SpectrogramColorMap.magma()
+        SpectrogramPalette.GRAY -> SpectrogramColorMap.gray()
+    }
+    return Array(SpectrogramRenderer.DISPLAY_HEIGHT_BINS) { row ->
+        IntArray(width) { col ->
+            val flippedRow = SpectrogramRenderer.DISPLAY_HEIGHT_BINS - 1 - row
+            SpectrogramColorMap.map(normalized[flippedRow][col], lut)
+        }
+    }
+}
+
+private fun streamMono16(
+    file: File,
+    blockSamples: Int = WAV_READ_BLOCK_SAMPLES,
+    onChunk: (chunk: ShortArray, startSample: Long) -> Unit,
+) {
+    RandomAccessFile(file, "r").use { raf ->
+        val header = ByteArray(WAV_HEADER_SIZE).also { raf.readFully(it) }
+        require(String(header, 0, 4) == "RIFF" && String(header, 8, 4) == "WAVE") {
+            "Not a WAV file"
+        }
+        val channels = leU16(header, 22)
+        val sampleRateHz = leU32(header, 24).toInt()
+        val bitsPerSample = leU16(header, 34)
+        require(channels == 1 && bitsPerSample == WAV_BITS_PER_SAMPLE) {
+            "Mono 16-bit PCM only (got ch=$channels bits=$bitsPerSample)"
+        }
+        require(String(header, 36, 4) == "data") {
+            "WAV 'data' chunk not at offset 36 — unsupported chunk layout"
+        }
+        val dataSize = leU32(header, 40)
+        val totalSamples = dataSize / WAV_BYTES_PER_SAMPLE
+        val raw = ByteArray(blockSamples * WAV_BYTES_PER_SAMPLE)
+        var startSample = 0L
+        while (startSample < totalSamples) {
+            val samplesToRead = minOf(blockSamples.toLong(), totalSamples - startSample).toInt()
+            raf.readFully(raw, 0, samplesToRead * WAV_BYTES_PER_SAMPLE)
+            val chunk = ShortArray(samplesToRead)
+            for (i in 0 until samplesToRead) {
+                val lo = raw[2 * i].toInt() and 0xFF
+                val hi = raw[2 * i + 1].toInt()
+                chunk[i] = ((hi shl 8) or lo).toShort()
+            }
+            onChunk(chunk, startSample)
+            startSample += samplesToRead
+        }
+    }
+}
+
+private fun leU16(buf: ByteArray, o: Int): Int =
+    (buf[o].toInt() and 0xFF) or ((buf[o + 1].toInt() and 0xFF) shl 8)
+
+private fun leU32(buf: ByteArray, o: Int): Long =
+    (buf[o].toLong() and 0xFF) or
+        ((buf[o + 1].toLong() and 0xFF) shl 8) or
+        ((buf[o + 2].toLong() and 0xFF) shl 16) or
+        ((buf[o + 3].toLong() and 0xFF) shl 24)
+
+private const val WAV_HEADER_SIZE = 44
+private const val WAV_BYTES_PER_SAMPLE = 2
+private const val WAV_BITS_PER_SAMPLE = 16
+private const val PREVIEW_FFT_SIZE = 2048
+private const val PREVIEW_HOP_SIZE = 512
+private const val WAV_READ_BLOCK_SAMPLES = 16_384
 
 internal class ProductionProcessedAudioProvider : ProcessedAudioProvider {
     override suspend fun materialize(

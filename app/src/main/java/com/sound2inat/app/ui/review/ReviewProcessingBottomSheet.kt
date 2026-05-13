@@ -8,16 +8,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -31,6 +37,9 @@ internal fun ReviewProcessingBottomSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    var draftConfig by remember(state.processingProfile.audioProcessingConfig) {
+        mutableStateOf(state.processingProfile.audioProcessingConfig)
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -52,32 +61,37 @@ internal fun ReviewProcessingBottomSheet(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Text(
+                "Tweak the draft here, then tap Apply to rebuild the preview.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ProcessingPresetChip(
                         preset = ReviewAudioProcessingConfig.Original,
-                        selected = state.processingProfile.audioProcessingConfig == ReviewAudioProcessingConfig.Original,
-                        onClick = { onConfigSelected(ReviewAudioProcessingConfig.Original) },
+                        selected = draftConfig == ReviewAudioProcessingConfig.Original,
+                        onClick = { draftConfig = ReviewAudioProcessingConfig.Original },
                         modifier = Modifier.weight(1f),
                     )
                     ProcessingPresetChip(
                         preset = ReviewAudioProcessingConfig.BirdClean,
-                        selected = state.processingProfile.audioProcessingConfig == ReviewAudioProcessingConfig.BirdClean,
-                        onClick = { onConfigSelected(ReviewAudioProcessingConfig.BirdClean) },
+                        selected = draftConfig == ReviewAudioProcessingConfig.BirdClean,
+                        onClick = { draftConfig = ReviewAudioProcessingConfig.BirdClean },
                         modifier = Modifier.weight(1f),
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ProcessingPresetChip(
                         preset = ReviewAudioProcessingConfig.BirdHighClarity,
-                        selected = state.processingProfile.audioProcessingConfig == ReviewAudioProcessingConfig.BirdHighClarity,
-                        onClick = { onConfigSelected(ReviewAudioProcessingConfig.BirdHighClarity) },
+                        selected = draftConfig == ReviewAudioProcessingConfig.BirdHighClarity,
+                        onClick = { draftConfig = ReviewAudioProcessingConfig.BirdHighClarity },
                         modifier = Modifier.weight(1f),
                     )
                     ProcessingPresetChip(
                         preset = ReviewAudioProcessingConfig.BoostQuiet,
-                        selected = state.processingProfile.audioProcessingConfig == ReviewAudioProcessingConfig.BoostQuiet,
-                        onClick = { onConfigSelected(ReviewAudioProcessingConfig.BoostQuiet) },
+                        selected = draftConfig == ReviewAudioProcessingConfig.BoostQuiet,
+                        onClick = { draftConfig = ReviewAudioProcessingConfig.BoostQuiet },
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -89,14 +103,10 @@ internal fun ReviewProcessingBottomSheet(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 reviewHighPassOptions().forEach { hz ->
-                    val selected = state.processingProfile.audioProcessingConfig.highPassHz == hz
+                    val selected = draftConfig.highPassHz == hz
                     FilterChip(
                         selected = selected,
-                        onClick = {
-                            onConfigSelected(
-                                state.processingProfile.audioProcessingConfig.withHighPass(hz),
-                            )
-                        },
+                        onClick = { draftConfig = draftConfig.withHighPass(hz) },
                         label = { Text(formatHighPassLabel(hz)) },
                     )
                 }
@@ -107,14 +117,10 @@ internal fun ReviewProcessingBottomSheet(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 reviewGainOptions().forEach { gain ->
-                    val selected = state.processingProfile.audioProcessingConfig.gainDb == gain
+                    val selected = draftConfig.gainDb == gain
                     FilterChip(
                         selected = selected,
-                        onClick = {
-                            onConfigSelected(
-                                state.processingProfile.audioProcessingConfig.withGain(gain),
-                            )
-                        },
+                        onClick = { draftConfig = draftConfig.withGain(gain) },
                         label = { Text(formatGainLabel(gain)) },
                     )
                 }
@@ -128,28 +134,49 @@ internal fun ReviewProcessingBottomSheet(
                     style = MaterialTheme.typography.labelMedium,
                 )
                 Switch(
-                    checked = state.processingProfile.audioProcessingConfig.normalizePeak,
-                    onCheckedChange = { enabled ->
-                        onConfigSelected(
-                            state.processingProfile.audioProcessingConfig.withNormalize(enabled),
-                        )
-                    },
+                    checked = draftConfig.normalizePeak,
+                    onCheckedChange = { enabled -> draftConfig = draftConfig.withNormalize(enabled) },
                 )
             }
             when {
-                state.processingAudio -> {
+                state.visualsLoading || state.processingAudio -> {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     Text(
-                        "Updating preview...",
+                        if (state.processingAudio) "Updating audio..." else "Rendering preview...",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
+                state.visualsError != null -> Text(
+                    state.visualsError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
                 state.processedAudioPath != null -> Text(
                     "Preview ready",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Cancel")
+                }
+                Button(
+                    onClick = {
+                        onConfigSelected(draftConfig)
+                        onDismiss()
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Apply")
+                }
             }
             Spacer(Modifier.height(8.dp))
         }

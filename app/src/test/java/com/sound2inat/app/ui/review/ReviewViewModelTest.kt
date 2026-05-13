@@ -230,6 +230,31 @@ class ReviewViewModelTest {
     }
 
     @Test
+    fun `seekTo forwards playback seeks to the audio player`() = runTest(UnconfinedTestDispatcher()) {
+        val draftId = "d6"
+        val draftDao = FakeDraftDao().apply {
+            insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+        }
+        val repo = repo(draftDao, FakeDetectionDao())
+        val queue = makeQueue(draftRepo = repo)
+        val player = FakeAudioPlayer()
+        val vm = ReviewViewModel(
+            draftId = draftId,
+            repo = repo,
+            player = player,
+            inference = noopInference(),
+            queue = queue,
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+            externalScope = backgroundScope,
+        )
+
+        vm.seekTo(12_345L)
+
+        assertThat(player.seekToMs).isEqualTo(12_345L)
+        assertThat(player.position.value).isEqualTo(12_345L)
+    }
+
+    @Test
     fun `ensureVisuals populates spectrogramFile and waveformPeaks`() =
         runTest(UnconfinedTestDispatcher()) {
             val draftId = "d7"
@@ -261,6 +286,103 @@ class ReviewViewModelTest {
             // Subsequent calls do NOT re-invoke the provider.
             vm.ensureVisuals(tmp.root)
             assertThat(calls).isEqualTo(1)
+        }
+
+    @Test
+    fun `ensureVisuals exposes loading while the preview is rendering`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "visuals_loading"
+            val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
+            }
+            val gate = CompletableDeferred<Unit>()
+            val expectedPng = tmp.newFile("visuals-loading.png")
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(draftRepo = repo)
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                visuals = VisualsProvider { _, _, _, _, _ ->
+                    gate.await()
+                    Visuals(spectrogramFile = expectedPng, waveformPeaks = floatArrayOf(-1f, 1f))
+                },
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+
+            vm.ensureVisuals(tmp.root)
+            runCurrent()
+
+            assertThat(vm.state.value.visualsLoading).isTrue()
+
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            assertThat(vm.state.value.visualsLoading).isFalse()
+            assertThat(vm.spectrogramFile.value).isEqualTo(expectedPng)
+        }
+
+    @Test
+    fun `visuals loading stays true when a pending render is canceled and restarted`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "visuals_cancel_restart"
+            val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
+            }
+            val gate = CompletableDeferred<Unit>()
+            var calls = 0
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(draftRepo = repo)
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                visuals = VisualsProvider { _, _, _, _, _ ->
+                    calls++
+                    gate.await()
+                    Visuals(spectrogramFile = tmp.newFile("cancel-restart-$calls.png"), waveformPeaks = floatArrayOf(-1f, 1f))
+                },
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+
+            vm.ensureVisuals(tmp.root)
+            runCurrent()
+            assertThat(vm.state.value.visualsLoading).isTrue()
+
+            vm.setSpectrogramGain(5f)
+            runCurrent()
+            assertThat(vm.state.value.visualsLoading).isTrue()
+
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            assertThat(vm.state.value.visualsLoading).isFalse()
+            assertThat(calls).isEqualTo(2)
+        }
+
+    @Test
+    fun `production visuals provider streams long wavs without exhausting memory`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val audioFile = createLargeSilentWavStreaming(
+                dest = tmp.newFile("large_preview.wav"),
+                sampleRate = 48_000,
+                durationMs = 4 * 60_000L,
+            )
+            val info = readMono16Info(audioFile)
+            val pixels = buildSpectrogramPreview(audioFile, info, ReviewSpectrogramConfig.BirdDefault)
+            val peaks = buildWaveformPeaks(audioFile, info)
+
+            assertThat(pixels).isNotEmpty()
+            assertThat(pixels.first()).isNotEmpty()
+            assertThat(peaks).isNotEmpty()
         }
 
     @Test
@@ -1350,6 +1472,26 @@ class ReviewViewModelTest {
         val writer = com.sound2inat.recorder.WavWriter(dest, sampleRate, channels = 1, bitsPerSample = 16)
         writer.open()
         writer.writeShorts(ShortArray(samples), 0, samples)
+        writer.close()
+        return dest
+    }
+
+    /** Writes a long mono 16-bit PCM WAV without allocating the whole sample buffer at once. */
+    private fun createLargeSilentWavStreaming(
+        dest: File,
+        sampleRate: Int = 48_000,
+        durationMs: Long = 4 * 60_000L,
+    ): File {
+        val totalSamples = ((sampleRate.toLong() * durationMs) / 1000L).toInt()
+        val writer = com.sound2inat.recorder.WavWriter(dest, sampleRate, channels = 1, bitsPerSample = 16)
+        writer.open()
+        val chunk = ShortArray(8_192)
+        var written = 0
+        while (written < totalSamples) {
+            val take = minOf(chunk.size, totalSamples - written)
+            writer.writeShorts(chunk, 0, take)
+            written += take
+        }
         writer.close()
         return dest
     }
