@@ -81,7 +81,7 @@ open class PhotoSubmitter @Inject constructor(
             return@withContext PhotoSubmitResult.Failure(message)
         }
 
-        repo.markUploaded(draftId, created.id, created.url)
+        repo.markUploaded(draftId, created.id, created.uuid, created.url)
         if (failures.isNotEmpty()) {
             repo.setUploadError(draftId, failures.joinToString(" | "))
         }

@@ -1,0 +1,520 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 9,
+    "identityHash": "058c43106535eab33f5e17871cdc8a52",
+    "entities": [
+      {
+        "tableName": "drafts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `audioPath` TEXT NOT NULL, `recordedAtUtcMs` INTEGER NOT NULL, `durationMs` INTEGER NOT NULL, `latitude` REAL, `longitude` REAL, `locationAccuracyMeters` REAL, `status` TEXT NOT NULL, `modelId` TEXT, `modelVersion` TEXT, `createdAtUtcMs` INTEGER NOT NULL, `updatedAtUtcMs` INTEGER NOT NULL, `inatLastError` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "audioPath",
+            "columnName": "audioPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordedAtUtcMs",
+            "columnName": "recordedAtUtcMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "latitude",
+            "columnName": "latitude",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "longitude",
+            "columnName": "longitude",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "locationAccuracyMeters",
+            "columnName": "locationAccuracyMeters",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modelId",
+            "columnName": "modelId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "modelVersion",
+            "columnName": "modelVersion",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAtUtcMs",
+            "columnName": "createdAtUtcMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtUtcMs",
+            "columnName": "updatedAtUtcMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "inatLastError",
+            "columnName": "inatLastError",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "detections",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `draftId` TEXT NOT NULL, `taxonScientificName` TEXT NOT NULL, `taxonCommonName` TEXT, `maxConfidence` REAL NOT NULL, `detectedWindows` INTEGER NOT NULL, `firstSeenMs` INTEGER NOT NULL, `lastSeenMs` INTEGER NOT NULL, `isSelectedByUser` INTEGER NOT NULL, `sources` TEXT, `fragmentRanges` TEXT NOT NULL, `aggregatedConfidence` REAL NOT NULL, FOREIGN KEY(`draftId`) REFERENCES `drafts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "draftId",
+            "columnName": "draftId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taxonScientificName",
+            "columnName": "taxonScientificName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taxonCommonName",
+            "columnName": "taxonCommonName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "maxConfidence",
+            "columnName": "maxConfidence",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "detectedWindows",
+            "columnName": "detectedWindows",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "firstSeenMs",
+            "columnName": "firstSeenMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSeenMs",
+            "columnName": "lastSeenMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isSelectedByUser",
+            "columnName": "isSelectedByUser",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sources",
+            "columnName": "sources",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fragmentRanges",
+            "columnName": "fragmentRanges",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "aggregatedConfidence",
+            "columnName": "aggregatedConfidence",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_detections_draftId",
+            "unique": false,
+            "columnNames": [
+              "draftId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_detections_draftId` ON `${TABLE_NAME}` (`draftId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "drafts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "draftId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "inat_observations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `draftId` TEXT NOT NULL, `taxonScientificName` TEXT NOT NULL, `taxonInatId` INTEGER NOT NULL, `observationId` INTEGER NOT NULL, `observationUrl` TEXT NOT NULL, `createdAtUtcMs` INTEGER NOT NULL, FOREIGN KEY(`draftId`) REFERENCES `drafts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "draftId",
+            "columnName": "draftId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taxonScientificName",
+            "columnName": "taxonScientificName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taxonInatId",
+            "columnName": "taxonInatId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "observationId",
+            "columnName": "observationId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "observationUrl",
+            "columnName": "observationUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtUtcMs",
+            "columnName": "createdAtUtcMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_inat_observations_draftId",
+            "unique": false,
+            "columnNames": [
+              "draftId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_inat_observations_draftId` ON `${TABLE_NAME}` (`draftId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "drafts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "draftId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "draft_photos",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `draftId` TEXT NOT NULL, `photoPath` TEXT NOT NULL, `takenAtMs` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`draftId`) REFERENCES `drafts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "draftId",
+            "columnName": "draftId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "photoPath",
+            "columnName": "photoPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "takenAtMs",
+            "columnName": "takenAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_draft_photos_draftId",
+            "unique": false,
+            "columnNames": [
+              "draftId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_draft_photos_draftId` ON `${TABLE_NAME}` (`draftId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "drafts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "draftId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "photo_drafts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `createdAtUtcMs` INTEGER NOT NULL, `updatedAtUtcMs` INTEGER NOT NULL, `observedAtUtcMs` INTEGER NOT NULL, `latitude` REAL, `longitude` REAL, `locationAccuracyMeters` REAL, `status` TEXT NOT NULL, `taxonScientificName` TEXT, `taxonCommonName` TEXT, `taxonInatId` INTEGER, `description` TEXT, `inatObservationId` INTEGER, `inatObservationUuid` TEXT, `inatObservationUrl` TEXT, `inatLastError` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtUtcMs",
+            "columnName": "createdAtUtcMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtUtcMs",
+            "columnName": "updatedAtUtcMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "observedAtUtcMs",
+            "columnName": "observedAtUtcMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "latitude",
+            "columnName": "latitude",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "longitude",
+            "columnName": "longitude",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "locationAccuracyMeters",
+            "columnName": "locationAccuracyMeters",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taxonScientificName",
+            "columnName": "taxonScientificName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "taxonCommonName",
+            "columnName": "taxonCommonName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "taxonInatId",
+            "columnName": "taxonInatId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "inatObservationId",
+            "columnName": "inatObservationId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "inatObservationUuid",
+            "columnName": "inatObservationUuid",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "inatObservationUrl",
+            "columnName": "inatObservationUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "inatLastError",
+            "columnName": "inatLastError",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "photo_draft_images",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `photoDraftId` TEXT NOT NULL, `photoPath` TEXT NOT NULL, `takenAtUtcMs` INTEGER NOT NULL, `sortOrder` INTEGER NOT NULL, `width` INTEGER, `height` INTEGER, `mimeType` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`photoDraftId`) REFERENCES `photo_drafts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "photoDraftId",
+            "columnName": "photoDraftId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "photoPath",
+            "columnName": "photoPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "takenAtUtcMs",
+            "columnName": "takenAtUtcMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortOrder",
+            "columnName": "sortOrder",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "width",
+            "columnName": "width",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "height",
+            "columnName": "height",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "mimeType",
+            "columnName": "mimeType",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_photo_draft_images_photoDraftId",
+            "unique": false,
+            "columnNames": [
+              "photoDraftId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_photo_draft_images_photoDraftId` ON `${TABLE_NAME}` (`photoDraftId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "photo_drafts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "photoDraftId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '058c43106535eab33f5e17871cdc8a52')"
+    ]
+  }
+}

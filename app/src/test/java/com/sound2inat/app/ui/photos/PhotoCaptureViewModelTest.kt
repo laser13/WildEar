@@ -72,6 +72,7 @@ class PhotoCaptureViewModelTest {
 
         assertThat(vm.state.value.canBindCamera).isTrue()
         assertThat(vm.state.value.showCameraPermissionDenied).isFalse()
+        assertThat(vm.state.value.isExistingDraft).isFalse()
         assertThat(vm.state.value.draftId).isEqualTo("id1")
     }
 
@@ -101,6 +102,31 @@ class PhotoCaptureViewModelTest {
     }
 
     @Test
+    fun `empty new capture session can be discarded`() = runTest {
+        val vm = viewModel()
+        vm.initWithPermissions(FakePermissions(Permission.CAMERA to PermissionStatus.GRANTED))
+        val draftId = vm.state.value.draftId!!
+
+        vm.discardIfEmpty()
+
+        assertThat(db.photoDrafts().getById(draftId)).isNull()
+    }
+
+    @Test
+    fun `non empty capture session is preserved by discardIfEmpty`() = runTest {
+        val vm = viewModel()
+        vm.initWithPermissions(FakePermissions(Permission.CAMERA to PermissionStatus.GRANTED))
+        val draftId = vm.state.value.draftId!!
+
+        val prepared = vm.prepareOutputFile()
+        prepared.file.writeText("jpeg")
+        vm.onPhotoSaved(prepared.photoId, prepared.file, width = 100, height = 100)
+        vm.discardIfEmpty()
+
+        assertThat(db.photoDrafts().getById(draftId)).isNotNull()
+    }
+
+    @Test
     fun `existing draft id is reused when adding more photos`() = runTest {
         val existingId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
         val vm = viewModel(SavedStateHandle(mapOf("draftId" to existingId)))
@@ -108,6 +134,7 @@ class PhotoCaptureViewModelTest {
         vm.initWithPermissions(FakePermissions(Permission.CAMERA to PermissionStatus.GRANTED))
 
         assertThat(vm.state.value.draftId).isEqualTo(existingId)
+        assertThat(vm.state.value.isExistingDraft).isTrue()
         assertThat(db.photoDrafts().observeAll().first()).hasSize(1)
     }
 

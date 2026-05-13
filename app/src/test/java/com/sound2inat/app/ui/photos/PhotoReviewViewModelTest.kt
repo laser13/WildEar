@@ -85,7 +85,14 @@ class PhotoReviewViewModelTest {
     fun `review loads draft images and can delete one image`() = runTest {
         val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
         val image = fileStore.newPhotoFile(draftId, "p1").apply { writeText("jpeg") }
-        repo.addImage(draftId, image, takenAtUtcMs = 2L, width = 100, height = 100)
+        repo.addImage(
+            draftId = draftId,
+            photoId = "p1",
+            imageFile = image,
+            takenAtUtcMs = 2L,
+            width = 100,
+            height = 100,
+        )
         val vm = viewModel(draftId)
 
         assertThat(vm.state.value.images).hasSize(1)
@@ -163,7 +170,12 @@ class PhotoReviewViewModelTest {
     @Test
     fun `load vision suggestions and apply genus from iNat response`() = runTest {
         val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
-        repo.markUploaded(draftId, observationId = 777L, observationUrl = "https://www.inaturalist.org/observations/777")
+        repo.markUploaded(
+            draftId,
+            observationId = 777L,
+            observationUuid = "uuid-777",
+            observationUrl = "https://www.inaturalist.org/observations/777",
+        )
         server.enqueue(
             MockResponse().setBody(
                 """{
@@ -236,9 +248,35 @@ class PhotoReviewViewModelTest {
         assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).isEqualTo("/v1/computervision/score_observation/777")
         assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).contains("/v1/taxa?id=1,2,101,102")
         assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).isEqualTo("/v1/identifications")
-        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).isEqualTo("/v1/annotations")
-        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).isEqualTo("/v1/annotations")
-        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).isEqualTo("/v1/annotations")
+        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.body?.readUtf8()).contains("uuid-777")
+        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.body?.readUtf8()).contains("uuid-777")
+        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.body?.readUtf8()).contains("uuid-777")
+    }
+
+    @Test
+    fun `apply vision refuses annotations when observation uuid is missing`() = runTest {
+        val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
+        repo.markUploaded(
+            draftId,
+            observationId = 777L,
+            observationUuid = "",
+            observationUrl = "https://www.inaturalist.org/observations/777",
+        )
+        val vm = viewModel(draftId)
+
+        vm.applyVisionSuggestion(
+            PhotoVisionSuggestion(
+                taxonId = 101L,
+                scientificName = "Ammophila",
+                commonName = null,
+                rank = "genus",
+                rankLevel = 20,
+                score = 0.82,
+                iconicTaxonName = "Insecta",
+            ),
+        )
+
+        assertThat(vm.state.value.vision.error).contains("Missing iNaturalist observation UUID")
     }
 
     private fun viewModel(

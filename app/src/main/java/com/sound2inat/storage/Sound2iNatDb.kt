@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PhotoDraftEntity::class,
         PhotoDraftImageEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -182,6 +182,14 @@ abstract class Sound2iNatDb : RoomDatabase() {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_photo_draft_images_photoDraftId ON photo_draft_images(photoDraftId)",
                 )
+            }
+        }
+
+        // v9: store the iNaturalist observation UUID on photo drafts so
+        // post-upload CV annotations can target the correct resource id.
+        val MIGRATION_8_9: Migration = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE photo_drafts ADD COLUMN inatObservationUuid TEXT")
             }
         }
     }

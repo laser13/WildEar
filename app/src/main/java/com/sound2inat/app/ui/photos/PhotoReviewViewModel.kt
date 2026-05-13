@@ -60,6 +60,7 @@ class PhotoReviewViewModel(
                                 isLoading = false,
                                 images = emptyList(),
                                 inatObservationId = null,
+                                inatObservationUuid = null,
                                 inatObservationUrl = null,
                             )
                         }
@@ -71,6 +72,7 @@ class PhotoReviewViewModel(
                                 isLoading = false,
                                 images = withImages.images,
                                 inatObservationId = draft.inatObservationId,
+                                inatObservationUuid = draft.inatObservationUuid,
                                 inatObservationUrl = draft.inatObservationUrl,
                                 taxonScientificName = draft.taxonScientificName,
                                 taxonCommonName = draft.taxonCommonName,
@@ -160,6 +162,10 @@ class PhotoReviewViewModel(
             _state.update { it.copy(vision = it.vision.copy(error = "Upload to iNaturalist first")) }
             return
         }
+        val observationUuid = _state.value.inatObservationUuid?.takeIf { it.isNotBlank() } ?: run {
+            _state.update { it.copy(vision = it.vision.copy(error = "Missing iNaturalist observation UUID")) }
+            return
+        }
         if (_state.value.vision.isLoading) return
         _state.update { it.copy(vision = it.vision.copy(isLoading = true, error = null, message = null)) }
 
@@ -198,7 +204,7 @@ class PhotoReviewViewModel(
 
             val warnings = mutableListOf<String>()
             if (shouldApplyAnnotations(suggestion)) {
-                runCatching { applyAnnotationSet(token, observationId, suggestion) }
+                runCatching { applyAnnotationSet(token, observationUuid, suggestion) }
                     .onFailure { error ->
                         warnings += error.message ?: "Annotation update failed"
                     }
@@ -254,7 +260,7 @@ class PhotoReviewViewModel(
 
     private suspend fun applyAnnotationSet(
         token: String,
-        observationId: Long,
+        observationUuid: String,
         suggestion: PhotoVisionSuggestion,
     ) {
         val iconic = suggestion.iconicTaxonName.orEmpty()
@@ -262,20 +268,20 @@ class PhotoReviewViewModel(
 
         client.createAnnotation(
             token = token,
-            observationUuid = observationId.toString(),
+            observationUuid = observationUuid,
             controlledAttributeId = 17,
             controlledValueId = 18,
         )
         client.createAnnotation(
             token = token,
-            observationUuid = observationId.toString(),
+            observationUuid = observationUuid,
             controlledAttributeId = 22,
             controlledValueId = 24,
         )
         if (iconic == "Insecta") {
             client.createAnnotation(
                 token = token,
-                observationUuid = observationId.toString(),
+                observationUuid = observationUuid,
                 controlledAttributeId = 1,
                 controlledValueId = 2,
             )

@@ -18,6 +18,7 @@ data class PhotoDraftEntity(
     val taxonInatId: Long?,
     val description: String?,
     val inatObservationId: Long?,
+    val inatObservationUuid: String?,
     val inatObservationUrl: String?,
     val inatLastError: String?,
 )

@@ -70,6 +70,7 @@ class PhotoDraftDaoTest {
         taxonInatId = null,
         description = null,
         inatObservationId = null,
+        inatObservationUuid = null,
         inatObservationUrl = null,
         inatLastError = null,
     )

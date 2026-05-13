@@ -61,9 +61,17 @@ class PhotoDraftRepositoryTest {
             writeText("jpeg")
         }
 
-        repo.addImage(draftId, imageFile, takenAtUtcMs = 2L, width = 4000, height = 3000)
+        repo.addImage(
+            draftId = draftId,
+            photoId = "photo1",
+            imageFile = imageFile,
+            takenAtUtcMs = 2L,
+            width = 4000,
+            height = 3000,
+        )
 
         assertThat(repo.observeWithImages(draftId).first()?.images).hasSize(1)
+        assertThat(repo.observeWithImages(draftId).first()?.images?.single()?.id).isEqualTo("photo1")
         assertThat(imageFile.exists()).isTrue()
 
         repo.deleteDraft(draftId)
@@ -80,8 +88,22 @@ class PhotoDraftRepositoryTest {
         val firstPhoto = fileStore.newPhotoFile(newId, "first").apply { writeText("jpeg") }
         val secondPhoto = fileStore.newPhotoFile(newId, "second").apply { writeText("jpeg") }
 
-        repo.addImage(newId, firstPhoto, takenAtUtcMs = 3L, width = 100, height = 100)
-        repo.addImage(newId, secondPhoto, takenAtUtcMs = 4L, width = 200, height = 200)
+        repo.addImage(
+            draftId = newId,
+            photoId = "first",
+            imageFile = firstPhoto,
+            takenAtUtcMs = 3L,
+            width = 100,
+            height = 100,
+        )
+        repo.addImage(
+            draftId = newId,
+            photoId = "second",
+            imageFile = secondPhoto,
+            takenAtUtcMs = 4L,
+            width = 200,
+            height = 200,
+        )
 
         val summaries = repo.observeSummaries().first()
 
@@ -90,5 +112,6 @@ class PhotoDraftRepositoryTest {
         assertThat(summaries.first().photoCount).isEqualTo(2)
         assertThat(summaries.first().latitude).isEqualTo(10.0)
         assertThat(summaries.first().locationAccuracyMeters).isEqualTo(5f)
+        assertThat(db.photoDraftImages().listForDraft(newId).map { it.id }).containsExactly("first", "second").inOrder()
     }
 }

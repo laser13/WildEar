@@ -8,6 +8,7 @@ data class PhotoReviewUiState(
     val isSubmitting: Boolean = false,
     val images: List<PhotoDraftImageEntity> = emptyList(),
     val inatObservationId: Long? = null,
+    val inatObservationUuid: String? = null,
     val inatObservationUrl: String? = null,
     val taxonScientificName: String? = null,
     val taxonCommonName: String? = null,

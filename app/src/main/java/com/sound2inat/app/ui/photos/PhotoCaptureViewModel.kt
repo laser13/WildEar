@@ -20,6 +20,7 @@ import javax.inject.Inject
 data class PhotoCaptureGateUiState(
     val canBindCamera: Boolean = false,
     val showCameraPermissionDenied: Boolean = false,
+    val isExistingDraft: Boolean = false,
     val draftId: String? = null,
     val photoCount: Int = 0,
     val doneEnabled: Boolean = false,
@@ -95,6 +96,7 @@ class PhotoCaptureViewModel(
         val draftId = checkNotNull(_state.value.draftId) { "photo draft is not ready yet" }
         repo.addImage(
             draftId = draftId,
+            photoId = photoId,
             imageFile = file,
             takenAtUtcMs = nowMs(),
             width = width,
@@ -121,6 +123,13 @@ class PhotoCaptureViewModel(
         }
     }
 
+    suspend fun discardDraft() {
+        val draftId = _state.value.draftId ?: return
+        repo.deleteDraft(draftId)
+    }
+
+    fun hasPhotos(): Boolean = _state.value.photoCount > 0
+
     private suspend fun ensureDraft() {
         val existingDraftId = savedStateHandle.get<String>("draftId")
         if (!existingDraftId.isNullOrBlank()) {
@@ -128,6 +137,7 @@ class PhotoCaptureViewModel(
             val photoCount = existing?.images?.size ?: 0
             _state.value = PhotoCaptureGateUiState(
                 canBindCamera = true,
+                isExistingDraft = true,
                 draftId = existingDraftId,
                 photoCount = photoCount,
                 doneEnabled = photoCount > 0,

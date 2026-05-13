@@ -20,6 +20,8 @@ class PhotoDraftRepository(
 ) {
     fun observeSummaries(): Flow<List<PhotoDraftSummary>> =
         draftDao.observeAll().map { drafts ->
+            // TODO: Replace the per-draft image lookup with a single SQL
+            // summary query before the photo album list grows large.
             drafts.map { draft ->
                 val images = imageDao.listForDraft(draft.id)
                 PhotoDraftSummary(
@@ -66,6 +68,7 @@ class PhotoDraftRepository(
                 taxonInatId = null,
                 description = null,
                 inatObservationId = null,
+                inatObservationUuid = null,
                 inatObservationUrl = null,
                 inatLastError = null,
             ),
@@ -75,18 +78,18 @@ class PhotoDraftRepository(
 
     suspend fun addImage(
         draftId: String,
+        photoId: String,
         imageFile: File,
         takenAtUtcMs: Long,
         width: Int?,
         height: Int?,
     ) = withContext(ioDispatcher) {
         val draft = draftDao.getById(draftId) ?: error("photo draft $draftId missing")
-        val imageId = idFactory()
         val sortOrder = imageDao.listForDraft(draftId).size
         runInTransaction {
             imageDao.insert(
                 PhotoDraftImageEntity(
-                    id = imageId,
+                    id = photoId,
                     photoDraftId = draftId,
                     photoPath = imageFile.absolutePath,
                     takenAtUtcMs = takenAtUtcMs,
@@ -133,6 +136,7 @@ class PhotoDraftRepository(
     suspend fun markUploaded(
         draftId: String,
         observationId: Long,
+        observationUuid: String,
         observationUrl: String,
     ) = withContext(ioDispatcher) {
         val draft = draftDao.getById(draftId) ?: error("photo draft $draftId missing")
@@ -141,6 +145,7 @@ class PhotoDraftRepository(
                 updatedAtUtcMs = nowMs(),
                 status = PhotoDraftStatus.UPLOADED,
                 inatObservationId = observationId,
+                inatObservationUuid = observationUuid,
                 inatObservationUrl = observationUrl,
                 inatLastError = null,
             ),

@@ -14,10 +14,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -50,6 +52,7 @@ fun PhotoCaptureScreen(
     val vm: PhotoCaptureViewModel = hiltViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    var showDiscardDialog by remember { mutableStateOf(false) }
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
     val previewView = remember {
         PreviewView(context).apply {
@@ -192,13 +195,52 @@ fun PhotoCaptureScreen(
         }
         OutlinedButton(
             onClick = {
-                scope.launch {
-                    vm.discardIfEmpty()
-                    onCancel()
+                when {
+                    state.isExistingDraft -> onCancel()
+                    state.photoCount == 0 -> {
+                        scope.launch {
+                            vm.discardIfEmpty()
+                            onCancel()
+                        }
+                    }
+                    else -> {
+                        showDiscardDialog = true
+                    }
                 }
             },
         ) {
             Text("Cancel")
         }
+    }
+
+    if (showDiscardDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardDialog = false },
+            title = { Text("Discard photo session?") },
+            text = {
+                Text(
+                    "You have already taken ${state.photoCount} photo${if (state.photoCount == 1) "" else "s"}. " +
+                        "Do you want to keep this album or discard it?",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDiscardDialog = false
+                }) {
+                    Text("Keep album")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        vm.discardDraft()
+                        showDiscardDialog = false
+                        onCancel()
+                    }
+                }) {
+                    Text("Discard")
+                }
+            },
+        )
     }
 }

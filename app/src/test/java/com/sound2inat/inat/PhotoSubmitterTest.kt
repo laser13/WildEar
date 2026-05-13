@@ -79,6 +79,7 @@ class PhotoSubmitterTest {
         assertThat(result).isInstanceOf(PhotoSubmitResult.Ok::class.java)
         val saved = db.photoDrafts().getById(draftId)!!
         assertThat(saved.inatObservationId).isEqualTo(900L)
+        assertThat(saved.inatObservationUuid).isEqualTo("u-1")
         assertThat(saved.inatObservationUrl).isEqualTo("https://www.inaturalist.org/observations/900")
         assertThat(server.takeRequest().path).isEqualTo("/v1/observations")
         assertThat(server.takeRequest().path).isEqualTo("/v2/observation_photos")
@@ -115,7 +116,14 @@ class PhotoSubmitterTest {
         val draftId = repo.createDraft(1L, latitude = 35.1, longitude = 33.3, accuracyMeters = 5f)
         repeat(count) { idx ->
             val file = fileStore.newPhotoFile(draftId, "p$idx").apply { writeText("jpeg") }
-            repo.addImage(draftId, file, takenAtUtcMs = idx.toLong(), width = 100, height = 100)
+            repo.addImage(
+                draftId = draftId,
+                photoId = "p$idx",
+                imageFile = file,
+                takenAtUtcMs = idx.toLong(),
+                width = 100,
+                height = 100,
+            )
         }
         return draftId
     }
