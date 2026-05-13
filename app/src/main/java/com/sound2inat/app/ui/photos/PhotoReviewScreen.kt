@@ -40,11 +40,13 @@ import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
@@ -79,6 +81,16 @@ fun PhotoReviewScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var selectedImage by remember { mutableStateOf<com.sound2inat.storage.PhotoDraftImageEntity?>(null) }
+    var heroImageId by rememberSaveable(state.draftId) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(state.images) {
+        val firstId = state.images.firstOrNull()?.id
+        if (firstId != null && heroImageId !in state.images.map { it.id }) {
+            heroImageId = firstId
+        }
+    }
+
+    val heroImage = state.images.firstOrNull { it.id == heroImageId } ?: state.images.firstOrNull()
 
     if (state.isLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -96,7 +108,9 @@ fun PhotoReviewScreen(
     ) {
         PhotoHeroSection(
             images = state.images,
-            onOpenImage = { selectedImage = it },
+            heroImage = heroImage,
+            onSelectHero = { heroImageId = it.id },
+            onOpenHero = { image -> selectedImage = image },
             onDeleteImage = { imageId -> scope.launch { vm.deleteImage(imageId) } },
         )
 
@@ -174,7 +188,9 @@ fun PhotoReviewScreen(
 @Composable
 private fun PhotoHeroSection(
     images: List<com.sound2inat.storage.PhotoDraftImageEntity>,
-    onOpenImage: (com.sound2inat.storage.PhotoDraftImageEntity) -> Unit,
+    heroImage: com.sound2inat.storage.PhotoDraftImageEntity?,
+    onSelectHero: (com.sound2inat.storage.PhotoDraftImageEntity) -> Unit,
+    onOpenHero: (com.sound2inat.storage.PhotoDraftImageEntity) -> Unit,
     onDeleteImage: (String) -> Unit,
 ) {
     Surface(
@@ -212,11 +228,12 @@ private fun PhotoHeroSection(
                     }
                 }
             } else {
-                val cover = images.first()
+                val cover = heroImage ?: images.first()
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(4f / 3f),
+                        .aspectRatio(4f / 3f)
+                        .clickable(onClick = { onOpenHero(cover) }),
                 ) {
                     AsyncImage(
                         model = File(cover.photoPath),
@@ -267,7 +284,8 @@ private fun PhotoHeroSection(
                                 index = index + 1,
                                 image = image,
                                 compact = true,
-                                onOpen = { onOpenImage(image) },
+                                selected = image.id == cover.id,
+                                onOpen = { onSelectHero(image) },
                                 onDelete = { onDeleteImage(image.id) },
                             )
                         }
@@ -537,6 +555,7 @@ private fun PhotoThumbnail(
     index: Int,
     image: com.sound2inat.storage.PhotoDraftImageEntity,
     compact: Boolean,
+    selected: Boolean,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -547,7 +566,13 @@ private fun PhotoThumbnail(
             .semantics { contentDescription = "Photo $index" }
             .clickable(onClick = onOpen),
         shape = RoundedCornerShape(if (compact) 18.dp else 20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        ),
     ) {
         Box(
             modifier = Modifier
