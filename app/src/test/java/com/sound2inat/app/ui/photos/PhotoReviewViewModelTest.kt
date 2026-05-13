@@ -5,12 +5,18 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.app.data.Settings
+import com.sound2inat.inat.INatAuthRepository
+import com.sound2inat.inat.INatTokenStore
+import com.sound2inat.inat.INaturalistClient
+import com.sound2inat.inat.PhotoSubmitter
 import com.sound2inat.storage.PhotoDraftRepository
 import com.sound2inat.storage.PhotoObservationFileStore
 import com.sound2inat.storage.Sound2iNatDb
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -87,6 +93,22 @@ class PhotoReviewViewModelTest {
     private fun viewModel(draftId: String): PhotoReviewViewModel = PhotoReviewViewModel(
         savedStateHandle = SavedStateHandle(mapOf("photoDraftId" to draftId)),
         repo = repo,
+        auth = fakeAuth(),
+        submitter = PhotoSubmitter(INaturalistClient(OkHttpClient()), repo),
         externalScope = TestScope(UnconfinedTestDispatcher()),
     )
+
+    private fun fakeAuth(): INatAuthRepository = object : INatAuthRepository(
+        context = ApplicationProvider.getApplicationContext(),
+        storage = object : INatTokenStore {
+            override val token: String? = "jwt"
+            override val tokenFetchedAtUtcMs: Long = 0L
+            override val login: String? = null
+            override val userId: Long? = null
+            override fun save(token: String, login: String?, userId: Long?, fetchedAtUtcMs: Long) = Unit
+            override fun clear() = Unit
+        },
+        settings = Settings(ApplicationProvider.getApplicationContext()),
+        client = INaturalistClient(OkHttpClient()),
+    ) {}
 }

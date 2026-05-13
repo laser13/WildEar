@@ -3,12 +3,16 @@ package com.sound2inat.app.ui.photos
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sound2inat.inat.INatAuthRepository
+import com.sound2inat.inat.PhotoSubmitResult
+import com.sound2inat.inat.PhotoSubmitter
 import com.sound2inat.storage.PhotoDraftRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -17,12 +21,22 @@ import javax.inject.Inject
 class PhotoReviewViewModel(
     savedStateHandle: SavedStateHandle,
     private val repo: PhotoDraftRepository,
+    private val auth: INatAuthRepository,
+    private val submitter: PhotoSubmitter,
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
     @Inject constructor(
         savedStateHandle: SavedStateHandle,
         repo: PhotoDraftRepository,
-    ) : this(savedStateHandle, repo, null)
+        auth: INatAuthRepository,
+        submitter: PhotoSubmitter,
+    ) : this(
+        savedStateHandle = savedStateHandle,
+        repo = repo,
+        auth = auth,
+        submitter = submitter,
+        externalScope = null,
+    )
 
     private val draftId = checkNotNull(savedStateHandle.get<String>("photoDraftId")) {
         "photoDraftId is required"
@@ -75,5 +89,26 @@ class PhotoReviewViewModel(
             taxonInatId = taxonInatId,
             description = description?.trim()?.takeIf { it.isNotEmpty() },
         )
+    }
+
+    fun submit() {
+        scope.launch {
+            _state.update { it.copy(isSubmitting = true, submitError = null) }
+            val token = auth.tokenState.first().orEmpty()
+            when (val result = submitter.submit(token, draftId)) {
+                is PhotoSubmitResult.Ok -> {
+                    _state.update {
+                        it.copy(
+                            isSubmitting = false,
+                            uploadedUrl = result.observationUrl,
+                            submitError = result.warnings.joinToString(" | ").takeIf { text -> text.isNotBlank() },
+                        )
+                    }
+                }
+                is PhotoSubmitResult.Failure -> {
+                    _state.update { it.copy(isSubmitting = false, submitError = result.message) }
+                }
+            }
+        }
     }
 }

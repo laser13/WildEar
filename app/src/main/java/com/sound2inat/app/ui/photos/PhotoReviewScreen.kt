@@ -126,6 +126,22 @@ fun PhotoReviewScreen(
                 ) {
                     Text("Save")
                 }
+                Button(
+                    enabled = !state.isSubmitting && state.images.isNotEmpty(),
+                    onClick = { vm.submit() },
+                ) {
+                    Text(if (state.isSubmitting) "Uploading..." else "Upload")
+                }
+            }
+        }
+        state.submitError?.let { error ->
+            item {
+                Text(error, color = MaterialTheme.colorScheme.error)
+            }
+        }
+        state.uploadedUrl?.let { url ->
+            item {
+                Text("Uploaded: $url", color = MaterialTheme.colorScheme.primary)
             }
         }
         item {
