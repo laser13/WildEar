@@ -71,6 +71,7 @@ import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlin.math.absoluteValue
 
 @Suppress("FunctionNaming")
 @Composable
@@ -639,9 +640,9 @@ private fun PhotoImageDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("Square crop", style = MaterialTheme.typography.titleMedium)
+                        Text("Crop to square", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "Drag and pinch to fit the square frame.",
+                            "The source keeps its original shape. Only the square crop frame is saved.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -719,10 +720,26 @@ private fun PhotoImageDialog(
                     }
                 }
 
-                Text(
-                    "Source ${formatResolution(image.width, image.height)} • ${image.mimeType}",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AssistChip(
+                        onClick = {},
+                        enabled = false,
+                        label = { Text(formatCropSourceLabel(image)) },
+                    )
+                    AssistChip(
+                        onClick = {},
+                        enabled = false,
+                        label = { Text("Frame 1:1") },
+                    )
+                    AssistChip(
+                        onClick = {},
+                        enabled = false,
+                        label = { Text(image.mimeType.uppercase()) },
+                    )
+                }
 
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
@@ -780,6 +797,38 @@ private fun formatResolution(photo: com.sound2inat.storage.PhotoDraftImageEntity
 private fun formatResolution(width: Int?, height: Int?): String {
     if (width == null || height == null) return "Unknown"
     return "${width}×${height}px"
+}
+
+private fun formatCropSourceLabel(image: com.sound2inat.storage.PhotoDraftImageEntity): String {
+    val resolution = formatResolution(image.width, image.height).takeIf { it != "Unknown" }
+        ?: loadImageBounds(image.photoPath)?.let { formatResolution(it.first, it.second) }
+        ?: "Unknown"
+    val ratio = formatAspectRatio(image.width, image.height)
+        ?: loadImageBounds(image.photoPath)?.let { formatAspectRatio(it.first, it.second) }
+    return if (ratio == null) {
+        "Source $resolution"
+    } else {
+        "Source $resolution • $ratio"
+    }
+}
+
+private fun formatAspectRatio(width: Int?, height: Int?): String? {
+    val w = width ?: return null
+    val h = height ?: return null
+    if (w <= 0 || h <= 0) return null
+    val divisor = gcd(w, h).coerceAtLeast(1)
+    return "${w / divisor}:${h / divisor}"
+}
+
+private fun gcd(first: Int, second: Int): Int {
+    var a = first
+    var b = second
+    while (b != 0) {
+        val remainder = a % b
+        a = b
+        b = remainder
+    }
+    return a.absoluteValue
 }
 
 private fun loadImageBounds(path: String): Pair<Int, Int>? {
