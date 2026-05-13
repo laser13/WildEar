@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -21,13 +23,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Crop
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,6 +50,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -87,43 +91,24 @@ fun PhotoReviewScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        PhotoGallerySection(
+        PhotoHeroSection(
             images = state.images,
             onOpenImage = { selectedImage = it },
             onDeleteImage = { imageId -> scope.launch { vm.deleteImage(imageId) } },
         )
 
-        PhotoTechnicalSection(state = state)
+        PhotoMetadataStrip(state = state)
 
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            maxItemsInEachRow = 3,
-        ) {
-            PhotoActionTile(
-                icon = Icons.Outlined.AddPhotoAlternate,
-                label = "Add photos",
-                onClick = { onAddMorePhotos(state.draftId) },
-            )
-            PhotoActionTile(
-                icon = Icons.Outlined.CloudUpload,
-                label = if (state.inatObservationId == null) "Upload" else "Uploaded",
-                enabled = state.images.isNotEmpty() && state.inatObservationId == null && !state.isSubmitting,
-                onClick = { vm.submit() },
-            )
-            if (state.inatObservationId != null) {
-                PhotoActionTile(
-                    icon = Icons.Outlined.Search,
-                    label = "CV",
-                    enabled = !state.vision.isLoading,
-                    onClick = { vm.loadVisionSuggestions() },
-                )
-            }
-        }
+        PhotoActionRail(
+            canUpload = state.images.isNotEmpty() && state.inatObservationId == null && !state.isSubmitting,
+            canRunVision = state.inatObservationId != null && !state.vision.isLoading,
+            onAddMorePhotos = { onAddMorePhotos(state.draftId) },
+            onUpload = { vm.submit() },
+            onRunVision = { vm.loadVisionSuggestions() },
+        )
 
         state.submitError?.let { error ->
             Text(error, color = MaterialTheme.colorScheme.error)
@@ -144,11 +129,9 @@ fun PhotoReviewScreen(
             )
         }
 
-        FlowRow(
+        Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            maxItemsInEachRow = 2,
         ) {
             PhotoActionTile(
                 icon = Icons.AutoMirrored.Outlined.ArrowBack,
@@ -157,7 +140,7 @@ fun PhotoReviewScreen(
             )
             PhotoActionTile(
                 icon = Icons.Outlined.Delete,
-                label = "Delete",
+                label = "Delete album",
                 onClick = {
                     scope.launch {
                         vm.deleteAlbum()
@@ -189,55 +172,206 @@ fun PhotoReviewScreen(
 }
 
 @Composable
-private fun PhotoTechnicalSection(state: PhotoReviewUiState) {
-    Card(
+private fun PhotoHeroSection(
+    images: List<com.sound2inat.storage.PhotoDraftImageEntity>,
+    onOpenImage: (com.sound2inat.storage.PhotoDraftImageEntity) -> Unit,
+    onDeleteImage: (String) -> Unit,
+) {
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Technical details", style = MaterialTheme.typography.titleMedium)
-            Divider()
-            Text("Observed: ${state.observedAtUtcMs?.let(::formatUtc) ?: "Unknown"}")
-            Text("Coordinates: ${formatCoordinates(state.latitude, state.longitude, state.locationAccuracyMeters)}")
-            Text("First photo: ${formatResolution(state.images.firstOrNull())}")
-            Text("Photos: ${state.images.size}")
-            state.inatObservationUrl?.let { Text("iNaturalist: $it") }
+            if (images.isEmpty()) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(4f / 3f),
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Outlined.AddPhotoAlternate,
+                                contentDescription = null,
+                            )
+                            Text("No photos yet", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Take a few shots to build the album.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            } else {
+                val cover = images.first()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(4f / 3f),
+                ) {
+                    AsyncImage(
+                        model = File(cover.photoPath),
+                        contentDescription = "Cover photo",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(24.dp)),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Black.copy(alpha = 0.02f),
+                                        Color.Black.copy(alpha = 0.42f),
+                                    ),
+                                ),
+                            ),
+                    )
+                    AssistChip(
+                        onClick = {},
+                        enabled = false,
+                        label = { Text("${images.size} photo${if (images.size == 1) "" else "s"}") },
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(12.dp),
+                    )
+                    Text(
+                        "Tap any photo to inspect or crop it.",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(16.dp),
+                    )
+                }
+
+                if (images.size > 1) {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        images.forEachIndexed { index, image ->
+                            PhotoThumbnail(
+                                index = index + 1,
+                                image = image,
+                                compact = true,
+                                onOpen = { onOpenImage(image) },
+                                onDelete = { onDeleteImage(image.id) },
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PhotoGallerySection(
-    images: List<com.sound2inat.storage.PhotoDraftImageEntity>,
-    onOpenImage: (com.sound2inat.storage.PhotoDraftImageEntity) -> Unit,
-    onDeleteImage: (String) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (images.isEmpty()) {
-            Text("No photos yet", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Take a few photos first. You can remove any shot before upload.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+private fun PhotoMetadataStrip(state: PhotoReviewUiState) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+    ) {
+        FlowRow(
+            modifier = Modifier.padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            PhotoMetaChip(
+                label = "Observed",
+                value = state.observedAtUtcMs?.let(::formatUtc) ?: "Unknown",
             )
-        } else {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                maxItemsInEachRow = 3,
-            ) {
-                images.forEachIndexed { index, image ->
-                    PhotoThumbnail(
-                        index = index + 1,
-                        image = image,
-                        onOpen = { onOpenImage(image) },
-                        onDelete = { onDeleteImage(image.id) },
-                    )
-                }
+            PhotoMetaChip(
+                label = "Coordinates",
+                value = formatCoordinates(state.latitude, state.longitude, state.locationAccuracyMeters),
+            )
+            PhotoMetaChip(
+                label = "Resolution",
+                value = formatResolution(state.images.firstOrNull()),
+            )
+            PhotoMetaChip(
+                label = "Photos",
+                value = state.images.size.toString(),
+            )
+            state.inatObservationUrl?.let {
+                PhotoMetaChip(
+                    label = "iNaturalist",
+                    value = "Uploaded",
+                )
             }
+        }
+    }
+}
+
+@Composable
+private fun PhotoActionRail(
+    canUpload: Boolean,
+    canRunVision: Boolean,
+    onAddMorePhotos: () -> Unit,
+    onUpload: () -> Unit,
+    onRunVision: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PhotoActionTile(
+                icon = Icons.Outlined.AddPhotoAlternate,
+                label = "Add photos",
+                onClick = onAddMorePhotos,
+            )
+            PhotoActionTile(
+                icon = Icons.Outlined.CloudUpload,
+                label = "Upload to iNaturalist",
+                enabled = canUpload,
+                onClick = onUpload,
+            )
+            PhotoActionTile(
+                icon = Icons.Outlined.AutoAwesome,
+                label = "Computer vision",
+                enabled = canRunVision,
+                onClick = onRunVision,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PhotoMetaChip(
+    label: String,
+    value: String,
+) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    )
+    {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
@@ -254,7 +388,8 @@ private fun PhotoVisionSection(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -266,7 +401,7 @@ private fun PhotoVisionSection(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Search, contentDescription = null)
+                    Icon(Icons.Outlined.AutoAwesome, contentDescription = null)
                     Text("Computer vision", style = MaterialTheme.typography.titleMedium)
                 }
                 OutlinedIconButton(onClick = onClose) {
@@ -401,34 +536,36 @@ private fun PhotoActionTile(
 private fun PhotoThumbnail(
     index: Int,
     image: com.sound2inat.storage.PhotoDraftImageEntity,
+    compact: Boolean,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val thumbnailWidth = if (compact) 92.dp else 112.dp
     Card(
         modifier = Modifier
-            .width(112.dp)
+            .widthIn(max = thumbnailWidth)
             .semantics { contentDescription = "Photo $index" }
             .clickable(onClick = onOpen),
+        shape = RoundedCornerShape(if (compact) 18.dp else 20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
+                .widthIn(max = thumbnailWidth)
                 .aspectRatio(1f),
         ) {
             AsyncImage(
                 model = File(image.photoPath),
                 contentDescription = "Photo $index",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(0.dp)),
+                modifier = Modifier.fillMaxSize(),
             )
             IconButton(
                 onClick = onDelete,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(6.dp)
+                    .size(32.dp)
                     .background(
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
                         shape = RoundedCornerShape(999.dp),
@@ -489,7 +626,14 @@ private fun PhotoImageDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Photo preview", style = MaterialTheme.typography.titleMedium)
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Adjust crop", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Drag and pinch to fit the frame.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                     OutlinedIconButton(onClick = onClose) {
                         Icon(Icons.Outlined.Close, contentDescription = "Close preview")
                     }
@@ -564,7 +708,7 @@ private fun PhotoImageDialog(
                 }
 
                 Text(
-                    "Drag to position, pinch to zoom • ${formatResolution(image.width, image.height)} • ${image.mimeType}",
+                    "${formatResolution(image.width, image.height)} • ${image.mimeType}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
@@ -574,7 +718,7 @@ private fun PhotoImageDialog(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     PhotoActionTile(
-                        icon = Icons.Outlined.Search,
+                        icon = Icons.Outlined.Crop,
                         label = "Crop",
                         onClick = {
                             val request = PhotoCropRequest(
