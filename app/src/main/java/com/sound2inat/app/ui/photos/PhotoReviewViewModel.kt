@@ -12,7 +12,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -51,18 +50,28 @@ class PhotoReviewViewModel(
                 .catch { e -> _state.update { it.copy(isLoading = false, error = e.message) } }
                 .collect { withImages ->
                     if (withImages == null) {
-                        _state.value = PhotoReviewUiState(draftId = draftId, isLoading = false)
+                        _state.update { current ->
+                            current.copy(
+                                draftId = draftId,
+                                isLoading = false,
+                                images = emptyList(),
+                            )
+                        }
                     } else {
                         val draft = withImages.draft
-                        _state.value = PhotoReviewUiState(
-                            draftId = draftId,
-                            isLoading = false,
-                            images = withImages.images,
-                            taxonScientificName = draft.taxonScientificName,
-                            taxonCommonName = draft.taxonCommonName,
-                            taxonInatId = draft.taxonInatId,
-                            description = draft.description,
-                        )
+                        _state.update { current ->
+                            current.copy(
+                                draftId = draftId,
+                                isLoading = false,
+                                images = withImages.images,
+                                taxonScientificName = draft.taxonScientificName,
+                                taxonCommonName = draft.taxonCommonName,
+                                taxonInatId = draft.taxonInatId,
+                                description = draft.description,
+                                submitError = draft.inatLastError ?: current.submitError,
+                                uploadedUrl = draft.inatObservationUrl ?: current.uploadedUrl,
+                            )
+                        }
                     }
                 }
         }
@@ -92,9 +101,10 @@ class PhotoReviewViewModel(
     }
 
     fun submit() {
+        if (_state.value.isSubmitting) return
+        _state.update { it.copy(isSubmitting = true, submitError = null) }
         scope.launch {
-            _state.update { it.copy(isSubmitting = true, submitError = null) }
-            val token = auth.tokenState.first().orEmpty()
+            val token = auth.getValidToken().orEmpty()
             when (val result = submitter.submit(token, draftId)) {
                 is PhotoSubmitResult.Ok -> {
                     _state.update {

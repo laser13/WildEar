@@ -20,3 +20,17 @@ object Routes {
     private fun encodeRouteArg(value: String): String =
         URLEncoder.encode(value, StandardCharsets.UTF_8.toString())
 }
+
+data class NavigationPopPolicy(
+    val popUpToRoute: String,
+    val inclusive: Boolean,
+    val launchSingleTop: Boolean,
+)
+
+object NavigationPolicies {
+    val PHOTO_CAPTURE_DONE = NavigationPopPolicy(
+        popUpToRoute = Routes.PHOTO_CAPTURE,
+        inclusive = true,
+        launchSingleTop = true,
+    )
+}

@@ -70,7 +70,13 @@ fun Sound2iNatNavHost(
             ),
         ) {
             PhotoCaptureScreen(
-                onDone = { id -> nav.navigate(Routes.photoReview(id)) },
+                onDone = { id ->
+                    nav.navigate(Routes.photoReview(id)) {
+                        val policy = NavigationPolicies.PHOTO_CAPTURE_DONE
+                        popUpTo(policy.popUpToRoute) { inclusive = policy.inclusive }
+                        launchSingleTop = policy.launchSingleTop
+                    }
+                },
                 onCancel = { nav.popBackStack() },
             )
         }

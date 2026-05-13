@@ -69,7 +69,7 @@ open class INatAuthRepository @Inject constructor(
      * cached one is stale. `null` means the caller must launch interactive
      * login (see [INatWebLoginActivity]).
      */
-    suspend fun getValidToken(refreshDispatcher: CoroutineDispatcher = Dispatchers.Main): String? {
+    open suspend fun getValidToken(refreshDispatcher: CoroutineDispatcher = Dispatchers.Main): String? {
         ensureMigrated()
         val cached = storage.token
         val age = System.currentTimeMillis() - storage.tokenFetchedAtUtcMs

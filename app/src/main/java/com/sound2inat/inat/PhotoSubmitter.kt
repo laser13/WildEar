@@ -14,7 +14,7 @@ sealed interface PhotoSubmitResult {
     data class Failure(val message: String) : PhotoSubmitResult
 }
 
-class PhotoSubmitter @Inject constructor(
+open class PhotoSubmitter @Inject constructor(
     private val client: INaturalistClient,
     private val repo: PhotoDraftRepository,
 ) {
@@ -28,7 +28,7 @@ class PhotoSubmitter @Inject constructor(
         this.ioDispatcher = ioDispatcher
     }
 
-    suspend fun submit(token: String, draftId: String): PhotoSubmitResult = withContext(ioDispatcher) {
+    open suspend fun submit(token: String, draftId: String): PhotoSubmitResult = withContext(ioDispatcher) {
         if (token.isBlank()) return@withContext PhotoSubmitResult.Failure("No iNaturalist token in Settings")
         val draftWithImages = repo.observeWithImages(draftId).first()
             ?: return@withContext PhotoSubmitResult.Failure("Photo draft not found")
