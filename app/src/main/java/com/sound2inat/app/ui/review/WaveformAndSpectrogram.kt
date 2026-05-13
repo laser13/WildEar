@@ -4,6 +4,7 @@ import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -26,6 +28,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.lazy.items
@@ -81,6 +84,14 @@ internal fun WaveformAndSpectrogram(
     } else {
         0f
     }
+    val contentWidthPx = remember(durationMs) {
+        ReviewSpectrogramTimeline.contentWidthPx(durationMs)
+    }
+    val density = LocalDensity.current
+    val contentWidthDp = remember(contentWidthPx, density) {
+        with(density) { contentWidthPx.toDp() }
+    }
+    val scrollState = rememberScrollState()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -125,68 +136,81 @@ internal fun WaveformAndSpectrogram(
                 modifier = Modifier
                     .weight(1f)
                     .height(SPECTROGRAM_HEIGHT.dp)
+                    .horizontalScroll(scrollState)
                     // Tap-to-seek anywhere on the spectrogram. Detection-overlay
                     // taps are handled inside DetectionOverlays and don't reach
                     // here, so this fires for the bare-spectrogram regions only.
                     .pointerInput(durationMs) {
                         detectTapGestures { offset ->
-                            if (durationMs > 0L && size.width > 0) {
-                                val frac = (offset.x / size.width).coerceIn(0f, 1f)
-                                onSeek((frac * durationMs).toLong())
+                            if (durationMs > 0L) {
+                                onSeek(
+                                    ReviewSpectrogramTimeline.seekMsFromTap(
+                                        tapX = offset.x,
+                                        horizontalScrollPx = scrollState.value.toFloat(),
+                                        contentWidthPx = contentWidthPx,
+                                        durationMs = durationMs,
+                                    ),
+                                )
                             }
                         }
                     },
             ) {
-                val bitmap: ImageBitmap? = remember(spectrogramPath) {
-                    spectrogramPath?.let { BitmapFactory.decodeFile(it)?.asImageBitmap() }
-                }
-                if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap,
-                        contentDescription = "Mel spectrogram",
-                        contentScale = ContentScale.FillBounds,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-                DetectionOverlays(
-                    windowPreds = windowPreds,
-                    species = species,
-                    highlight = highlight,
-                    durationMs = durationMs,
-                    onTap = onWindowTap,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                val cursorColor = MaterialTheme.colorScheme.error
-                val selectionColor = MaterialTheme.colorScheme.primary
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    if (selectedStartMs != null && selectedEndMs != null && durationMs > 0L) {
-                        val left = (selectedStartMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) * size.width
-                        val right = (selectedEndMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) * size.width
-                        drawRect(
-                            color = selectionColor.copy(alpha = 0.12f),
-                            topLeft = Offset(left, 0f),
-                            size = Size((right - left).coerceAtLeast(1f), size.height),
-                        )
-                        drawLine(
-                            color = selectionColor,
-                            start = Offset(left, 0f),
-                            end = Offset(left, size.height),
-                            strokeWidth = SELECTION_STROKE_PX,
-                        )
-                        drawLine(
-                            color = selectionColor,
-                            start = Offset(right, 0f),
-                            end = Offset(right, size.height),
-                            strokeWidth = SELECTION_STROKE_PX,
+                Box(
+                    modifier = Modifier
+                        .width(contentWidthDp)
+                        .height(SPECTROGRAM_HEIGHT.dp),
+                ) {
+                    val bitmap: ImageBitmap? = remember(spectrogramPath) {
+                        spectrogramPath?.let { BitmapFactory.decodeFile(it)?.asImageBitmap() }
+                    }
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap,
+                            contentDescription = "Mel spectrogram",
+                            contentScale = ContentScale.FillBounds,
+                            modifier = Modifier.fillMaxSize(),
                         )
                     }
-                    val cx = cursor * size.width
-                    drawLine(
-                        color = cursorColor,
-                        start = Offset(cx, 0f),
-                        end = Offset(cx, size.height),
-                        strokeWidth = CURSOR_STROKE_PX,
+                    DetectionOverlays(
+                        windowPreds = windowPreds,
+                        species = species,
+                        highlight = highlight,
+                        durationMs = durationMs,
+                        onTap = onWindowTap,
+                        modifier = Modifier.fillMaxSize(),
                     )
+                    val cursorColor = MaterialTheme.colorScheme.error
+                    val selectionColor = MaterialTheme.colorScheme.primary
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        if (selectedStartMs != null && selectedEndMs != null && durationMs > 0L) {
+                            val left = (selectedStartMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) * size.width
+                            val right = (selectedEndMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) * size.width
+                            drawRect(
+                                color = selectionColor.copy(alpha = 0.12f),
+                                topLeft = Offset(left, 0f),
+                                size = Size((right - left).coerceAtLeast(1f), size.height),
+                            )
+                            drawLine(
+                                color = selectionColor,
+                                start = Offset(left, 0f),
+                                end = Offset(left, size.height),
+                                strokeWidth = SELECTION_STROKE_PX,
+                            )
+                            drawLine(
+                                color = selectionColor,
+                                start = Offset(right, 0f),
+                                end = Offset(right, size.height),
+                                strokeWidth = SELECTION_STROKE_PX,
+                            )
+                        }
+                        val cx = cursor * size.width
+                        drawLine(
+                            color = cursorColor,
+                            start = Offset(cx, 0f),
+                            end = Offset(cx, size.height),
+                            strokeWidth = CURSOR_STROKE_PX,
+                        )
+                    }
                 }
             }
         }
