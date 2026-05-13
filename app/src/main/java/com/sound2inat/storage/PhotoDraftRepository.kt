@@ -31,6 +31,7 @@ class PhotoDraftRepository(
                     taxonCommonName = draft.taxonCommonName,
                     latitude = draft.latitude,
                     longitude = draft.longitude,
+                    locationAccuracyMeters = draft.locationAccuracyMeters,
                     firstPhotoPath = images.firstOrNull()?.photoPath,
                     photoCount = images.size,
                     inatObservationUrl = draft.inatObservationUrl,

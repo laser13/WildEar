@@ -7,6 +7,8 @@ data class PhotoReviewUiState(
     val isLoading: Boolean = true,
     val isSubmitting: Boolean = false,
     val images: List<PhotoDraftImageEntity> = emptyList(),
+    val inatObservationId: Long? = null,
+    val inatObservationUrl: String? = null,
     val taxonScientificName: String? = null,
     val taxonCommonName: String? = null,
     val taxonInatId: Long? = null,
@@ -14,4 +16,12 @@ data class PhotoReviewUiState(
     val error: String? = null,
     val submitError: String? = null,
     val uploadedUrl: String? = null,
+    val vision: PhotoVisionPanelUiState = PhotoVisionPanelUiState(),
+)
+
+data class PhotoVisionPanelUiState(
+    val isLoading: Boolean = false,
+    val error: String? = null,
+    val message: String? = null,
+    val ladder: PhotoVisionLadder? = null,
 )

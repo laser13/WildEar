@@ -9,6 +9,7 @@ data class PhotoDraftSummary(
     val taxonCommonName: String?,
     val latitude: Double?,
     val longitude: Double?,
+    val locationAccuracyMeters: Float?,
     val firstPhotoPath: String?,
     val photoCount: Int,
     val inatObservationUrl: String?,

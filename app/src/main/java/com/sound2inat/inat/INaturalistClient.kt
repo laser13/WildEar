@@ -54,6 +54,85 @@ open class INaturalistClient(
 
     private val taxonIdCache = java.util.concurrent.ConcurrentHashMap<String, TaxonCacheEntry>()
 
+    /**
+     * Returns iNaturalist computer-vision suggestions for an already uploaded
+     * observation. The public iNat API does not document this endpoint as a
+     * general image-prediction API, but it is the same observation-scoring
+     * route used by the web/app UI.
+     */
+    suspend fun scoreObservationVision(token: String, observationId: Long): InatVisionResponse =
+        withContext(ioDispatcher) {
+            val req = Request.Builder()
+                .url(baseUrl + "/computervision/score_observation/" + observationId)
+                .header("Authorization", token)
+                .header("Accept", "application/json")
+                .get()
+                .build()
+            val json = executeJson(req)
+            val results = json.optJSONArray("results") ?: org.json.JSONArray()
+            val candidates = buildList {
+                for (i in 0 until results.length()) {
+                    val c = results.optJSONObject(i) ?: continue
+                    val taxon = c.optJSONObject("taxon") ?: continue
+                    val taxonId = taxon.optLong("id", 0L).takeIf { it > 0 } ?: continue
+                    add(
+                        InatVisionCandidate(
+                            taxonId = taxonId,
+                            scientificName = taxon.optString("name", ""),
+                            commonName = taxon.optString("preferred_common_name", "")
+                                .takeIf { it.isNotBlank() },
+                            rank = taxon.optString("rank", ""),
+                            rankLevel = taxon.optInt("rank_level", 0),
+                            score = c.optDouble("combined_score", 0.0),
+                            ancestry = taxon.optString("ancestry", ""),
+                            iconicTaxonName = taxon.optString("iconic_taxon_name", "")
+                                .takeIf { it.isNotBlank() },
+                        ),
+                    )
+                }
+            }
+            val commonAncestor = json.optJSONObject("common_ancestor")
+                ?.optJSONObject("taxon")
+                ?.let { taxon ->
+                    val taxonId = taxon.optLong("id", 0L).takeIf { it > 0 } ?: return@let null
+                    InatVisionTaxon(
+                        taxonId = taxonId,
+                        scientificName = taxon.optString("name", ""),
+                        commonName = taxon.optString("preferred_common_name", "")
+                            .takeIf { it.isNotBlank() },
+                        rank = taxon.optString("rank", ""),
+                        rankLevel = taxon.optInt("rank_level", 0),
+                    )
+                }
+            InatVisionResponse(candidates = candidates, commonAncestor = commonAncestor)
+        }
+
+    /** Returns a taxon summary map for the given iNat taxon ids. */
+    suspend fun getTaxa(ids: Collection<Long>): Map<Long, InatTaxonInfo> = withContext(ioDispatcher) {
+        if (ids.isEmpty()) return@withContext emptyMap()
+        val idList = ids.joinToString(",")
+        val req = anonGet("/taxa?id=$idList")
+        val results = executeJson(req).optJSONArray("results") ?: return@withContext emptyMap()
+        buildMap {
+            for (i in 0 until results.length()) {
+                val taxon = results.optJSONObject(i) ?: continue
+                val taxonId = taxon.optLong("id", 0L).takeIf { it > 0 } ?: continue
+                put(
+                    taxonId,
+                    InatTaxonInfo(
+                        scientificName = taxon.optString("name", ""),
+                        commonName = taxon.optString("preferred_common_name", "")
+                            .takeIf { it.isNotBlank() },
+                        rank = taxon.optString("rank", ""),
+                        rankLevel = taxon.optInt("rank_level", 0),
+                        iconicTaxonName = taxon.optString("iconic_taxon_name", "")
+                            .takeIf { it.isNotBlank() },
+                    ),
+                )
+            }
+        }
+    }
+
     /** Returns [Pair] of `(login, userId)` on success; throws [INatException] otherwise. */
     suspend fun verifyTokenWithUser(token: String): Pair<String, Long> = withContext(ioDispatcher) {
         val req = authedGet(token, "/users/me")

@@ -171,6 +171,65 @@ class INaturalistClientTest {
         assertThat(body).contains("\"body\":\"agree\"")
     }
 
+    @Test fun `scoreObservationVision parses candidates and common ancestor`() = runTest {
+        server.enqueue(
+            MockResponse().setBody(
+                """{
+                  "common_ancestor": {
+                    "taxon": {
+                      "id": 200,
+                      "name": "Aves",
+                      "preferred_common_name": "Birds",
+                      "rank": "class",
+                      "rank_level": 40
+                    }
+                  },
+                  "results": [
+                    {
+                      "combined_score": 0.91,
+                      "taxon": {
+                        "id": 101,
+                        "name": "Parus major",
+                        "preferred_common_name": "Great Tit",
+                        "rank": "species",
+                        "rank_level": 10,
+                        "ancestry": "1/2/200/101",
+                        "iconic_taxon_name": "Aves"
+                      }
+                    }
+                  ]
+                }""".trimIndent(),
+            ),
+        )
+
+        val response = client.scoreObservationVision("jwt", 123L)
+
+        assertThat(response.commonAncestor?.taxonId).isEqualTo(200L)
+        assertThat(response.candidates).hasSize(1)
+        assertThat(response.candidates.single().scientificName).isEqualTo("Parus major")
+        val req = server.takeRequest()
+        assertThat(req.path).isEqualTo("/v1/computervision/score_observation/123")
+        assertThat(req.getHeader("Authorization")).isEqualTo("jwt")
+    }
+
+    @Test fun `getTaxa returns a map keyed by id`() = runTest {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"results":[
+                    {"id": 1, "name": "Animalia", "preferred_common_name": null, "rank": "kingdom", "rank_level": 70, "iconic_taxon_name": "Animalia"},
+                    {"id": 2, "name": "Aves", "preferred_common_name": "Birds", "rank": "class", "rank_level": 40, "iconic_taxon_name": "Aves"}
+                ]}""".trimIndent(),
+            ),
+        )
+
+        val taxa = client.getTaxa(listOf(1L, 2L))
+
+        assertThat(taxa[1L]?.scientificName).isEqualTo("Animalia")
+        assertThat(taxa[2L]?.commonName).isEqualTo("Birds")
+        val req = server.takeRequest()
+        assertThat(req.path).contains("/v1/taxa?id=1,2")
+    }
+
     @Test
     fun `hasObservationsNear returns true when at least one observation found`() = runTest {
         server.enqueue(MockResponse().setBody("""{"results":[{"id":5,"name":"Parus major"}]}"""))

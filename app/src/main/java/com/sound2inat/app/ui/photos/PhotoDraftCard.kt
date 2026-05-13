@@ -60,6 +60,13 @@ fun PhotoDraftCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                draft.coordinateLabel()?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 draft.inatLastError?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
@@ -67,6 +74,21 @@ fun PhotoDraftCard(
         }
     }
 }
+
+private fun PhotoDraftSummary.coordinateLabel(): String? {
+    val lat = latitude ?: return null
+    val lon = longitude ?: return null
+    val coords = "${formatCoordinate(lat)}, ${formatCoordinate(lon)}"
+    val accuracy = locationAccuracyMeters
+    return if (accuracy != null) {
+        "$coords • ±${accuracy.toInt()}m"
+    } else {
+        coords
+    }
+}
+
+private fun formatCoordinate(value: Double): String =
+    String.format("%.5f", value)
 
 private val dateFormatter: DateTimeFormatter =
     DateTimeFormatter.ofPattern("MMM d, HH:mm").withZone(ZoneId.systemDefault())

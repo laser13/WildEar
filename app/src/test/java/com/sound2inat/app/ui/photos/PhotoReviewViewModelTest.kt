@@ -11,15 +11,19 @@ import com.sound2inat.inat.INatTokenStore
 import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.PhotoSubmitResult
 import com.sound2inat.inat.PhotoSubmitter
+import com.sound2inat.app.ui.photos.PhotoVisionTarget
 import com.sound2inat.storage.PhotoDraftRepository
 import com.sound2inat.storage.PhotoObservationFileStore
 import com.sound2inat.storage.Sound2iNatDb
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -28,6 +32,7 @@ import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.TimeUnit
 
 @Config(sdk = [33])
 @RunWith(RobolectricTestRunner::class)
@@ -39,13 +44,16 @@ class PhotoReviewViewModelTest {
     @get:Rule
     val instant = InstantTaskExecutorRule()
 
+    private lateinit var server: MockWebServer
     private lateinit var db: Sound2iNatDb
     private lateinit var fileStore: PhotoObservationFileStore
     private lateinit var repo: PhotoDraftRepository
+    private lateinit var client: INaturalistClient
     private var nextId = 0
 
     @Before
     fun setUp() {
+        server = MockWebServer().also { it.start() }
         db = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext(),
             Sound2iNatDb::class.java,
@@ -60,11 +68,17 @@ class PhotoReviewViewModelTest {
             ioDispatcher = UnconfinedTestDispatcher(),
             runInTransaction = { block -> db.runInTransaction(block) },
         )
+        client = INaturalistClient(
+            OkHttpClient(),
+            baseUrl = server.url("/v1").toString().removeSuffix("/"),
+            ioDispatcher = UnconfinedTestDispatcher(),
+        )
     }
 
     @After
     fun tearDown() {
         db.close()
+        server.shutdown()
     }
 
     @Test
@@ -146,14 +160,97 @@ class PhotoReviewViewModelTest {
         assertThat(submittedToken).isEqualTo("fresh-jwt")
     }
 
+    @Test
+    fun `load vision suggestions and apply genus from iNat response`() = runTest {
+        val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
+        repo.markUploaded(draftId, observationId = 777L, observationUrl = "https://www.inaturalist.org/observations/777")
+        server.enqueue(
+            MockResponse().setBody(
+                """{
+                  "results": [
+                    {
+                      "combined_score": 0.82,
+                      "taxon": {
+                        "id": 101,
+                        "name": "Ammophila",
+                        "preferred_common_name": null,
+                        "rank": "genus",
+                        "rank_level": 20,
+                        "ancestry": "1/2/101",
+                        "iconic_taxon_name": "Insecta"
+                      }
+                    },
+                    {
+                      "combined_score": 0.71,
+                      "taxon": {
+                        "id": 102,
+                        "name": "Ammophila sabulosa",
+                        "preferred_common_name": "Sand wasp",
+                        "rank": "species",
+                        "rank_level": 10,
+                        "ancestry": "1/2/101/102",
+                        "iconic_taxon_name": "Insecta"
+                      }
+                    }
+                  ]
+                }""".trimIndent(),
+            ),
+        )
+        server.enqueue(
+            MockResponse().setBody(
+                """{"results":[
+                    {"id":1,"name":"Animalia","rank":"kingdom","rank_level":70,"iconic_taxon_name":"Animalia"},
+                    {"id":2,"name":"Vespidae","preferred_common_name":"Paper wasps","rank":"family","rank_level":30,"iconic_taxon_name":"Insecta"},
+                    {"id":101,"name":"Ammophila","rank":"genus","rank_level":20,"iconic_taxon_name":"Insecta"},
+                    {"id":102,"name":"Ammophila sabulosa","rank":"species","rank_level":10,"iconic_taxon_name":"Insecta"}
+                ]}""".trimIndent(),
+            ),
+        )
+        server.enqueue(MockResponse().setBody("""{"id":1}"""))
+        server.enqueue(MockResponse().setBody("""{"id":2}"""))
+        server.enqueue(MockResponse().setBody("""{"id":3}"""))
+
+        val vm = viewModel(
+            draftId,
+            client = client,
+            submitter = fakeSubmitter { _, _ -> error("submit not expected") },
+        )
+
+        vm.loadVisionSuggestions()
+
+        repeat(50) {
+            if (vm.state.value.vision.ladder != null) return@repeat
+            delay(10)
+        }
+        assertThat(vm.state.value.vision.ladder).isNotNull()
+
+        vm.applyVision(PhotoVisionTarget.GENUS)
+
+        repeat(50) {
+            if (vm.state.value.vision.message != null) return@repeat
+            delay(10)
+        }
+        assertThat(vm.state.value.vision.message).isNotNull()
+        assertThat(vm.state.value.taxonScientificName).isEqualTo("Ammophila")
+        assertThat(vm.state.value.taxonInatId).isEqualTo(101L)
+        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).isEqualTo("/v1/computervision/score_observation/777")
+        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).contains("/v1/taxa?id=1,2,101,102")
+        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).isEqualTo("/v1/identifications")
+        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).isEqualTo("/v1/annotations")
+        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).isEqualTo("/v1/annotations")
+        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).isEqualTo("/v1/annotations")
+    }
+
     private fun viewModel(
         draftId: String,
         auth: INatAuthRepository = fakeAuth(),
-        submitter: PhotoSubmitter = PhotoSubmitter(INaturalistClient(OkHttpClient()), repo),
+        client: INaturalistClient = this.client,
+        submitter: PhotoSubmitter = PhotoSubmitter(client, repo),
     ): PhotoReviewViewModel = PhotoReviewViewModel(
         savedStateHandle = SavedStateHandle(mapOf("photoDraftId" to draftId)),
         repo = repo,
         auth = auth,
+        client = client,
         submitter = submitter,
         externalScope = TestScope(UnconfinedTestDispatcher()),
     )

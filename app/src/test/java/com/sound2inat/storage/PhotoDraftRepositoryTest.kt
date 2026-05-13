@@ -89,5 +89,6 @@ class PhotoDraftRepositoryTest {
         assertThat(summaries.first().firstPhotoPath).isEqualTo(firstPhoto.absolutePath)
         assertThat(summaries.first().photoCount).isEqualTo(2)
         assertThat(summaries.first().latitude).isEqualTo(10.0)
+        assertThat(summaries.first().locationAccuracyMeters).isEqualTo(5f)
     }
 }
