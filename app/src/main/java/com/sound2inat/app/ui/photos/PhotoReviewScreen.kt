@@ -24,22 +24,19 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Divider
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedIconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +49,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 import java.io.File
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Suppress("FunctionNaming")
 @Composable
@@ -62,15 +62,6 @@ fun PhotoReviewScreen(
     val vm: PhotoReviewViewModel = hiltViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    var scientificName by remember(state.draftId) { mutableStateOf("") }
-    var commonName by remember(state.draftId) { mutableStateOf("") }
-    var notes by remember(state.draftId) { mutableStateOf("") }
-
-    LaunchedEffect(state.taxonScientificName, state.taxonCommonName, state.description) {
-        scientificName = state.taxonScientificName.orEmpty()
-        commonName = state.taxonCommonName.orEmpty()
-        notes = state.description.orEmpty()
-    }
 
     if (state.isLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -91,57 +82,7 @@ fun PhotoReviewScreen(
             onDeleteImage = { imageId -> scope.launch { vm.deleteImage(imageId) } },
         )
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = scientificName,
-                onValueChange = {
-                    scientificName = it
-                    scope.launch {
-                        vm.saveDetails(
-                            taxonScientificName = it,
-                            taxonCommonName = commonName,
-                            taxonInatId = state.taxonInatId,
-                            description = notes,
-                        )
-                    }
-                },
-                label = { Text("Scientific name") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = commonName,
-                onValueChange = {
-                    commonName = it
-                    scope.launch {
-                        vm.saveDetails(
-                            taxonScientificName = scientificName,
-                            taxonCommonName = it,
-                            taxonInatId = state.taxonInatId,
-                            description = notes,
-                        )
-                    }
-                },
-                label = { Text("Common name") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = notes,
-                onValueChange = {
-                    notes = it
-                    scope.launch {
-                        vm.saveDetails(
-                            taxonScientificName = scientificName,
-                            taxonCommonName = commonName,
-                            taxonInatId = state.taxonInatId,
-                            description = it,
-                        )
-                    }
-                },
-                label = { Text("Notes") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 3,
-            )
-        }
+        PhotoTechnicalSection(state = state)
 
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
@@ -210,6 +151,27 @@ fun PhotoReviewScreen(
                     }
                 },
             )
+        }
+    }
+}
+
+@Composable
+private fun PhotoTechnicalSection(state: PhotoReviewUiState) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Technical details", style = MaterialTheme.typography.titleMedium)
+            Divider()
+            Text("Observed: ${state.observedAtUtcMs?.let(::formatUtc) ?: "Unknown"}")
+            Text("Coordinates: ${formatCoordinates(state.latitude, state.longitude, state.locationAccuracyMeters)}")
+            Text("First photo: ${formatResolution(state.images.firstOrNull())}")
+            Text("Photos: ${state.images.size}")
+            state.inatObservationUrl?.let { Text("iNaturalist: $it") }
         }
     }
 }
@@ -389,21 +351,14 @@ private fun PhotoActionTile(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier.width(88.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        if (enabled) {
-            FilledTonalIconButton(onClick = onClick) {
-                Icon(icon, contentDescription = label)
-            }
-        } else {
-            OutlinedIconButton(onClick = onClick, enabled = false) {
-                Icon(icon, contentDescription = label)
-            }
+    if (enabled) {
+        FilledTonalIconButton(onClick = onClick) {
+            Icon(icon, contentDescription = label)
         }
-        Text(label, style = MaterialTheme.typography.labelMedium)
+    } else {
+        OutlinedIconButton(onClick = onClick, enabled = false) {
+            Icon(icon, contentDescription = label)
+        }
     }
 }
 
@@ -446,4 +401,28 @@ private fun PhotoThumbnail(
             }
         }
     }
+}
+
+private val UTC_FORMATTER: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'")
+        .withZone(ZoneId.of("UTC"))
+
+private fun formatUtc(epochMs: Long): String = UTC_FORMATTER.format(Instant.ofEpochMilli(epochMs))
+
+private fun formatCoordinates(
+    latitude: Double?,
+    longitude: Double?,
+    accuracyMeters: Float?,
+): String {
+    val lat = latitude?.let { "%.5f".format(it) } ?: return "Unknown"
+    val lon = longitude?.let { "%.5f".format(it) } ?: return "Unknown"
+    val accuracy = accuracyMeters?.let { " • ±${it.toInt()}m" }.orEmpty()
+    return "$lat, $lon$accuracy"
+}
+
+private fun formatResolution(photo: com.sound2inat.storage.PhotoDraftImageEntity?): String {
+    if (photo == null) return "Unknown"
+    val width = photo.width ?: return "Unknown"
+    val height = photo.height ?: return "Unknown"
+    return "${width}×${height}px"
 }
