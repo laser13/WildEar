@@ -118,6 +118,25 @@ class PhotoReviewViewModel(
         )
     }
 
+    suspend fun cropImage(
+        imageId: String,
+        request: PhotoCropRequest,
+    ) {
+        val image = repo.getImageById(imageId) ?: return
+        val newImageId = java.util.UUID.randomUUID().toString()
+        val current = java.io.File(image.photoPath)
+        val parent = requireNotNull(current.parentFile) { "photo has no parent directory: ${current.absolutePath}" }
+        val newFile = java.io.File(parent, "$newImageId.jpg")
+        val info = cropper.cropFromViewport(current, newFile, request)
+        repo.replaceImage(
+            imageId = imageId,
+            newImageId = newImageId,
+            newImageFile = newFile,
+            width = info.width,
+            height = info.height,
+        )
+    }
+
     suspend fun deleteAlbum() {
         repo.deleteDraft(draftId)
     }

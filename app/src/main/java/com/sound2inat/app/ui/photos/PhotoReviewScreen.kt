@@ -1,6 +1,8 @@
 package com.sound2inat.app.ui.photos
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,11 +43,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -165,9 +172,9 @@ fun PhotoReviewScreen(
         PhotoImageDialog(
             image = image,
             onClose = { selectedImage = null },
-            onCropSquare = {
+            onCropSquare = { request ->
                 scope.launch {
-                    vm.cropImageSquare(image.id)
+                    vm.cropImage(image.id, request)
                     selectedImage = null
                 }
             },
@@ -437,9 +444,32 @@ private fun PhotoThumbnail(
 private fun PhotoImageDialog(
     image: com.sound2inat.storage.PhotoDraftImageEntity,
     onClose: () -> Unit,
-    onCropSquare: () -> Unit,
+    onCropSquare: (PhotoCropRequest) -> Unit,
     onDelete: () -> Unit,
 ) {
+    var cropScale by remember(image.id) { mutableStateOf(1f) }
+    var cropOffset by remember(image.id) { mutableStateOf(Offset.Zero) }
+    var cropFrameSizePx by remember(image.id) { mutableStateOf(0) }
+    val imageBounds = remember(image.photoPath) { loadImageBounds(image.photoPath) }
+
+    fun clampOffset(offset: Offset, scale: Float): Offset {
+        val bounds = imageBounds ?: return offset
+        if (cropFrameSizePx <= 0) return offset
+        val coverScale = maxOf(
+            cropFrameSizePx.toFloat() / bounds.first.toFloat(),
+            cropFrameSizePx.toFloat() / bounds.second.toFloat(),
+        )
+        val totalScale = coverScale * scale
+        val renderedWidth = bounds.first * totalScale
+        val renderedHeight = bounds.second * totalScale
+        val maxX = ((renderedWidth - cropFrameSizePx) / 2f).coerceAtLeast(0f)
+        val maxY = ((renderedHeight - cropFrameSizePx) / 2f).coerceAtLeast(0f)
+        return Offset(
+            x = offset.x.coerceIn(-maxX, maxX),
+            y = offset.y.coerceIn(-maxY, maxY),
+        )
+    }
+
     Dialog(
         onDismissRequest = onClose,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -467,20 +497,74 @@ private fun PhotoImageDialog(
 
                 Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
+                        .fillMaxWidth()
+                        .aspectRatio(1f),
                     contentAlignment = Alignment.Center,
                 ) {
-                    AsyncImage(
-                        model = File(image.photoPath),
-                        contentDescription = "Selected photo",
-                        contentScale = ContentScale.Fit,
+                    Box(
                         modifier = Modifier.fillMaxSize(),
-                    )
+                    ) {
+                        AsyncImage(
+                            model = File(image.photoPath),
+                            contentDescription = "Selected photo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .pointerInput(image.id, cropFrameSizePx, imageBounds) {
+                                    detectTransformGestures { _, pan, zoom, _ ->
+                                        val nextScale = (cropScale * zoom).coerceIn(1f, 6f)
+                                        cropScale = nextScale
+                                        cropOffset = clampOffset(cropOffset + pan, nextScale)
+                                    }
+                                }
+                                .graphicsLayer {
+                                    scaleX = cropScale
+                                    scaleY = cropScale
+                                    translationX = cropOffset.x
+                                    translationY = cropOffset.y
+                                },
+                        )
+                        Canvas(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .onSizeChanged { cropFrameSizePx = it.width },
+                        ) {
+                            drawRect(color = Color.Black.copy(alpha = 0.32f))
+                            drawRect(
+                                color = Color.White,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f),
+                            )
+                            val third = size.width / 3f
+                            drawLine(
+                                color = Color.White.copy(alpha = 0.6f),
+                                start = Offset(third, 0f),
+                                end = Offset(third, size.height),
+                                strokeWidth = 2f,
+                            )
+                            drawLine(
+                                color = Color.White.copy(alpha = 0.6f),
+                                start = Offset(third * 2f, 0f),
+                                end = Offset(third * 2f, size.height),
+                                strokeWidth = 2f,
+                            )
+                            drawLine(
+                                color = Color.White.copy(alpha = 0.6f),
+                                start = Offset(0f, third),
+                                end = Offset(size.width, third),
+                                strokeWidth = 2f,
+                            )
+                            drawLine(
+                                color = Color.White.copy(alpha = 0.6f),
+                                start = Offset(0f, third * 2f),
+                                end = Offset(size.width, third * 2f),
+                                strokeWidth = 2f,
+                            )
+                        }
+                    }
                 }
 
                 Text(
-                    "${formatResolution(image.width, image.height)} • ${image.mimeType}",
+                    "Drag to position, pinch to zoom • ${formatResolution(image.width, image.height)} • ${image.mimeType}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
@@ -492,7 +576,15 @@ private fun PhotoImageDialog(
                     PhotoActionTile(
                         icon = Icons.Outlined.Search,
                         label = "Crop",
-                        onClick = onCropSquare,
+                        onClick = {
+                            val request = PhotoCropRequest(
+                                frameSizePx = cropFrameSizePx,
+                                scale = cropScale,
+                                offsetX = cropOffset.x,
+                                offsetY = cropOffset.y,
+                            )
+                            onCropSquare(request)
+                        },
                     )
                     PhotoActionTile(
                         icon = Icons.Outlined.Delete,
@@ -530,4 +622,12 @@ private fun formatResolution(photo: com.sound2inat.storage.PhotoDraftImageEntity
 private fun formatResolution(width: Int?, height: Int?): String {
     if (width == null || height == null) return "Unknown"
     return "${width}×${height}px"
+}
+
+private fun loadImageBounds(path: String): Pair<Int, Int>? {
+    val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeFile(path, options)
+    val width = options.outWidth.takeIf { it > 0 } ?: return null
+    val height = options.outHeight.takeIf { it > 0 } ?: return null
+    return width to height
 }

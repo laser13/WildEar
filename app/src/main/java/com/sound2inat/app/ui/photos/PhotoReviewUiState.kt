@@ -30,3 +30,10 @@ data class PhotoVisionPanelUiState(
     val message: String? = null,
     val ladder: PhotoVisionLadder? = null,
 )
+
+data class PhotoCropRequest(
+    val frameSizePx: Int,
+    val scale: Float,
+    val offsetX: Float,
+    val offsetY: Float,
+)
