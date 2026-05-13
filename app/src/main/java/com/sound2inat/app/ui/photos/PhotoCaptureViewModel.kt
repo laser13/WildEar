@@ -9,6 +9,7 @@ import com.sound2inat.location.LocationProvider
 import com.sound2inat.storage.PhotoDraftRepository
 import com.sound2inat.storage.PhotoObservationFileStore
 import dagger.hilt.android.lifecycle.HiltViewModel
+import android.graphics.BitmapFactory
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -94,13 +95,14 @@ class PhotoCaptureViewModel(
         height: Int?,
     ) {
         val draftId = checkNotNull(_state.value.draftId) { "photo draft is not ready yet" }
+        val bounds = readImageBounds(file)
         repo.addImage(
             draftId = draftId,
             photoId = photoId,
             imageFile = file,
             takenAtUtcMs = nowMs(),
-            width = width,
-            height = height,
+            width = width ?: bounds?.first,
+            height = height ?: bounds?.second,
         )
         val newCount = _state.value.photoCount + 1
         _state.value = _state.value.copy(
@@ -154,5 +156,13 @@ class PhotoCaptureViewModel(
             accuracyMeters = fix?.accuracyMeters,
         )
         _state.value = PhotoCaptureGateUiState(canBindCamera = true, draftId = draftId)
+    }
+
+    private fun readImageBounds(file: File): Pair<Int, Int>? {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, options)
+        val width = options.outWidth.takeIf { it > 0 } ?: return null
+        val height = options.outHeight.takeIf { it > 0 } ?: return null
+        return width to height
     }
 }

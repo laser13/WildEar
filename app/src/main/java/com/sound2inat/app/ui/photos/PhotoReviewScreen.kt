@@ -264,14 +264,6 @@ private fun PhotoHeroSection(
                             .align(Alignment.TopStart)
                             .padding(12.dp),
                     )
-                    Text(
-                        "Tap any photo to inspect or crop it.",
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(16.dp),
-                    )
                 }
 
                 if (images.size > 1) {
@@ -652,9 +644,9 @@ private fun PhotoImageDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("Adjust crop", style = MaterialTheme.typography.titleMedium)
+                        Text("Square crop", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "Drag and pinch to fit the frame.",
+                            "Drag and pinch to fit the square frame.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -733,7 +725,7 @@ private fun PhotoImageDialog(
                 }
 
                 Text(
-                    "${formatResolution(image.width, image.height)} • ${image.mimeType}",
+                    "Source ${formatResolution(image.width, image.height)} • ${image.mimeType}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
@@ -744,7 +736,7 @@ private fun PhotoImageDialog(
                 ) {
                     PhotoActionTile(
                         icon = Icons.Outlined.Crop,
-                        label = "Crop",
+                        label = "Apply crop",
                         onClick = {
                             val request = PhotoCropRequest(
                                 frameSizePx = cropFrameSizePx,
@@ -785,7 +777,9 @@ private fun formatCoordinates(
 
 private fun formatResolution(photo: com.sound2inat.storage.PhotoDraftImageEntity?): String {
     if (photo == null) return "Unknown"
-    return formatResolution(photo.width, photo.height)
+    return formatResolution(photo.width, photo.height).takeIf { it != "Unknown" }
+        ?: loadImageBounds(photo.photoPath)?.let { formatResolution(it.first, it.second) }
+        ?: "Unknown"
 }
 
 private fun formatResolution(width: Int?, height: Int?): String {
