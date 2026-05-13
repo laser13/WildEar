@@ -24,6 +24,7 @@ class PhotoReviewViewModel(
     private val auth: INatAuthRepository,
     private val client: INaturalistClient,
     private val submitter: PhotoSubmitter,
+    private val cropper: PhotoImageCropper,
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
     @Inject constructor(
@@ -32,12 +33,14 @@ class PhotoReviewViewModel(
         auth: INatAuthRepository,
         client: INaturalistClient,
         submitter: PhotoSubmitter,
+        cropper: PhotoImageCropper,
     ) : this(
         savedStateHandle = savedStateHandle,
         repo = repo,
         auth = auth,
         client = client,
         submitter = submitter,
+        cropper = cropper,
         externalScope = null,
     )
 
@@ -97,6 +100,22 @@ class PhotoReviewViewModel(
 
     suspend fun deleteImage(imageId: String) {
         repo.deleteImage(imageId)
+    }
+
+    suspend fun cropImageSquare(imageId: String) {
+        val image = repo.getImageById(imageId) ?: return
+        val newImageId = java.util.UUID.randomUUID().toString()
+        val current = java.io.File(image.photoPath)
+        val parent = requireNotNull(current.parentFile) { "photo has no parent directory: ${current.absolutePath}" }
+        val newFile = java.io.File(parent, "$newImageId.jpg")
+        val info = cropper.cropCenterSquare(current, newFile)
+        repo.replaceImage(
+            imageId = imageId,
+            newImageId = newImageId,
+            newImageFile = newFile,
+            width = info.width,
+            height = info.height,
+        )
     }
 
     suspend fun deleteAlbum() {

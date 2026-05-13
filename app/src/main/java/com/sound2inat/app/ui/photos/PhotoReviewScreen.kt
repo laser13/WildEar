@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
@@ -34,9 +35,11 @@ import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +47,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
@@ -62,6 +67,7 @@ fun PhotoReviewScreen(
     val vm: PhotoReviewViewModel = hiltViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    var selectedImage by remember { mutableStateOf<com.sound2inat.storage.PhotoDraftImageEntity?>(null) }
 
     if (state.isLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -79,6 +85,7 @@ fun PhotoReviewScreen(
     ) {
         PhotoGallerySection(
             images = state.images,
+            onOpenImage = { selectedImage = it },
             onDeleteImage = { imageId -> scope.launch { vm.deleteImage(imageId) } },
         )
 
@@ -153,6 +160,25 @@ fun PhotoReviewScreen(
             )
         }
     }
+
+    selectedImage?.let { image ->
+        PhotoImageDialog(
+            image = image,
+            onClose = { selectedImage = null },
+            onCropSquare = {
+                scope.launch {
+                    vm.cropImageSquare(image.id)
+                    selectedImage = null
+                }
+            },
+            onDelete = {
+                scope.launch {
+                    vm.deleteImage(image.id)
+                    selectedImage = null
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -180,6 +206,7 @@ private fun PhotoTechnicalSection(state: PhotoReviewUiState) {
 @Composable
 private fun PhotoGallerySection(
     images: List<com.sound2inat.storage.PhotoDraftImageEntity>,
+    onOpenImage: (com.sound2inat.storage.PhotoDraftImageEntity) -> Unit,
     onDeleteImage: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -199,6 +226,7 @@ private fun PhotoGallerySection(
                     PhotoThumbnail(
                         index = index + 1,
                         image = image,
+                        onOpen = { onOpenImage(image) },
                         onDelete = { onDeleteImage(image.id) },
                     )
                 }
@@ -366,12 +394,14 @@ private fun PhotoActionTile(
 private fun PhotoThumbnail(
     index: Int,
     image: com.sound2inat.storage.PhotoDraftImageEntity,
+    onOpen: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Card(
         modifier = Modifier
             .width(112.dp)
-            .semantics { contentDescription = "Photo $index" },
+            .semantics { contentDescription = "Photo $index" }
+            .clickable(onClick = onOpen),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Box(
@@ -403,6 +433,78 @@ private fun PhotoThumbnail(
     }
 }
 
+@Composable
+private fun PhotoImageDialog(
+    image: com.sound2inat.storage.PhotoDraftImageEntity,
+    onClose: () -> Unit,
+    onCropSquare: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Card(
+            modifier = Modifier.fillMaxSize(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Photo preview", style = MaterialTheme.typography.titleMedium)
+                    OutlinedIconButton(onClick = onClose) {
+                        Icon(Icons.Outlined.Close, contentDescription = "Close preview")
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AsyncImage(
+                        model = File(image.photoPath),
+                        contentDescription = "Selected photo",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+
+                Text(
+                    "${formatResolution(image.width, image.height)} • ${image.mimeType}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    PhotoActionTile(
+                        icon = Icons.Outlined.Search,
+                        label = "Crop",
+                        onClick = onCropSquare,
+                    )
+                    PhotoActionTile(
+                        icon = Icons.Outlined.Delete,
+                        label = "Delete",
+                        onClick = onDelete,
+                    )
+                }
+            }
+        }
+    }
+}
+
 private val UTC_FORMATTER: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'")
         .withZone(ZoneId.of("UTC"))
@@ -422,7 +524,10 @@ private fun formatCoordinates(
 
 private fun formatResolution(photo: com.sound2inat.storage.PhotoDraftImageEntity?): String {
     if (photo == null) return "Unknown"
-    val width = photo.width ?: return "Unknown"
-    val height = photo.height ?: return "Unknown"
+    return formatResolution(photo.width, photo.height)
+}
+
+private fun formatResolution(width: Int?, height: Int?): String {
+    if (width == null || height == null) return "Unknown"
     return "${width}×${height}px"
 }

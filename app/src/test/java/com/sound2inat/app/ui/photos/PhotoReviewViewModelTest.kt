@@ -4,6 +4,7 @@ import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import androidx.lifecycle.SavedStateHandle
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import android.graphics.Bitmap
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.app.data.Settings
 import com.sound2inat.inat.INatAuthRepository
@@ -11,7 +12,6 @@ import com.sound2inat.inat.INatTokenStore
 import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.PhotoSubmitResult
 import com.sound2inat.inat.PhotoSubmitter
-import com.sound2inat.app.ui.photos.PhotoVisionTarget
 import com.sound2inat.storage.PhotoDraftRepository
 import com.sound2inat.storage.PhotoObservationFileStore
 import com.sound2inat.storage.Sound2iNatDb
@@ -32,6 +32,7 @@ import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 @Config(sdk = [33])
@@ -127,6 +128,36 @@ class PhotoReviewViewModelTest {
         repo.updateDetails(draftId, "Quercus robur", null, 123L, "tree")
 
         assertThat(vm.state.value.uploadedUrl).isEqualTo("https://inat.test/observations/1")
+    }
+
+    @Test
+    fun `cropping an image replaces it with a new file and keeps original on disk`() = runTest {
+        val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
+        val original = fileStore.newPhotoFile(draftId, "p1").apply {
+            parentFile?.mkdirs()
+            outputStream().use { out ->
+                Bitmap.createBitmap(4, 2, Bitmap.Config.ARGB_8888)
+                    .compress(Bitmap.CompressFormat.JPEG, 90, out)
+            }
+        }
+        repo.addImage(
+            draftId = draftId,
+            photoId = "p1",
+            imageFile = original,
+            takenAtUtcMs = 2L,
+            width = 4,
+            height = 2,
+        )
+        val vm = viewModel(draftId)
+
+        vm.cropImageSquare("p1")
+
+        val image = vm.state.value.images.single()
+        assertThat(image.id).isNotEqualTo("p1")
+        assertThat(image.width).isEqualTo(2)
+        assertThat(image.height).isEqualTo(2)
+        assertThat(original.exists()).isTrue()
+        assertThat(File(image.photoPath).exists()).isTrue()
     }
 
     @Test
@@ -284,12 +315,14 @@ class PhotoReviewViewModelTest {
         auth: INatAuthRepository = fakeAuth(),
         client: INaturalistClient = this.client,
         submitter: PhotoSubmitter = PhotoSubmitter(client, repo),
+        cropper: PhotoImageCropper = PhotoImageCropper(),
     ): PhotoReviewViewModel = PhotoReviewViewModel(
         savedStateHandle = SavedStateHandle(mapOf("photoDraftId" to draftId)),
         repo = repo,
         auth = auth,
         client = client,
         submitter = submitter,
+        cropper = cropper,
         externalScope = TestScope(UnconfinedTestDispatcher()),
     )
 

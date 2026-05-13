@@ -45,6 +45,10 @@ class PhotoDraftRepository(
     fun observeWithImages(id: String): Flow<PhotoDraftWithImages?> =
         draftDao.observeWithImages(id).flowOn(ioDispatcher)
 
+    suspend fun getImageById(imageId: String): PhotoDraftImageEntity? = withContext(ioDispatcher) {
+        imageDao.getById(imageId)
+    }
+
     suspend fun createDraft(
         observedAtUtcMs: Long,
         latitude: Double?,
@@ -126,6 +130,34 @@ class PhotoDraftRepository(
         val image = imageDao.getById(imageId) ?: return@withContext
         imageDao.deleteById(imageId)
         File(image.photoPath).delete()
+    }
+
+    suspend fun replaceImage(
+        imageId: String,
+        newImageId: String,
+        newImageFile: File,
+        width: Int?,
+        height: Int?,
+    ) = withContext(ioDispatcher) {
+        val image = imageDao.getById(imageId) ?: error("photo image $imageId missing")
+        runInTransaction {
+            imageDao.deleteById(imageId)
+            imageDao.insert(
+                PhotoDraftImageEntity(
+                    id = newImageId,
+                    photoDraftId = image.photoDraftId,
+                    photoPath = newImageFile.absolutePath,
+                    takenAtUtcMs = image.takenAtUtcMs,
+                    sortOrder = image.sortOrder,
+                    width = width,
+                    height = height,
+                    mimeType = image.mimeType,
+                ),
+            )
+            draftDao.getById(image.photoDraftId)?.let { draft ->
+                draftDao.update(draft.copy(updatedAtUtcMs = nowMs()))
+            }
+        }
     }
 
     suspend fun deleteDraft(draftId: String) = withContext(ioDispatcher) {
