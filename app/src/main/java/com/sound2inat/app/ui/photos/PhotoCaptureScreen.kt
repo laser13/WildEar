@@ -14,17 +14,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,6 +51,12 @@ import androidx.lifecycle.Observer
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sound2inat.app.permissions.LocalPermissionsController
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.ZoomIn
 import kotlinx.coroutines.launch
 
 @Suppress("FunctionNaming")
@@ -175,55 +184,33 @@ fun PhotoCaptureScreen(
 
                 Surface(
                     modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(16.dp),
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = 8.dp),
+                    shape = RoundedCornerShape(999.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
                 ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("Capture", style = MaterialTheme.typography.titleMedium)
-                            state.photoCount.takeIf { it > 0 }?.let { count ->
-                                Surface(
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    shape = RoundedCornerShape(999.dp),
-                                ) {
-                                    Text(
-                                        "$count photo${if (count == 1) "" else "s"}",
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                    )
-                                }
+                            if (state.photoCount > 0) {
+                                CameraHudPill(
+                                    icon = Icons.Outlined.PhotoLibrary,
+                                    text = state.photoCount.toString(),
+                                    contentDescription = "${state.photoCount} photos",
+                                )
                             }
+                            CameraHudPill(
+                                icon = Icons.Outlined.ZoomIn,
+                                text = "${formatZoom(zoomRatio)}x",
+                                contentDescription = "Zoom ${formatZoom(zoomRatio)}x",
+                            )
                         }
-                        Text(
-                            "Pinch to zoom",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(16.dp),
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(
-                            text = "${formatZoom(zoomRatio)}x",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             ZoomChip("1x", onClick = { setZoom(1f) })
                             if (maxZoom >= 2f) ZoomChip("2x", onClick = { setZoom(2f) })
@@ -235,17 +222,17 @@ fun PhotoCaptureScreen(
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(16.dp)
-                        .fillMaxWidth(),
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                        .navigationBarsPadding()
+                        .padding(16.dp),
+                    shape = RoundedCornerShape(999.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f),
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        OutlinedButton(
+                        IconButton(
                             onClick = {
                                 when {
                                     state.isExistingDraft -> onCancel()
@@ -258,14 +245,18 @@ fun PhotoCaptureScreen(
                                     else -> showDiscardDialog = true
                                 }
                             },
+                            modifier = Modifier.size(48.dp),
                         ) {
-                            Text("Cancel")
+                            androidx.compose.material3.Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "Cancel",
+                            )
                         }
-                        Button(
+                        FilledTonalIconButton(
                             enabled = imageCapture != null,
-                            shape = RoundedCornerShape(999.dp),
+                            modifier = Modifier.size(72.dp),
                             onClick = {
-                                val capture = imageCapture ?: return@Button
+                                val capture = imageCapture ?: return@FilledTonalIconButton
                                 val prepared = vm.prepareOutputFile()
                                 val options = ImageCapture.OutputFileOptions.Builder(prepared.file).build()
                                 capture.takePicture(
@@ -294,13 +285,20 @@ fun PhotoCaptureScreen(
                                 )
                             },
                         ) {
-                            Text("Shutter")
+                            androidx.compose.material3.Icon(
+                                imageVector = Icons.Filled.CameraAlt,
+                                contentDescription = "Shutter",
+                            )
                         }
-                        Button(
+                        IconButton(
                             enabled = state.doneEnabled && state.draftId != null,
+                            modifier = Modifier.size(48.dp),
                             onClick = { state.draftId?.let(onDone) },
                         ) {
-                            Text("Done")
+                            androidx.compose.material3.Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = "Done",
+                            )
                         }
                     }
                 }
@@ -377,6 +375,33 @@ private fun ZoomChip(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
         ),
     )
+}
+
+@Composable
+private fun CameraHudPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    contentDescription: String,
+) {
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            androidx.compose.material3.Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+            )
+            Text(
+                text,
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+    }
 }
 
 private fun formatZoom(ratio: Float): String = "%.1f".format(ratio)
