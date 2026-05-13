@@ -180,6 +180,7 @@ private fun ReviewPage(
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
 
+    var processingSheetVisible by remember { mutableStateOf(false) }
     LaunchedEffect(state.audioPath) {
         if (state.audioPath != null) vm.ensureVisuals(filesDir)
     }
@@ -269,12 +270,7 @@ private fun ReviewPage(
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 item { HeaderBlock(state) }
                 item { PlayerControls(state = state, vm = vm) }
-                item {
-                    AudioProcessingPanel(
-                        state = state,
-                        onPresetSelected = vm::setAudioProcessingConfig,
-                    )
-                }
+                item { ProcessingEntryPoint(state = state, onClick = { processingSheetVisible = true }) }
                 item {
                     val selectedSpecies = state.species.firstOrNull { it.isSelected }
                     val selectedStartMs = selectedSpecies
@@ -485,6 +481,14 @@ private fun ReviewPage(
         )
     }
 
+    if (processingSheetVisible) {
+        ReviewProcessingBottomSheet(
+            state = state,
+            onConfigSelected = vm::setAudioProcessingConfig,
+            onDismiss = { processingSheetVisible = false },
+        )
+    }
+
     detailsRow?.let { snapshot ->
         val liveRow = state.species.find { it.detectionId == snapshot.detectionId } ?: snapshot
         val obsEntry = state.inatObservations.find { it.scientificName == snapshot.taxonScientificName }
@@ -665,95 +669,17 @@ private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
 
 @Suppress("FunctionNaming")
 @Composable
-private fun AudioProcessingPanel(
+private fun ProcessingEntryPoint(
     state: ReviewUiState,
-    onPresetSelected: (ReviewAudioProcessingConfig) -> Unit,
-) {
-    val profile = state.processingProfile
-    val config = profile.audioProcessingConfig
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            "Processing profile",
-            style = MaterialTheme.typography.titleSmall,
-        )
-        Text(
-            "One shared profile controls playback, analysis, and the spectrogram view. Original WAV is kept unchanged.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ProcessingPresetChip(
-                    preset = ReviewAudioProcessingConfig.Original,
-                    selected = config == ReviewAudioProcessingConfig.Original,
-                    onClick = { onPresetSelected(ReviewAudioProcessingConfig.Original) },
-                    modifier = Modifier.weight(1f),
-                )
-                ProcessingPresetChip(
-                    preset = ReviewAudioProcessingConfig.BirdClean,
-                    selected = config == ReviewAudioProcessingConfig.BirdClean,
-                    onClick = { onPresetSelected(ReviewAudioProcessingConfig.BirdClean) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ProcessingPresetChip(
-                    preset = ReviewAudioProcessingConfig.BirdHighClarity,
-                    selected = config == ReviewAudioProcessingConfig.BirdHighClarity,
-                    onClick = { onPresetSelected(ReviewAudioProcessingConfig.BirdHighClarity) },
-                    modifier = Modifier.weight(1f),
-                )
-                ProcessingPresetChip(
-                    preset = ReviewAudioProcessingConfig.BoostQuiet,
-                    selected = config == ReviewAudioProcessingConfig.BoostQuiet,
-                    onClick = { onPresetSelected(ReviewAudioProcessingConfig.BoostQuiet) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-        when {
-            state.processingAudio -> Text(
-                "Preparing current profile…",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            state.processedAudioPath != null -> Text(
-                "Current profile ready",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ProcessingPresetChip(
-    preset: ReviewAudioProcessingConfig,
-    selected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     FilterChip(
-        modifier = modifier,
-        selected = selected,
+        selected = state.processingProfile != ReviewProcessingProfile.Default,
         onClick = onClick,
-        label = { Text(audioProcessingLabel(preset)) },
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        label = { Text("Processing") },
     )
 }
-
-private fun audioProcessingLabel(config: ReviewAudioProcessingConfig): String =
-    when (config.preset) {
-        ReviewAudioProcessingConfig.Preset.ORIGINAL -> "Orig"
-        ReviewAudioProcessingConfig.Preset.BIRD_CLEAN -> "Clean"
-        ReviewAudioProcessingConfig.Preset.BIRD_HIGH_CLARITY -> "Clear"
-        ReviewAudioProcessingConfig.Preset.BOOST_QUIET -> "Boost"
-        ReviewAudioProcessingConfig.Preset.CUSTOM -> "Custom"
-    }
 
 @Suppress("FunctionNaming")
 @Composable

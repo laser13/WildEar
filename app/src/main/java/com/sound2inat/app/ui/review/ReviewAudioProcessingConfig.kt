@@ -11,6 +11,15 @@ data class ReviewAudioProcessingConfig(
     val requiresProcessing: Boolean
         get() = highPassHz != null || gainDb != 0f || normalizePeak
 
+    fun withHighPass(highPassHz: Int?): ReviewAudioProcessingConfig =
+        copy(preset = Preset.CUSTOM, highPassHz = highPassHz)
+
+    fun withGain(gainDb: Float): ReviewAudioProcessingConfig =
+        copy(preset = Preset.CUSTOM, gainDb = gainDb)
+
+    fun withNormalize(normalizePeak: Boolean): ReviewAudioProcessingConfig =
+        copy(preset = Preset.CUSTOM, normalizePeak = normalizePeak)
+
     fun cacheSuffix(): String =
         listOf(
             preset.name.lowercase(),
@@ -43,3 +52,7 @@ data class ReviewAudioProcessingConfig(
         val Custom = ReviewAudioProcessingConfig(Preset.CUSTOM)
     }
 }
+
+fun reviewHighPassOptions(): List<Int?> = listOf(null, 300, 600, 1_000, 1_600)
+
+fun reviewGainOptions(): List<Float> = listOf(-12f, -6f, 0f, 6f, 12f)

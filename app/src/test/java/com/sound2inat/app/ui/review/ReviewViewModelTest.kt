@@ -26,6 +26,7 @@ import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.DraftRepository
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.WavFileStore
+import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -321,6 +322,18 @@ class ReviewViewModelTest {
                 externalScope = backgroundScope,
             )
 
+            val customProfile = ReviewProcessingProfile(
+                spectrogramConfig = ReviewSpectrogramConfig(
+                    displayRange = SpectrogramDisplayRange.FULL,
+                    palette = SpectrogramPalette.MAGMA,
+                    gainDb = 8f,
+                ),
+                audioProcessingConfig = ReviewAudioProcessingConfig.BoostQuiet,
+            )
+
+            vm.setProcessingProfile(customProfile)
+            assertThat(vm.state.value.processingProfile).isEqualTo(customProfile)
+
             vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
             assertThat(vm.state.value.processingProfile.audioProcessingConfig).isEqualTo(ReviewAudioProcessingConfig.BirdClean)
             assertThat(vm.state.value.audioProcessingConfig).isEqualTo(ReviewAudioProcessingConfig.BirdClean)
@@ -329,6 +342,7 @@ class ReviewViewModelTest {
 
             assertThat(vm.state.value.audioProcessingConfig).isEqualTo(ReviewAudioProcessingConfig.Original)
             assertThat(vm.state.value.processingProfile).isEqualTo(ReviewProcessingProfile.Default)
+            assertThat(vm.state.value.processingProfile.spectrogramConfig).isEqualTo(ReviewProcessingProfile.Default.spectrogramConfig)
         }
 
     @Test
@@ -495,6 +509,47 @@ class ReviewViewModelTest {
 
         assertThat(player.startedPath).isEqualTo(processedOutput.absolutePath)
     }
+
+    @Test
+    fun `playing a processed profile exposes loading while materializing`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "play_loading"
+            val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val gate = CompletableDeferred<Unit>()
+            val processedOutput = tmp.newFile("play_loading_processed.wav")
+            val processedAudio = ProcessedAudioProvider { _, _, _, _ ->
+                gate.await()
+                processedOutput.writeBytes(byteArrayOf(1, 2, 3, 4))
+                processedOutput
+            }
+            val player = FakeAudioPlayer()
+            val queue = makeQueue(draftRepo = repo)
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = player,
+                inference = noopInference(),
+                processedAudio = processedAudio,
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+
+            vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
+            vm.play()
+            runCurrent()
+            assertThat(vm.state.value.processingAudio).isTrue()
+
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            assertThat(vm.state.value.processingAudio).isFalse()
+            assertThat(player.startedPath).isEqualTo(processedOutput.absolutePath)
+        }
 
     @Test
     fun `inference failure surfaces error and clears progress`() =
