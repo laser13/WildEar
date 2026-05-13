@@ -14,6 +14,4 @@ data class PhotoReviewUiState(
     val error: String? = null,
     val submitError: String? = null,
     val uploadedUrl: String? = null,
-) {
-    val selectedImagePath: String? = images.firstOrNull()?.photoPath
-}
+)

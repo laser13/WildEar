@@ -1,15 +1,21 @@
 package com.sound2inat.app.ui.photos
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -24,10 +30,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
+import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Save
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -57,108 +74,176 @@ fun PhotoReviewScreen(
         return
     }
 
-    LazyColumn(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            Text("Photo review", style = MaterialTheme.typography.headlineMedium)
-        }
-        item {
-            state.selectedImagePath?.let { path ->
-                AsyncImage(
-                    model = File(path),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                )
-            } ?: Text("No photos in this album.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        items(state.images, key = { it.id }) { image ->
-            Row(
+        Text("Photo review", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            "Save draft keeps this album in the app. Upload to iNaturalist sends it to your account.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        PhotoGallerySection(
+            images = state.images,
+            onDeleteImage = { imageId -> scope.launch { vm.deleteImage(imageId) } },
+        )
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = scientificName,
+                onValueChange = { scientificName = it },
+                label = { Text("Scientific name") },
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            )
+            OutlinedTextField(
+                value = commonName,
+                onValueChange = { commonName = it },
+                label = { Text("Common name") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = notes,
+                onValueChange = { notes = it },
+                label = { Text("Notes") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            maxItemsInEachRow = 2,
+        ) {
+            FilledTonalButton(onClick = { onAddMorePhotos(state.draftId) }) {
+                Icon(Icons.Outlined.AddPhotoAlternate, contentDescription = null)
+                Text("Take more photos")
+            }
+            Button(
+                onClick = {
+                    scope.launch {
+                        vm.saveDetails(scientificName, commonName, state.taxonInatId, notes)
+                    }
+                },
             ) {
-                Text(File(image.photoPath).name, style = MaterialTheme.typography.bodyMedium)
-                OutlinedButton(onClick = { scope.launch { vm.deleteImage(image.id) } }) {
-                    Text("Delete")
-                }
+                Icon(Icons.Outlined.Save, contentDescription = null)
+                Text("Save draft")
+            }
+            Button(
+                enabled = !state.isSubmitting && state.images.isNotEmpty(),
+                onClick = { vm.submit() },
+            ) {
+                Icon(Icons.Outlined.CloudUpload, contentDescription = null)
+                Text(if (state.isSubmitting) "Uploading..." else "Upload to iNaturalist")
             }
         }
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = scientificName,
-                    onValueChange = { scientificName = it },
-                    label = { Text("Scientific name") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = commonName,
-                    onValueChange = { commonName = it },
-                    label = { Text("Common name") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("Notes") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = { onAddMorePhotos(state.draftId) }) {
-                    Text("Add more photos")
-                }
-                Button(
-                    onClick = {
-                        scope.launch {
-                            vm.saveDetails(scientificName, commonName, state.taxonInatId, notes)
-                        }
-                    },
-                ) {
-                    Text("Save")
-                }
-                Button(
-                    enabled = !state.isSubmitting && state.images.isNotEmpty(),
-                    onClick = { vm.submit() },
-                ) {
-                    Text(if (state.isSubmitting) "Uploading..." else "Upload")
-                }
-            }
-        }
+
         state.submitError?.let { error ->
-            item {
-                Text(error, color = MaterialTheme.colorScheme.error)
+            Text(error, color = MaterialTheme.colorScheme.error)
+        }
+        state.uploadedUrl?.let {
+            Text("Uploaded to iNaturalist.", color = MaterialTheme.colorScheme.primary)
+        }
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            maxItemsInEachRow = 2,
+        ) {
+            OutlinedButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null)
+                Text("Back")
+            }
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        vm.deleteAlbum()
+                        onBack()
+                    }
+                },
+            ) {
+                Icon(Icons.Outlined.Delete, contentDescription = null)
+                Text("Delete draft")
             }
         }
-        state.uploadedUrl?.let { url ->
-            item {
-                Text("Uploaded: $url", color = MaterialTheme.colorScheme.primary)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PhotoGallerySection(
+    images: List<com.sound2inat.storage.PhotoDraftImageEntity>,
+    onDeleteImage: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            if (images.isEmpty()) "No photos yet" else "Photos (${images.size})",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        if (images.isEmpty()) {
+            Text(
+                "Take a few photos to build the album. You can delete any shot before upload.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                maxItemsInEachRow = 3,
+            ) {
+                images.forEachIndexed { index, image ->
+                    PhotoThumbnail(
+                        index = index + 1,
+                        image = image,
+                        onDelete = { onDeleteImage(image.id) },
+                    )
+                }
             }
         }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = onBack) {
-                    Text("Back")
-                }
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            vm.deleteAlbum()
-                            onBack()
-                        }
-                    },
-                ) {
-                    Text("Delete album")
-                }
+    }
+}
+
+@Composable
+private fun PhotoThumbnail(
+    index: Int,
+    image: com.sound2inat.storage.PhotoDraftImageEntity,
+    onDelete: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .width(112.dp)
+            .semantics { contentDescription = "Photo $index" },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f),
+        ) {
+            AsyncImage(
+                model = File(image.photoPath),
+                contentDescription = "Photo $index",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(0.dp)),
+            )
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(999.dp),
+                    ),
+            ) {
+                Icon(Icons.Outlined.Delete, contentDescription = "Delete photo $index")
             }
         }
     }

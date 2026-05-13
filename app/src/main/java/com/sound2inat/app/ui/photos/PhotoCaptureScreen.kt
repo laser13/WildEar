@@ -53,7 +53,8 @@ fun PhotoCaptureScreen(
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
     val previewView = remember {
         PreviewView(context).apply {
-            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            implementationMode = PreviewView.ImplementationMode.PERFORMANCE
+            scaleType = PreviewView.ScaleType.FILL_CENTER
         }
     }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
