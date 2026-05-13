@@ -1,20 +1,28 @@
 package com.sound2inat.app.ui.photos
 
+import android.view.ScaleGestureDetector
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
+import androidx.camera.core.ZoomState
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -24,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -35,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Observer
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sound2inat.app.permissions.LocalPermissionsController
@@ -62,6 +72,24 @@ fun PhotoCaptureScreen(
     }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var camera by remember { mutableStateOf<Camera?>(null) }
+    var zoomRatio by remember { mutableFloatStateOf(1f) }
+    var minZoom by remember { mutableFloatStateOf(1f) }
+    var maxZoom by remember { mutableFloatStateOf(1f) }
+
+    val zoomGestureDetector = remember(context) {
+        ScaleGestureDetector(
+            context,
+            object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    val boundCamera = camera ?: return false
+                    val nextZoom = (zoomRatio * detector.scaleFactor).coerceIn(minZoom, maxZoom)
+                    boundCamera.cameraControl.setZoomRatio(nextZoom)
+                    return true
+                }
+            },
+        )
+    }
 
     LaunchedEffect(permissions) {
         vm.initWithPermissions(permissions)
@@ -83,17 +111,18 @@ fun PhotoCaptureScreen(
                         .build()
                     runCatching {
                         provider.unbindAll()
-                        provider.bindToLifecycle(
+                        val boundCamera = provider.bindToLifecycle(
                             lifecycleOwner,
                             CameraSelector.DEFAULT_BACK_CAMERA,
                             preview,
                             capture,
                         )
-                    }.onSuccess {
                         cameraProvider = provider
                         imageCapture = capture
+                        camera = boundCamera
                     }.onFailure {
                         imageCapture = null
+                        camera = null
                     }
                 },
                 mainExecutor,
@@ -101,115 +130,206 @@ fun PhotoCaptureScreen(
             onDispose {
                 cameraProvider?.unbindAll()
                 imageCapture = null
+                camera = null
             }
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text("Photo capture", style = MaterialTheme.typography.headlineMedium)
-        state.error?.let {
-            Text(it, color = MaterialTheme.colorScheme.error)
+    DisposableEffect(camera, lifecycleOwner) {
+        val zoomLiveData = camera?.cameraInfo?.zoomState
+        if (zoomLiveData == null) {
+            onDispose { }
+        } else {
+            val observer = Observer<ZoomState> { state ->
+                zoomRatio = state.zoomRatio
+                minZoom = state.minZoomRatio
+                maxZoom = state.maxZoomRatio
+            }
+            zoomLiveData.observe(lifecycleOwner, observer)
+            onDispose { zoomLiveData.removeObserver(observer) }
         }
+    }
+
+    DisposableEffect(previewView, zoomGestureDetector) {
+        previewView.setOnTouchListener { _, event ->
+            zoomGestureDetector.onTouchEvent(event)
+        }
+        onDispose {
+            previewView.setOnTouchListener(null)
+        }
+    }
+
+    fun setZoom(target: Float) {
+        val boundCamera = camera ?: return
+        val bounded = target.coerceIn(minZoom, maxZoom)
+        boundCamera.cameraControl.setZoomRatio(bounded)
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
         when {
             state.canBindCamera -> {
-                Box(
+                AndroidView(
+                    factory = { previewView },
+                    modifier = Modifier.fillMaxSize(),
+                )
+
+                Surface(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
+                        .align(Alignment.TopStart)
+                        .padding(16.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
                 ) {
-                    AndroidView(
-                        factory = { previewView },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    state.photoCount.takeIf { it > 0 }?.let { count ->
-                        Surface(
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
-                            shape = MaterialTheme.shapes.medium,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(12.dp),
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(
-                                "$count photo${if (count == 1) "" else "s"}",
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            )
+                            Text("Capture", style = MaterialTheme.typography.titleMedium)
+                            state.photoCount.takeIf { it > 0 }?.let { count ->
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    shape = RoundedCornerShape(999.dp),
+                                ) {
+                                    Text(
+                                        "$count photo${if (count == 1) "" else "s"}",
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            "Pinch to zoom",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = "${formatZoom(zoomRatio)}x",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ZoomChip("1x", onClick = { setZoom(1f) })
+                            if (maxZoom >= 2f) ZoomChip("2x", onClick = { setZoom(2f) })
+                            if (maxZoom >= 4f) ZoomChip("4x", onClick = { setZoom(4f) })
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(
-                        enabled = imageCapture != null,
-                        onClick = {
-                            val capture = imageCapture ?: return@Button
-                            val prepared = vm.prepareOutputFile()
-                            val options = ImageCapture.OutputFileOptions.Builder(prepared.file).build()
-                            capture.takePicture(
-                                options,
-                                mainExecutor,
-                                object : ImageCapture.OnImageSavedCallback {
-                                    override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                when {
+                                    state.isExistingDraft -> onCancel()
+                                    state.photoCount == 0 -> {
                                         scope.launch {
-                                            vm.onPhotoSaved(
-                                                photoId = prepared.photoId,
-                                                file = prepared.file,
-                                                width = null,
-                                                height = null,
-                                            )
+                                            vm.discardIfEmpty()
+                                            onCancel()
                                         }
                                     }
+                                    else -> showDiscardDialog = true
+                                }
+                            },
+                        ) {
+                            Text("Cancel")
+                        }
+                        Button(
+                            enabled = imageCapture != null,
+                            shape = RoundedCornerShape(999.dp),
+                            onClick = {
+                                val capture = imageCapture ?: return@Button
+                                val prepared = vm.prepareOutputFile()
+                                val options = ImageCapture.OutputFileOptions.Builder(prepared.file).build()
+                                capture.takePicture(
+                                    options,
+                                    mainExecutor,
+                                    object : ImageCapture.OnImageSavedCallback {
+                                        override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                                            scope.launch {
+                                                vm.onPhotoSaved(
+                                                    photoId = prepared.photoId,
+                                                    file = prepared.file,
+                                                    width = null,
+                                                    height = null,
+                                                )
+                                            }
+                                        }
 
-                                    override fun onError(exception: ImageCaptureException) {
-                                        vm.onPhotoCaptureFailed(
-                                            photoId = prepared.photoId,
-                                            file = prepared.file,
-                                            message = exception.message ?: "Photo capture failed.",
-                                        )
-                                    }
-                                },
-                            )
-                        },
-                    ) {
-                        Text("Shutter")
-                    }
-                    Button(
-                        enabled = state.doneEnabled && state.draftId != null,
-                        onClick = { state.draftId?.let(onDone) },
-                    ) {
-                        Text("Done")
-                    }
-                }
-            }
-            state.showCameraPermissionDenied -> {
-                Text("Camera permission is required to take photos.")
-                Button(onClick = { vm.openAppSettings(permissions) }) {
-                    Text("Open settings")
-                }
-            }
-            else -> Text("Checking camera permission...")
-        }
-        OutlinedButton(
-            onClick = {
-                when {
-                    state.isExistingDraft -> onCancel()
-                    state.photoCount == 0 -> {
-                        scope.launch {
-                            vm.discardIfEmpty()
-                            onCancel()
+                                        override fun onError(exception: ImageCaptureException) {
+                                            vm.onPhotoCaptureFailed(
+                                                photoId = prepared.photoId,
+                                                file = prepared.file,
+                                                message = exception.message ?: "Photo capture failed.",
+                                            )
+                                        }
+                                    },
+                                )
+                            },
+                        ) {
+                            Text("Shutter")
+                        }
+                        Button(
+                            enabled = state.doneEnabled && state.draftId != null,
+                            onClick = { state.draftId?.let(onDone) },
+                        ) {
+                            Text("Done")
                         }
                     }
-                    else -> {
-                        showDiscardDialog = true
+                }
+            }
+
+            state.showCameraPermissionDenied -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Card(
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Text("Camera permission is required to take photos.")
+                            Button(onClick = { vm.openAppSettings(permissions) }) {
+                                Text("Open settings")
+                            }
+                        }
                     }
                 }
-            },
-        ) {
-            Text("Cancel")
+            }
+
+            else -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Checking camera permission...")
+                }
+            }
         }
     }
 
@@ -224,9 +344,7 @@ fun PhotoCaptureScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
-                    showDiscardDialog = false
-                }) {
+                TextButton(onClick = { showDiscardDialog = false }) {
                     Text("Keep album")
                 }
             },
@@ -244,3 +362,21 @@ fun PhotoCaptureScreen(
         )
     }
 }
+
+@Composable
+private fun ZoomChip(
+    label: String,
+    onClick: () -> Unit,
+) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text(label) },
+        shape = RoundedCornerShape(999.dp),
+        border = null,
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    )
+}
+
+private fun formatZoom(ratio: Float): String = "%.1f".format(ratio)
