@@ -56,8 +56,8 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material.icons.outlined.ZoomIn
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 @Suppress("FunctionNaming")
 @Composable
@@ -205,16 +205,13 @@ fun PhotoCaptureScreen(
                                     contentDescription = "${state.photoCount} photos",
                                 )
                             }
-                            CameraHudPill(
-                                icon = Icons.Outlined.ZoomIn,
-                                text = "${formatZoom(zoomRatio)}x",
-                                contentDescription = "Zoom ${formatZoom(zoomRatio)}x",
-                            )
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ZoomChip("1x", onClick = { setZoom(1f) })
-                            if (maxZoom >= 2f) ZoomChip("2x", onClick = { setZoom(2f) })
-                            if (maxZoom >= 4f) ZoomChip("4x", onClick = { setZoom(4f) })
+                            ZoomChip("1x", selected = isZoomSelected(zoomRatio, 1f), onClick = { setZoom(1f) })
+                            if (maxZoom >= 2f) {
+                                ZoomChip("2x", selected = isZoomSelected(zoomRatio, 2f), onClick = { setZoom(2f) })
+                            }
+                            if (maxZoom >= 4f) {
+                                ZoomChip("4x", selected = isZoomSelected(zoomRatio, 4f), onClick = { setZoom(4f) })
+                            }
                         }
                     }
                 }
@@ -364,6 +361,7 @@ fun PhotoCaptureScreen(
 @Composable
 private fun ZoomChip(
     label: String,
+    selected: Boolean,
     onClick: () -> Unit,
 ) {
     AssistChip(
@@ -372,7 +370,11 @@ private fun ZoomChip(
         shape = RoundedCornerShape(999.dp),
         border = null,
         colors = AssistChipDefaults.assistChipColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
         ),
     )
 }
@@ -404,4 +406,4 @@ private fun CameraHudPill(
     }
 }
 
-private fun formatZoom(ratio: Float): String = "%.1f".format(ratio)
+private fun isZoomSelected(current: Float, target: Float): Boolean = abs(current - target) < 0.15f
