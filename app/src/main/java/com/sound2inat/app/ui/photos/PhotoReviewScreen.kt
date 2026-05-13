@@ -39,6 +39,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -256,6 +257,15 @@ private fun PhotoHeroSection(
                                 ),
                             ),
                     )
+                    FilledIconButton(
+                        onClick = { onDeleteImage(cover.id) },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(12.dp)
+                            .size(34.dp),
+                    ) {
+                        Icon(Icons.Outlined.Delete, contentDescription = "Delete selected photo")
+                    }
                     AssistChip(
                         onClick = {},
                         enabled = false,
@@ -278,7 +288,6 @@ private fun PhotoHeroSection(
                                 compact = true,
                                 selected = image.id == cover.id,
                                 onOpen = { onSelectHero(image) },
-                                onDelete = { onDeleteImage(image.id) },
                             )
                         }
                     }
@@ -549,7 +558,6 @@ private fun PhotoThumbnail(
     compact: Boolean,
     selected: Boolean,
     onOpen: () -> Unit,
-    onDelete: () -> Unit,
 ) {
     val thumbnailWidth = if (compact) 92.dp else 112.dp
     Card(
@@ -577,19 +585,6 @@ private fun PhotoThumbnail(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(6.dp)
-                    .size(32.dp)
-                    .background(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                        shape = RoundedCornerShape(999.dp),
-                    ),
-            ) {
-                Icon(Icons.Outlined.Delete, contentDescription = "Delete photo $index")
-            }
         }
     }
 }
