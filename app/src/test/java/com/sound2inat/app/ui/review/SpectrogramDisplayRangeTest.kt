@@ -21,6 +21,12 @@ class SpectrogramDisplayRangeTest {
     }
 
     @Test
+    fun `BIRDNET_BIRD covers 1 to 12 kHz`() {
+        assertThat(SpectrogramDisplayRange.BIRDNET_BIRD.fMinHz).isEqualTo(1_000)
+        assertThat(SpectrogramDisplayRange.BIRDNET_BIRD.fMaxHz).isEqualTo(12_000)
+    }
+
+    @Test
     fun `OWL_LOW_VOICE covers 80 to 6000 Hz`() {
         assertThat(SpectrogramDisplayRange.OWL_LOW_VOICE.fMinHz).isEqualTo(80)
         assertThat(SpectrogramDisplayRange.OWL_LOW_VOICE.fMaxHz).isEqualTo(6_000)

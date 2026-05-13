@@ -238,7 +238,7 @@ class ReviewViewModelTest {
             val expectedPng = tmp.newFile("expected.png")
             val expectedPeaks = floatArrayOf(-0.5f, 0.5f, -0.25f, 0.25f)
             var calls = 0
-            val provider = VisualsProvider { _, _, _, _ ->
+            val provider = VisualsProvider { _, _, _, _, _ ->
                 calls++
                 Visuals(spectrogramFile = expectedPng, waveformPeaks = expectedPeaks)
             }
@@ -275,7 +275,7 @@ class ReviewViewModelTest {
             val repo = repo(draftDao, FakeDetectionDao())
             val queue = makeQueue(draftRepo = repo)
             var capturedSpectrogram: File? = null
-            val submission = InatSubmissionJob { _, _, _, _, spectrogramPhoto ->
+            val submission = InatSubmissionJob { _, _, _, _, spectrogramPhoto, _ ->
                 capturedSpectrogram = spectrogramPhoto
                 InatSubmissionOutcome.Success(emptyList())
             }
@@ -284,7 +284,7 @@ class ReviewViewModelTest {
                 repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
-                visuals = VisualsProvider { _, _, _, _ ->
+                visuals = VisualsProvider { _, _, _, _, _ ->
                     Visuals(spectrogramFile = expectedPng, waveformPeaks = floatArrayOf(-1f, 1f))
                 },
                 submission = submission,
@@ -301,6 +301,200 @@ class ReviewViewModelTest {
 
             assertThat(capturedSpectrogram).isEqualTo(expectedPng)
         }
+
+    @Test
+    fun `setAudioProcessingConfig updates the current profile`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "audio_config_reset"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(draftRepo = repo)
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+
+            vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
+            assertThat(vm.state.value.processingProfile.audioProcessingConfig).isEqualTo(ReviewAudioProcessingConfig.BirdClean)
+            assertThat(vm.state.value.audioProcessingConfig).isEqualTo(ReviewAudioProcessingConfig.BirdClean)
+
+            vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.Original)
+
+            assertThat(vm.state.value.audioProcessingConfig).isEqualTo(ReviewAudioProcessingConfig.Original)
+            assertThat(vm.state.value.processingProfile).isEqualTo(ReviewProcessingProfile.Default)
+        }
+
+    @Test
+    fun `reanalyze current profile materializes processed audio without visuals first`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "audio_source_not_ready"
+            val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            var capturedPath: String? = null
+            val inference = InferenceJob { audioPath, _, _, _, _ ->
+                capturedPath = audioPath
+                InferenceOutcome.Success("birdnet_v2_4", "2.4", emptyList())
+            }
+            val processedOutput = tmp.newFile("processed.wav")
+            val processedAudio = ProcessedAudioProvider { _, _, _, _ ->
+                processedOutput.writeBytes(byteArrayOf(1, 2, 3, 4))
+                processedOutput
+            }
+            val queue = makeQueue(FakeInferenceUseCase(birdnetReanalysisJob = inference), repo)
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = inference,
+                processedAudio = processedAudio,
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+
+            vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
+            vm.reanalyze(runBirdnet = true, runPerch = false)
+            advanceUntilIdle()
+
+            assertThat(capturedPath).isEqualTo(processedOutput.absolutePath)
+            assertThat(vm.state.value.processedAudioPath).isEqualTo(processedOutput.absolutePath)
+        }
+
+    @Test
+    fun `reanalyze original profile keeps the original audio path`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "audio_source_original"
+            val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            var capturedPath: String? = null
+            val inference = InferenceJob { audioPath, _, _, _, _ ->
+                capturedPath = audioPath
+                InferenceOutcome.Success("birdnet_v2_4", "2.4", emptyList())
+            }
+            val queue = makeQueue(FakeInferenceUseCase(birdnetReanalysisJob = inference), repo)
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = inference,
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+
+            vm.reanalyze(runBirdnet = true, runPerch = false)
+            advanceUntilIdle()
+
+            assertThat(capturedPath).isEqualTo(audioFile.absolutePath)
+            assertThat(vm.state.value.processedAudioPath).isNull()
+        }
+
+    @Test
+    fun `submitToINaturalist forwards current profile audio override when processed`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "audio_upload_processed"
+            val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 501L,
+                            draftId = draftId,
+                            taxonScientificName = "Parus major",
+                            taxonCommonName = "Great Tit",
+                            maxConfidence = 0.9f,
+                            detectedWindows = 2,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 1_000L,
+                            isSelectedByUser = true,
+                        ),
+                    ),
+                )
+            }
+            val repo = repo(draftDao, detectionDao)
+            val queue = makeQueue(draftRepo = repo)
+            val processedOutput = createConstantWav(tmp.newFile("processed_upload.wav"), sampleValue = 0x1234)
+            var capturedOverride: File? = null
+            val submission = InatSubmissionJob { _, _, _, _, _, sourceAudioOverride ->
+                capturedOverride = sourceAudioOverride
+                InatSubmissionOutcome.Success(listOf("https://example.com/obs"))
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                processedAudio = ProcessedAudioProvider { _, _, _, _ -> processedOutput },
+                submission = submission,
+                tokenProvider = { "jwt" },
+                visuals = VisualsProvider { _, _, _, _, _ ->
+                    Visuals(spectrogramFile = tmp.newFile("spectrogram-upload.png"), waveformPeaks = floatArrayOf(-1f, 1f))
+                },
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+
+            vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
+            vm.ensureVisuals(tmp.root)
+            advanceUntilIdle()
+            vm.submitToINaturalist()
+            advanceUntilIdle()
+
+            assertThat(capturedOverride).isEqualTo(processedOutput)
+            assertThat(vm.state.value.processedAudioPath).isEqualTo(processedOutput.absolutePath)
+        }
+
+    @Test
+    fun `play uses the current profile audio`() = runTest(UnconfinedTestDispatcher()) {
+        val draftId = "play_profile"
+        val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
+        val draftDao = FakeDraftDao().apply {
+            insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
+        }
+        val repo = repo(draftDao, FakeDetectionDao())
+        val processedOutput = createConstantWav(tmp.newFile("play_processed.wav"), sampleValue = 0x1234)
+        val processedAudio = ProcessedAudioProvider { _, _, _, _ -> processedOutput }
+        val player = FakeAudioPlayer()
+        val queue = makeQueue(draftRepo = repo)
+        val vm = ReviewViewModel(
+            draftId = draftId,
+            repo = repo,
+            player = player,
+            inference = noopInference(),
+            processedAudio = processedAudio,
+            visuals = VisualsProvider { _, _, _, _, _ ->
+                Visuals(spectrogramFile = tmp.newFile("spectrogram-play.png"), waveformPeaks = floatArrayOf(-1f, 1f))
+            },
+            queue = queue,
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+            externalScope = backgroundScope,
+        )
+
+        vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
+        vm.ensureVisuals(tmp.root)
+        advanceUntilIdle()
+        vm.play()
+        advanceUntilIdle()
+
+        assertThat(player.startedPath).isEqualTo(processedOutput.absolutePath)
+    }
 
     @Test
     fun `inference failure surfaces error and clears progress`() =
@@ -1101,6 +1295,22 @@ class ReviewViewModelTest {
         val writer = com.sound2inat.recorder.WavWriter(dest, sampleRate, channels = 1, bitsPerSample = 16)
         writer.open()
         writer.writeShorts(ShortArray(samples), 0, samples)
+        writer.close()
+        return dest
+    }
+
+    /** Creates a valid mono 16-bit PCM WAV file filled with a constant sample value. */
+    private fun createConstantWav(
+        dest: File,
+        sampleRate: Int = 16_000,
+        durationMs: Long = 1_000,
+        sampleValue: Int,
+    ): File {
+        val samples = ((sampleRate.toLong() * durationMs) / 1000L).toInt()
+        val writer = com.sound2inat.recorder.WavWriter(dest, sampleRate, channels = 1, bitsPerSample = 16)
+        writer.open()
+        val shorts = ShortArray(samples) { sampleValue.toShort() }
+        writer.writeShorts(shorts, 0, shorts.size)
         writer.close()
         return dest
     }

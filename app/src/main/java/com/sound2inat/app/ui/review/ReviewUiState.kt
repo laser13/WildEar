@@ -47,6 +47,10 @@ data class ReviewUiState(
     val inferenceError: String? = null,
     val species: List<SpeciesRow> = emptyList(),
     val playback: PlaybackState = PlaybackState.Idle,
+    val processingProfile: ReviewProcessingProfile = ReviewProcessingProfile.Default,
+    val audioProcessingConfig: ReviewAudioProcessingConfig = processingProfile.audioProcessingConfig,
+    val processedAudioPath: String? = null,
+    val processingAudio: Boolean = false,
     /** Persisted observations attached to this draft from prior submissions. */
     val inatObservations: List<InatObsEntry> = emptyList(),
     val inatSubmission: InatSubmissionState = InatSubmissionState.Idle,

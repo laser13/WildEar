@@ -40,8 +40,34 @@ class SpectrogramRenderer(
     private val maxInkArgb: Int = SpectrogramRenderProfile.MAX_INK_ARGB,
     private val smoothingTimeRadius: Int = 1,
     private val smoothingFrequencyRadius: Int = 1,
+    private val config: ReviewSpectrogramConfig? = null,
 ) {
-    private val inkLut: IntArray by lazy { SpectrogramColorMap.ink(backgroundArgb, maxInkArgb) }
+    private val renderConfig: ReviewSpectrogramConfig by lazy {
+        config ?: ReviewSpectrogramConfig(
+            displayRange = displayRange,
+            palette = palette,
+            gainDb = 0f,
+            lowPercentile = 5f,
+            highPercentile = 95f,
+            noiseFloorMode = noiseFloorMode,
+            noiseFloorPercentile = noiseFloorPercentile,
+            gateDb = gateDb,
+            displayRangeDb = displayRangeDb,
+            gamma = gamma,
+            maxInkArgb = maxInkArgb,
+            smoothingTimeRadius = smoothingTimeRadius,
+            smoothingFrequencyRadius = smoothingFrequencyRadius,
+        )
+    }
+    private val inkLut: IntArray by lazy { SpectrogramColorMap.ink(backgroundArgb, renderConfig.maxInkArgb) }
+    private val colorLut: IntArray by lazy {
+        when (renderConfig.palette) {
+            SpectrogramPalette.INK -> inkLut
+            SpectrogramPalette.VIRIDIS -> SpectrogramColorMap.viridis()
+            SpectrogramPalette.MAGMA -> SpectrogramColorMap.magma()
+            SpectrogramPalette.GRAY -> SpectrogramColorMap.gray()
+        }
+    }
 
     /**
      * Render [samples] (mono float, normalised to roughly `[-1, 1]`).
@@ -71,10 +97,7 @@ class SpectrogramRenderer(
                 val norm = (acc / span).coerceIn(0f, 1f)
                 // Flip Y: highest frequency bin (top of image) gets the largest m.
                 val y = DISPLAY_HEIGHT_BINS - 1 - m
-                out[y][x] = when (palette) {
-                    SpectrogramPalette.INK -> SpectrogramColorMap.map(norm, inkLut)
-                    SpectrogramPalette.VIRIDIS -> Colormap.viridis(norm)
-                }
+                out[y][x] = SpectrogramColorMap.map(norm, colorLut)
             }
         }
         return out
@@ -84,24 +107,24 @@ class SpectrogramRenderer(
         val matrix = Array(DISPLAY_HEIGHT_BINS) { FloatArray(frames) }
         val sortBuf = FloatArray(FFT_SIZE / 2 + 1)
         columns.forEachIndexed { frame, col ->
-            if (noiseFloorMode == SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN) {
+            if (renderConfig.noiseFloorMode == SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN) {
                 SpectrogramVisualPipeline.whitenColumnInPlace(col, sortBuf)
             }
             val binned = SpectrogramVisualPipeline.logBinDown(
                 src = col,
                 outBins = DISPLAY_HEIGHT_BINS,
                 sampleRateHz = melParams.sampleRate,
-                minFrequencyHz = displayRange.fMinHz,
-                maxFrequencyHz = displayRange.fMaxHz,
+                minFrequencyHz = renderConfig.displayRange.fMinHz,
+                maxFrequencyHz = renderConfig.displayRange.fMaxHz,
             )
-            for (row in 0 until DISPLAY_HEIGHT_BINS) matrix[row][frame] = binned[row]
+            for (row in 0 until DISPLAY_HEIGHT_BINS) matrix[row][frame] = binned[row] + renderConfig.gainDb
         }
-        return when (noiseFloorMode) {
+        return when (renderConfig.noiseFloorMode) {
             SpectrogramNoiseFloorMode.NONE,
             SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN -> matrix
             SpectrogramNoiseFloorMode.PER_FREQUENCY_MEDIAN,
             SpectrogramNoiseFloorMode.PER_FREQUENCY_PERCENTILE ->
-                SpectrogramPostProcessor.applyNoiseFloor(matrix, noiseFloorMode, noiseFloorPercentile)
+                SpectrogramPostProcessor.applyNoiseFloor(matrix, renderConfig.noiseFloorMode, renderConfig.noiseFloorPercentile)
         }
     }
 
@@ -110,15 +133,19 @@ class SpectrogramRenderer(
         melBins: Int,
         frames: Int,
     ): Array<FloatArray> {
-        val normalized = if (noiseFloorMode == SpectrogramNoiseFloorMode.NONE) {
+        val normalized = if (renderConfig.noiseFloorMode == SpectrogramNoiseFloorMode.NONE) {
             val allValues = FloatArray(melBins * frames)
             var idx = 0
             for (m in 0 until melBins) {
                 val row = mel[m]
                 for (f in 0 until frames) allValues[idx++] = row[f]
             }
-            val clamped = applyTopDbClamp(allValues, displayRangeDb)
-            val flat = percentileNormalize(clamped)
+            val clamped = applyTopDbClamp(allValues, renderConfig.displayRangeDb)
+            val flat = percentileNormalize(
+                clamped,
+                lowPercentile = renderConfig.lowPercentile,
+                highPercentile = renderConfig.highPercentile,
+            )
             Array(melBins) { m ->
                 FloatArray(frames) { f -> flat[m * frames + f] }
             }
@@ -126,16 +153,16 @@ class SpectrogramRenderer(
             Array(melBins) { m ->
                 SpectrogramPostProcessor.applyDisplayCurve(
                     values = mel[m],
-                    gateDb = gateDb,
-                    displayRangeDb = displayRangeDb,
-                    gamma = gamma,
+                    gateDb = renderConfig.gateDb,
+                    displayRangeDb = renderConfig.displayRangeDb,
+                    gamma = renderConfig.gamma,
                 )
             }
         }
         return SpectrogramPostProcessor.smoothNormalized(
             normalized,
-            timeRadius = smoothingTimeRadius,
-            frequencyRadius = smoothingFrequencyRadius,
+            timeRadius = renderConfig.smoothingTimeRadius,
+            frequencyRadius = renderConfig.smoothingFrequencyRadius,
         )
     }
 
@@ -167,13 +194,25 @@ class SpectrogramRenderer(
          * floor and ceiling respectively. This prevents a single very loud event
          * from compressing the dynamic range of quieter calls.
          */
-        fun percentileNormalize(values: FloatArray): FloatArray {
+        fun percentileNormalize(
+            values: FloatArray,
+            lowPercentile: Float = 5f,
+            highPercentile: Float = 95f,
+        ): FloatArray {
             if (values.isEmpty()) return values
             val sorted = values.toMutableList().also { it.sort() }
-            val p5 = sorted[(sorted.size * 0.05f).toInt().coerceIn(0, sorted.size - 1)]
-            val p95 = sorted[(sorted.size * 0.95f).toInt().coerceIn(0, sorted.size - 1)]
-            val range = (p95 - p5).coerceAtLeast(1e-6f)
-            return FloatArray(values.size) { ((values[it] - p5) / range).coerceIn(0f, 1f) }
+            val low = sorted[
+                ((sorted.size - 1) * (lowPercentile.coerceIn(0f, 100f) / 100f))
+                    .toInt()
+                    .coerceIn(0, sorted.size - 1)
+            ]
+            val high = sorted[
+                ((sorted.size - 1) * (highPercentile.coerceIn(0f, 100f) / 100f))
+                    .toInt()
+                    .coerceIn(0, sorted.size - 1)
+            ]
+            val range = (high - low).coerceAtLeast(1e-6f)
+            return FloatArray(values.size) { ((values[it] - low) / range).coerceIn(0f, 1f) }
         }
     }
 }

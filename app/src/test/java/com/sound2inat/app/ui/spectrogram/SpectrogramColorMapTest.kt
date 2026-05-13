@@ -70,6 +70,36 @@ class SpectrogramColorMapTest {
         }
     }
 
+    @Test
+    fun `viridis magma and gray LUTs have 256 fully opaque entries`() {
+        listOf(
+            SpectrogramColorMap.viridis(),
+            SpectrogramColorMap.magma(),
+            SpectrogramColorMap.gray(),
+        ).forEach { lut ->
+            assertThat(lut.size).isEqualTo(256)
+            lut.forEach { color ->
+                assertThat((color ushr 24) and 0xFF).isEqualTo(0xFF)
+            }
+        }
+    }
+
+    @Test
+    fun `gray LUT runs from black to white`() {
+        val lut = SpectrogramColorMap.gray()
+        assertThat(lut.first()).isEqualTo(BLACK)
+        assertThat(lut.last()).isEqualTo(WHITE)
+    }
+
+    @Test
+    fun `viridis and magma endpoints differ`() {
+        val viridis = SpectrogramColorMap.viridis()
+        val magma = SpectrogramColorMap.magma()
+        assertThat(viridis.first()).isNotEqualTo(viridis.last())
+        assertThat(magma.first()).isNotEqualTo(magma.last())
+        assertThat(viridis.first()).isNotEqualTo(magma.first())
+    }
+
     private fun luminance(argb: Int): Float {
         val r = (argb shr 16) and 0xFF
         val g = (argb shr 8) and 0xFF

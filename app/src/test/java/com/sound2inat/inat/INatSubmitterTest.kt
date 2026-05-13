@@ -28,6 +28,7 @@ import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
@@ -286,6 +287,32 @@ class INatSubmitterTest {
         assertThat(inatDao.rows.first().taxonScientificName).isEqualTo("Parus major")
     }
 
+    @Test fun `sourceAudioOverride is used when trimming uploaded sound`() = runTest {
+        val original = createConstantWav(tmp.newFile("original.wav"), sampleValue = 0x0000, durationMs = 4_000L)
+        val processed = createConstantWav(tmp.newFile("processed.wav"), sampleValue = 0x1234, durationMs = 1_000L)
+        val baseDraft = draftWith(listOf("Parus major"))
+        val draft = baseDraft.copy(
+            draft = baseDraft.draft.copy(audioPath = original.absolutePath),
+            detections = baseDraft.detections.map { it.copy(firstSeenMs = 0L, lastSeenMs = 500L) },
+        )
+
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":12345,"iconic_taxon_name":"Aves"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":900,"uuid":"u-1"}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":1}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":9}"""))
+        server.enqueue(MockResponse().setBody("""{"id":11}"""))
+        server.enqueue(MockResponse().setBody("""{"id":12}"""))
+        server.enqueue(MockResponse().setBody("""{"id":21}"""))
+
+        submitter.submit("jwt", draft, sourceAudioOverride = processed)
+
+        server.takeRequest() // resolve genus
+        server.takeRequest() // create observation
+        val soundRequest = server.takeRequest() // upload sound
+        val bodyBytes = soundRequest.body.readByteArray()
+        assertThat(containsSequence(bodyBytes, byteArrayOf(0x34, 0x12, 0x34, 0x12, 0x34, 0x12))).isTrue()
+    }
+
     @Test fun `empty selection short-circuits before any HTTP call`() = runTest {
         val result = submitter.submit("jwt", draftWith(emptyList()))
         assertThat(result).isInstanceOf(INatSubmitter.Result.Failure::class.java)
@@ -452,6 +479,32 @@ class INatSubmitterTest {
         assertThat(remaining.map { it.taxonScientificName }).containsExactly("Old A", "Old B")
 
         db.close()
+    }
+
+    private fun createConstantWav(
+        dest: File,
+        sampleValue: Int,
+        sampleRate: Int = 48_000,
+        durationMs: Long = 1_000L,
+    ): File {
+        val samples = ((sampleRate.toLong() * durationMs) / 1000L).toInt()
+        val writer = WavWriter(dest, sampleRate = sampleRate, channels = 1, bitsPerSample = 16)
+        writer.open()
+        val shorts = ShortArray(samples) { sampleValue.toShort() }
+        writer.writeShorts(shorts, 0, shorts.size)
+        writer.close()
+        return dest
+    }
+
+    private fun containsSequence(haystack: ByteArray, needle: ByteArray): Boolean {
+        if (needle.isEmpty() || haystack.size < needle.size) return false
+        outer@ for (i in 0..(haystack.size - needle.size)) {
+            for (j in needle.indices) {
+                if (haystack[i + j] != needle[j]) continue@outer
+            }
+            return true
+        }
+        return false
     }
 }
 

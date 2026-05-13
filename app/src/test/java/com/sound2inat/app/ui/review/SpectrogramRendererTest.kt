@@ -148,6 +148,15 @@ class SpectrogramRendererTest {
         assertThat(default).isEqualTo(explicit)
     }
 
+    @Test
+    fun `review spectrogram config defaults to BirdNET bird view`() {
+        val config = ReviewSpectrogramConfig.BirdDefault
+        assertThat(config.displayRange).isEqualTo(SpectrogramDisplayRange.BIRDNET_BIRD)
+        assertThat(config.gainDb).isEqualTo(0f)
+        assertThat(config.lowPercentile).isEqualTo(5f)
+        assertThat(config.highPercentile).isEqualTo(99f)
+    }
+
     // ── palette ───────────────────────────────────────────────────────────────
 
     @Test
@@ -167,6 +176,22 @@ class SpectrogramRendererTest {
         val explicit =
             SpectrogramRenderer(params, targetWidth = 64, palette = SpectrogramPalette.INK).render(samples)
         assertThat(default).isEqualTo(explicit)
+    }
+
+    @Test
+    fun `magma and gray palettes produce different output`() {
+        val samples = sine(1_000.0, n = params.sampleRate * 3)
+        val magma = SpectrogramRenderer(
+            params,
+            targetWidth = 64,
+            config = ReviewSpectrogramConfig.BirdDefault.copy(palette = SpectrogramPalette.MAGMA),
+        ).render(samples)
+        val gray = SpectrogramRenderer(
+            params,
+            targetWidth = 64,
+            config = ReviewSpectrogramConfig.BirdDefault.copy(palette = SpectrogramPalette.GRAY),
+        ).render(samples)
+        assertThat(magma).isNotEqualTo(gray)
     }
 
     // ── top-dB clamp ──────────────────────────────────────────────────────────

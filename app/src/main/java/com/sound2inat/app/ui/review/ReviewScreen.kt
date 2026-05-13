@@ -45,6 +45,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -172,7 +173,9 @@ private fun ReviewPage(
     val state by vm.state.collectAsStateWithLifecycle()
     val spectrogramFile by vm.spectrogramFile.collectAsStateWithLifecycle()
     val displayRange by vm.displayRange.collectAsStateWithLifecycle()
+    val spectrogramConfig by vm.spectrogramConfig.collectAsStateWithLifecycle()
     val waveformPeaks by vm.waveformPeaks.collectAsStateWithLifecycle()
+    val windowPreds by vm.windowPreds.collectAsStateWithLifecycle()
     val highlight by vm.highlight.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -267,6 +270,17 @@ private fun ReviewPage(
                 item { HeaderBlock(state) }
                 item { PlayerControls(state = state, vm = vm) }
                 item {
+                    AudioProcessingPanel(
+                        state = state,
+                        onPresetSelected = vm::setAudioProcessingConfig,
+                    )
+                }
+                item {
+                    val selectedSpecies = state.species.firstOrNull { it.isSelected }
+                    val selectedStartMs = selectedSpecies
+                        ?.let { (it.firstSeenMs - SPECIES_CLIP_PADDING_MS).coerceAtLeast(0L) }
+                    val selectedEndMs = selectedSpecies
+                        ?.let { (it.lastSeenMs + SPECIES_CLIP_PADDING_MS).coerceAtMost(state.durationMs) }
                     WaveformAndSpectrogram(
                         peaks = waveformPeaks,
                         spectrogramPath = spectrogramFile?.takeIf { it.exists() }?.absolutePath,
@@ -275,6 +289,15 @@ private fun ReviewPage(
                         onSeek = vm::seekTo,
                         displayRange = displayRange,
                         onDisplayRangeChange = vm::setDisplayRange,
+                        config = spectrogramConfig,
+                        onPaletteChange = vm::setSpectrogramPalette,
+                        onGainChange = vm::setSpectrogramGain,
+                        windowPreds = windowPreds,
+                        species = state.species,
+                        highlight = highlight,
+                        selectedStartMs = selectedStartMs,
+                        selectedEndMs = selectedEndMs,
+                        onWindowTap = vm::onWindowTapped,
                     )
                 }
                 item {
@@ -614,17 +637,123 @@ private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
     }
 
     Surface(shadowElevation = 4.dp) {
-        Button(
-            onClick = { vm.submitToINaturalist() },
-            enabled = canSubmit,
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(label)
+            Text(
+                text = if (state.processingProfile.audioProcessingConfig.requiresProcessing) {
+                    "Upload uses the current processing profile. Original WAV is kept unchanged."
+                } else {
+                    "Upload uses the original recording. Original WAV is kept unchanged."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(
+                onClick = { vm.submitToINaturalist() },
+                enabled = canSubmit,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(label)
+            }
         }
     }
 }
+
+@Suppress("FunctionNaming")
+@Composable
+private fun AudioProcessingPanel(
+    state: ReviewUiState,
+    onPresetSelected: (ReviewAudioProcessingConfig) -> Unit,
+) {
+    val profile = state.processingProfile
+    val config = profile.audioProcessingConfig
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            "Processing profile",
+            style = MaterialTheme.typography.titleSmall,
+        )
+        Text(
+            "One shared profile controls playback, analysis, and the spectrogram view. Original WAV is kept unchanged.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ProcessingPresetChip(
+                    preset = ReviewAudioProcessingConfig.Original,
+                    selected = config == ReviewAudioProcessingConfig.Original,
+                    onClick = { onPresetSelected(ReviewAudioProcessingConfig.Original) },
+                    modifier = Modifier.weight(1f),
+                )
+                ProcessingPresetChip(
+                    preset = ReviewAudioProcessingConfig.BirdClean,
+                    selected = config == ReviewAudioProcessingConfig.BirdClean,
+                    onClick = { onPresetSelected(ReviewAudioProcessingConfig.BirdClean) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ProcessingPresetChip(
+                    preset = ReviewAudioProcessingConfig.BirdHighClarity,
+                    selected = config == ReviewAudioProcessingConfig.BirdHighClarity,
+                    onClick = { onPresetSelected(ReviewAudioProcessingConfig.BirdHighClarity) },
+                    modifier = Modifier.weight(1f),
+                )
+                ProcessingPresetChip(
+                    preset = ReviewAudioProcessingConfig.BoostQuiet,
+                    selected = config == ReviewAudioProcessingConfig.BoostQuiet,
+                    onClick = { onPresetSelected(ReviewAudioProcessingConfig.BoostQuiet) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        when {
+            state.processingAudio -> Text(
+                "Preparing current profile…",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            state.processedAudioPath != null -> Text(
+                "Current profile ready",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProcessingPresetChip(
+    preset: ReviewAudioProcessingConfig,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FilterChip(
+        modifier = modifier,
+        selected = selected,
+        onClick = onClick,
+        label = { Text(audioProcessingLabel(preset)) },
+    )
+}
+
+private fun audioProcessingLabel(config: ReviewAudioProcessingConfig): String =
+    when (config.preset) {
+        ReviewAudioProcessingConfig.Preset.ORIGINAL -> "Orig"
+        ReviewAudioProcessingConfig.Preset.BIRD_CLEAN -> "Clean"
+        ReviewAudioProcessingConfig.Preset.BIRD_HIGH_CLARITY -> "Clear"
+        ReviewAudioProcessingConfig.Preset.BOOST_QUIET -> "Boost"
+        ReviewAudioProcessingConfig.Preset.CUSTOM -> "Custom"
+    }
 
 @Suppress("FunctionNaming")
 @Composable
@@ -979,6 +1108,7 @@ private fun formatTimestamp(ms: Long): String =
     SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(ms))
 
 private const val PERCENT = 100f
+private const val SPECIES_CLIP_PADDING_MS = 1_000L
 private const val DENOISE_HELP_SIZE_DP = 24
 private const val DENOISE_HELP_ICON_SIZE_DP = 18
 private const val PHOTO_SIZE_DP = 48

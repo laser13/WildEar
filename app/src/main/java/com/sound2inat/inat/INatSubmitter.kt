@@ -72,11 +72,12 @@ class INatSubmitter(
         habitatPhotos: List<File> = emptyList(),
         includeHabitatPhotoByTaxon: Map<String, Boolean> = emptyMap(),
         spectrogramPhoto: File? = null,
+        sourceAudioOverride: File? = null,
     ): Result = withContext(ioDispatcher) {
         if (token.isBlank()) return@withContext Result.Failure("No iNaturalist token in Settings")
         val selected = draft.detections.filter { it.isSelectedByUser }
         if (selected.isEmpty()) return@withContext Result.Failure("No species selected")
-        val srcAudio = File(draft.draft.audioPath)
+        val srcAudio = sourceAudioOverride ?: File(draft.draft.audioPath)
         if (!srcAudio.exists()) return@withContext Result.Failure("Audio file missing on disk")
 
         val cropDir = File(tmpRoot, "inat_uploads").apply { mkdirs() }

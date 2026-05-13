@@ -75,7 +75,8 @@ fun interface VisualsProvider {
         audioPath: String,
         draftId: String,
         filesDir: File,
-        displayRange: SpectrogramDisplayRange,
+        config: ReviewSpectrogramConfig,
+        audioProcessingConfig: ReviewAudioProcessingConfig,
     ): Visuals
 }
 
@@ -115,6 +116,7 @@ fun interface InatSubmissionJob {
         habitatPhotos: List<File>,
         includeHabitatPhotoByTaxon: Map<String, Boolean>,
         spectrogramPhoto: File?,
+        sourceAudioOverride: File?,
     ): InatSubmissionOutcome
 }
 
@@ -134,6 +136,15 @@ fun interface AudioSaver {
     suspend fun saveToDownloads(file: File, displayName: String): Uri?
 }
 
+fun interface ProcessedAudioProvider {
+    suspend fun materialize(
+        originalAudioPath: String,
+        draftId: String,
+        filesDir: File,
+        config: ReviewAudioProcessingConfig,
+    ): File
+}
+
 @Suppress("LongParameterList")
 class ReviewViewModel(
     private val draftId: String,
@@ -142,8 +153,11 @@ class ReviewViewModel(
     private val inference: InferenceJob,
     private val visuals: VisualsProvider = NoopVisualsProvider,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val submission: InatSubmissionJob = InatSubmissionJob { _, _, _, _, _ ->
+    private val submission: InatSubmissionJob = InatSubmissionJob { _, _, _, _, _, _ ->
         InatSubmissionOutcome.Failure("No iNaturalist submitter configured")
+    },
+    private val processedAudio: ProcessedAudioProvider = ProcessedAudioProvider { path, _, _, _ ->
+        File(path)
     },
     private val tokenProvider: suspend () -> String? = { null },
     private val inatObservationsFlow: kotlinx.coroutines.flow.Flow<List<InatObsEntry>> =
@@ -214,10 +228,16 @@ class ReviewViewModel(
     private val _state = MutableStateFlow(ReviewUiState(draftId = draftId))
     val state: StateFlow<ReviewUiState> = _state
 
+    private val _processingProfile = MutableStateFlow(ReviewProcessingProfile.Default)
+    val processingProfile: StateFlow<ReviewProcessingProfile> = _processingProfile
+
     private val _spectrogramFile = MutableStateFlow<File?>(null)
     val spectrogramFile: StateFlow<File?> = _spectrogramFile
 
-    private val _displayRange = MutableStateFlow(SpectrogramDisplayRange.BIRD_FOCUSED)
+    private val _spectrogramConfig = MutableStateFlow(ReviewProcessingProfile.Default.spectrogramConfig)
+    val spectrogramConfig: StateFlow<ReviewSpectrogramConfig> = _spectrogramConfig
+
+    private val _displayRange = MutableStateFlow(SpectrogramDisplayRange.BIRDNET_BIRD)
     val displayRange: StateFlow<SpectrogramDisplayRange> = _displayRange
 
     /** Cached so [setDisplayRange] can trigger a re-render without re-reading context. */
@@ -636,10 +656,17 @@ class ReviewViewModel(
         val path = s.audioPath ?: return
         inferenceStarted = true
         scope.launch {
+            val resolvedPath = try {
+                currentProfileAudioPath()
+            } catch (t: Throwable) {
+                Log.w("ReviewVM", "reanalyze failed to resolve current profile audio", t)
+                _state.update { it.copy(queueError = "Processed audio is not ready") }
+                return@launch
+            }
             queue.enqueue(
                 QueuedJob(
                     draftId = draftId,
-                    audioPath = path,
+                    audioPath = resolvedPath,
                     lat = s.latitude,
                     lon = s.longitude,
                     recordedAt = s.recordedAtUtcMs,
@@ -725,12 +752,24 @@ class ReviewViewModel(
                 it.taxonScientificName to it.includeHabitatPhoto
             }
             val spectrogramPhoto = spectrogramFile.value?.takeIf { it.exists() }
+            val sourceAudioOverride = try {
+                File(currentProfileAudioPath())
+            } catch (t: Throwable) {
+                Log.w("ReviewViewModel", "submitToINaturalist failed to resolve current profile audio", t)
+                _state.update {
+                    it.copy(
+                        inatSubmission = InatSubmissionState.Failed("Processed audio is not ready"),
+                    )
+                }
+                return@launch
+            }
             val outcome = submission.submit(
                 token = token,
                 draftId = draftId,
                 habitatPhotos = photos,
                 includeHabitatPhotoByTaxon = includeByTaxon,
                 spectrogramPhoto = spectrogramPhoto,
+                sourceAudioOverride = sourceAudioOverride,
             )
             _state.update {
                 it.copy(
@@ -765,8 +804,12 @@ class ReviewViewModel(
         visualsStarted = true
         visualsJob = scope.launch {
             try {
+                val snapshot = _processingProfile.value
+                val audioPath = withContext(ioDispatcher) {
+                    currentProfileAudioPath(snapshot.audioProcessingConfig, path)
+                }
                 val v = withContext(ioDispatcher) {
-                    visuals.build(path, draftId, filesDir, _displayRange.value)
+                    visuals.build(audioPath, draftId, filesDir, snapshot.spectrogramConfig, snapshot.audioProcessingConfig)
                 }
                 _spectrogramFile.value = v.spectrogramFile
                 _waveformPeaks.value = v.waveformPeaks
@@ -781,8 +824,58 @@ class ReviewViewModel(
 
     /** Switches the spectrogram display range and re-renders. No-op if already on [range]. */
     fun setDisplayRange(range: SpectrogramDisplayRange) {
-        if (_displayRange.value == range) return
-        _displayRange.value = range
+        if (_displayRange.value == range && _spectrogramConfig.value.displayRange == range) return
+        updateProcessingProfile(
+            _processingProfile.value.copy(
+                spectrogramConfig = _processingProfile.value.spectrogramConfig.copy(displayRange = range),
+            )
+        )
+    }
+
+    fun setSpectrogramPalette(palette: SpectrogramPalette) {
+        updateProcessingProfile(
+            _processingProfile.value.copy(
+                spectrogramConfig = _processingProfile.value.spectrogramConfig.copy(palette = palette)
+            )
+        )
+    }
+
+    fun setSpectrogramGain(gainDb: Float) {
+        updateProcessingProfile(
+            _processingProfile.value.copy(
+                spectrogramConfig = _processingProfile.value.spectrogramConfig.copy(
+                    gainDb = gainDb.coerceIn(-20f, 20f),
+                )
+            )
+        )
+    }
+
+    fun setAudioProcessingConfig(config: ReviewAudioProcessingConfig) {
+        if (config == ReviewAudioProcessingConfig.Original) {
+            updateProcessingProfile(ReviewProcessingProfile.Default)
+            return
+        }
+        updateProcessingProfile(
+            _processingProfile.value.copy(audioProcessingConfig = config)
+        )
+    }
+
+    fun setProcessingProfile(profile: ReviewProcessingProfile) {
+        updateProcessingProfile(profile)
+    }
+
+    private fun updateProcessingProfile(profile: ReviewProcessingProfile) {
+        if (_processingProfile.value == profile) return
+        _processingProfile.value = profile
+        _spectrogramConfig.value = profile.spectrogramConfig
+        _displayRange.value = profile.spectrogramConfig.displayRange
+        _state.update { s ->
+            s.copy(
+                processingProfile = profile,
+                audioProcessingConfig = profile.audioProcessingConfig,
+                processedAudioPath = null,
+            )
+        }
         val filesDir = cachedFilesDir ?: return
         visualsJob?.cancel()
         visualsStarted = false
@@ -790,9 +883,37 @@ class ReviewViewModel(
         ensureVisuals(filesDir)
     }
 
+    private suspend fun currentProfileAudioPath(
+        config: ReviewAudioProcessingConfig = _processingProfile.value.audioProcessingConfig,
+        originalAudioPath: String = requireNotNull(_state.value.audioPath) { "Audio file is missing" },
+    ): String {
+        if (!config.requiresProcessing) return originalAudioPath
+        val fallbackRoot = File(originalAudioPath).parentFile
+        val filesDir = cachedFilesDir ?: fallbackRoot?.let { File(it, "review_cache") }
+            ?: error("Processed audio is not ready yet")
+        filesDir.mkdirs()
+        _state.update { it.copy(processingAudio = true) }
+        return try {
+            val file = withContext(ioDispatcher) {
+                processedAudio.materialize(originalAudioPath, draftId, filesDir, config)
+            }
+            _state.update { it.copy(processedAudioPath = file.absolutePath) }
+            file.absolutePath
+        } finally {
+            _state.update { it.copy(processingAudio = false) }
+        }
+    }
+
     fun play() {
-        val path = effectivePlaybackPath() ?: return
-        player.start(path)
+        scope.launch {
+            val path = try {
+                currentProfileAudioPath()
+            } catch (t: Throwable) {
+                Log.w("ReviewViewModel", "play failed to resolve current profile audio", t)
+                return@launch
+            }
+            player.start(path)
+        }
     }
     fun pause() { player.pause() }
     fun seekTo(ms: Long) { player.seekTo(ms) }
@@ -1207,7 +1328,8 @@ class ReviewViewModelFactory @Inject constructor(
         player = MediaPlayerAudioPlayer(),
         inference = inferenceUseCase.inference,
         visuals = ProductionVisualsProvider(),
-        submission = InatSubmissionJob { token, id, photoFiles, includeByTaxon, spectrogramPhoto ->
+        processedAudio = ProductionProcessedAudioProvider(),
+        submission = InatSubmissionJob { token, id, photoFiles, includeByTaxon, spectrogramPhoto, sourceAudioOverride ->
             // Pulling the freshest draft + detections so the submitter sees the
             // user's current selection, not a stale snapshot.
             val dwd = repo.observeWithDetections(id).first()
@@ -1217,6 +1339,7 @@ class ReviewViewModelFactory @Inject constructor(
                 habitatPhotos = photoFiles,
                 includeHabitatPhotoByTaxon = includeByTaxon,
                 spectrogramPhoto = spectrogramPhoto,
+                sourceAudioOverride = sourceAudioOverride,
             )) {
                 is INatSubmitter.Result.Ok -> InatSubmissionOutcome.Success(r.urls)
                 is INatSubmitter.Result.Failure -> InatSubmissionOutcome.Failure(r.message)
@@ -1281,7 +1404,8 @@ internal object NoopVisualsProvider : VisualsProvider {
         audioPath: String,
         draftId: String,
         filesDir: File,
-        displayRange: SpectrogramDisplayRange,
+        config: ReviewSpectrogramConfig,
+        audioProcessingConfig: ReviewAudioProcessingConfig,
     ): Visuals = error("NoopVisualsProvider should not be invoked; supply a real VisualsProvider")
 }
 
@@ -1302,28 +1426,33 @@ internal class ProductionVisualsProvider : VisualsProvider {
         audioPath: String,
         draftId: String,
         filesDir: File,
-        displayRange: SpectrogramDisplayRange,
+        config: ReviewSpectrogramConfig,
+        audioProcessingConfig: ReviewAudioProcessingConfig,
     ): Visuals {
         val (shorts, _) = WavReader.readMono16(File(audioPath))
         val floats = FloatArray(shorts.size) { i -> shorts[i] / Short.MAX_VALUE.toFloat() }
         val pngDir = File(filesDir, "spectrograms").apply { mkdirs() }
-        // Cache key includes range so Bird/Owl/Full each get their own PNG.
-        val pngFile = File(pngDir, "${draftId}_${displayRange.name.lowercase()}_render_v3.png")
+        val rendererConfig = if (config.displayRange == SpectrogramDisplayRange.FULL) {
+            config.copy(
+                palette = SpectrogramPalette.VIRIDIS,
+                noiseFloorMode = SpectrogramNoiseFloorMode.NONE,
+                gateDb = 0f,
+                displayRangeDb = 80f,
+                gamma = 1f,
+                smoothingTimeRadius = 0,
+                smoothingFrequencyRadius = 0,
+            )
+        } else {
+            config
+        }
+        // Cache key includes the visual profile plus the audio profile so
+        // processed and original sources never collide on disk.
+        val pngFile = File(
+            pngDir,
+            "${draftId}_${rendererConfig.cacheSuffix()}_${audioProcessingConfig.cacheSuffix()}.png",
+        )
         if (!pngFile.exists()) {
-            val renderer = if (displayRange == SpectrogramDisplayRange.FULL) {
-                SpectrogramRenderer(
-                    palette = SpectrogramPalette.VIRIDIS,
-                    displayRange = displayRange,
-                    noiseFloorMode = SpectrogramNoiseFloorMode.NONE,
-                    gateDb = 0f,
-                    displayRangeDb = 80f,
-                    gamma = 1f,
-                    smoothingTimeRadius = 0,
-                    smoothingFrequencyRadius = 0,
-                )
-            } else {
-                SpectrogramRenderer(displayRange = displayRange)
-            }
+            val renderer = SpectrogramRenderer(config = rendererConfig)
             val pixels = renderer.render(floats)
             if (pixels.isNotEmpty()) {
                 SpectrogramBitmap.writePng(pixels, pngFile)
@@ -1331,5 +1460,30 @@ internal class ProductionVisualsProvider : VisualsProvider {
         }
         val peaks = WaveformBitmap.peaks(floats)
         return Visuals(spectrogramFile = pngFile, waveformPeaks = peaks)
+    }
+}
+
+internal class ProductionProcessedAudioProvider : ProcessedAudioProvider {
+    override suspend fun materialize(
+        originalAudioPath: String,
+        draftId: String,
+        filesDir: File,
+        config: ReviewAudioProcessingConfig,
+    ): File {
+        val input = File(originalAudioPath)
+        if (!config.requiresProcessing) return input
+        val outDir = File(filesDir, "processed_audio").apply { mkdirs() }
+        val outFile = File(outDir, "${draftId}_${config.cacheSuffix()}.wav")
+        if (outFile.exists() && outFile.length() > 0L) return outFile
+        val (samples, sampleRateHz) = WavReader.readMono16(input)
+        val processed = ReviewAudioProcessor.process(samples, sampleRateHz, config)
+        val writer = WavWriter(outFile, sampleRateHz, channels = 1, bitsPerSample = 16)
+        writer.open()
+        try {
+            writer.writeShorts(processed, 0, processed.size)
+        } finally {
+            writer.close()
+        }
+        return outFile
     }
 }
