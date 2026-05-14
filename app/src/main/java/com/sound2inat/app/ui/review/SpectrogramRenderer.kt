@@ -6,6 +6,9 @@ import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
 import com.sound2inat.app.ui.spectrogram.SpectrogramPostProcessor
 import com.sound2inat.app.ui.spectrogram.SpectrogramRenderProfile
 import com.sound2inat.app.ui.spectrogram.SpectrogramVisualPipeline
+import kotlin.math.ln
+import kotlin.math.pow
+import kotlin.math.roundToInt
 
 /**
  * Pure-JVM spectrogram pixel renderer. Produces a `[height][width]` matrix
@@ -70,11 +73,13 @@ class SpectrogramRenderer(
     fun render(matrix: ReviewSpectrogramMatrix): Array<IntArray> {
         if (matrix.frames == 0 || matrix.values.isEmpty()) return emptyArray()
 
-        val working = copyMatrix(matrix)
+        val working = projectDisplayRange(matrix)
         if (renderConfig.noiseFloorMode == SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN) {
             applyPerColumnMedianInPlace(working)
         }
-        addGainInPlace(working)
+        if (renderConfig.noiseFloorMode != SpectrogramNoiseFloorMode.NONE) {
+            addGainInPlace(working)
+        }
         val noiseAdjusted = when (renderConfig.noiseFloorMode) {
             SpectrogramNoiseFloorMode.NONE,
             SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN -> working
@@ -92,11 +97,50 @@ class SpectrogramRenderer(
             timeRadius = renderConfig.smoothingTimeRadius,
             frequencyRadius = renderConfig.smoothingFrequencyRadius,
         )
+        if (renderConfig.noiseFloorMode == SpectrogramNoiseFloorMode.NONE && renderConfig.gainDb != 0f) {
+            applyGainScaleInPlace(smoothed)
+        }
         return downsampleAndColor(smoothed)
     }
 
-    private fun copyMatrix(matrix: ReviewSpectrogramMatrix): Array<FloatArray> =
-        Array(matrix.values.size) { row -> matrix.values[row].copyOf() }
+    private fun projectDisplayRange(matrix: ReviewSpectrogramMatrix): Array<FloatArray> {
+        val cropped = cropRowsForDisplay(matrix)
+        return resampleRows(cropped, matrix.values.size)
+    }
+
+    private fun cropRowsForDisplay(matrix: ReviewSpectrogramMatrix): Array<FloatArray> {
+        val rows = matrix.values.size
+        if (rows == 0) return emptyArray()
+        val startRow = frequencyToRowIndex(renderConfig.displayRange.fMinHz, matrix.config, rows)
+        val endRow = frequencyToRowIndex(renderConfig.displayRange.fMaxHz, matrix.config, rows)
+            .coerceAtLeast(startRow)
+        return Array(endRow - startRow + 1) { offset ->
+            matrix.values[startRow + offset].copyOf()
+        }
+    }
+
+    private fun resampleRows(rows: Array<FloatArray>, targetRows: Int): Array<FloatArray> {
+        if (rows.isEmpty()) return emptyArray()
+        if (targetRows <= 0) return emptyArray()
+        if (rows.size == targetRows) return Array(targetRows) { row -> rows[row].copyOf() }
+        if (rows.size == 1 || targetRows == 1) {
+            return Array(targetRows) { rows[0].copyOf() }
+        }
+        val frameCount = rows[0].size
+        return Array(targetRows) { outRow ->
+            val sourcePosition = outRow.toFloat() * (rows.size - 1) / (targetRows - 1)
+            val lowerIndex = sourcePosition.toInt().coerceIn(0, rows.size - 1)
+            val upperIndex = (lowerIndex + 1).coerceAtMost(rows.size - 1)
+            if (lowerIndex == upperIndex) {
+                rows[lowerIndex].copyOf()
+            } else {
+                val fraction = sourcePosition - lowerIndex
+                FloatArray(frameCount) { frame ->
+                    rows[lowerIndex][frame] * (1f - fraction) + rows[upperIndex][frame] * fraction
+                }
+            }
+        }
+    }
 
     private fun addGainInPlace(matrix: Array<FloatArray>) {
         if (renderConfig.gainDb == 0f) return
@@ -104,6 +148,17 @@ class SpectrogramRenderer(
             val data = matrix[row]
             for (i in data.indices) {
                 data[i] += renderConfig.gainDb
+            }
+        }
+    }
+
+    private fun applyGainScaleInPlace(matrix: Array<FloatArray>) {
+        if (renderConfig.gainDb == 0f) return
+        val gainScale = 10f.pow(renderConfig.gainDb / 20f)
+        for (row in matrix.indices) {
+            val data = matrix[row]
+            for (i in data.indices) {
+                data[i] = (data[i] * gainScale).coerceIn(0f, 1f)
             }
         }
     }
@@ -157,6 +212,25 @@ class SpectrogramRenderer(
             }
         }
         return normalized
+    }
+
+    private fun frequencyToRowIndex(
+        frequencyHz: Int,
+        config: ReviewSpectrogramAnalysisConfig,
+        rowCount: Int,
+    ): Int {
+        if (rowCount <= 1) return 0
+        val minHz = config.minFrequencyHz.coerceAtLeast(1)
+        val maxHz = config.maxFrequencyHz.coerceAtLeast(minHz + 1)
+        val clampedHz = frequencyHz.coerceIn(minHz, maxHz)
+        val logMin = ln(minHz.toDouble())
+        val logMax = ln(maxHz.toDouble())
+        val fraction = if (logMax <= logMin) {
+            0.0
+        } else {
+            (ln(clampedHz.toDouble()) - logMin) / (logMax - logMin)
+        }
+        return (fraction * (rowCount - 1)).roundToInt().coerceIn(0, rowCount - 1)
     }
 
     private fun downsampleAndColor(normalized: Array<FloatArray>): Array<IntArray> {

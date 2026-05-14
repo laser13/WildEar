@@ -90,25 +90,35 @@ class ReviewSpectrogramMatrixCacheTest {
     }
 
     @Test
-    fun `visual-only changes do not affect the matrix cache key`() {
-        val cache = ReviewSpectrogramMatrixCache()
+    fun `changing display range reuses the same matrix cache entry`() {
+        val analyzerCalls = AtomicInteger(0)
+        val readSamplesCalls = AtomicInteger(0)
+        val cache = ReviewSpectrogramMatrixCache(analyze = { _, config ->
+            analyzerCalls.incrementAndGet()
+            sampleMatrix(config)
+        })
         val audioFile = createAudioFile("visuals.wav")
-        val bright = ReviewSpectrogramConfig.BirdDefault.copy(palette = com.sound2inat.app.ui.spectrogram.SpectrogramPalette.MAGMA, gainDb = 12f)
-        val muted = bright.copy(palette = com.sound2inat.app.ui.spectrogram.SpectrogramPalette.GRAY, gainDb = -6f)
-        val brightConfig = ReviewSpectrogramAnalysisConfig.from(bright.displayRange, sampleRateHz = 48_000)
-        val mutedConfig = ReviewSpectrogramAnalysisConfig.from(muted.displayRange, sampleRateHz = 48_000)
+        val full = ReviewSpectrogramConfig.BirdDefault.copy(displayRange = SpectrogramDisplayRange.FULL)
+        val bird = ReviewSpectrogramConfig.BirdDefault.copy(displayRange = SpectrogramDisplayRange.BIRDNET_BIRD)
+        val fullConfig = ReviewSpectrogramAnalysisConfig.from(full.displayRange, sampleRateHz = 48_000)
+        val birdConfig = ReviewSpectrogramAnalysisConfig.from(bird.displayRange, sampleRateHz = 48_000)
 
-        assertThat(cache.cacheKey(audioFile, brightConfig)).isEqualTo(cache.cacheKey(audioFile, mutedConfig))
-    }
+        runSuspend {
+            cache.getOrCreate(audioFile, "draft-1", tmp.root, fullConfig) {
+                readSamplesCalls.incrementAndGet()
+                sampleSamples()
+            }
+        }
+        runSuspend {
+            cache.getOrCreate(audioFile, "draft-1", tmp.root, birdConfig) {
+                readSamplesCalls.incrementAndGet()
+                sampleSamples()
+            }
+        }
 
-    @Test
-    fun `changing display range forces a new matrix cache entry`() {
-        val cache = ReviewSpectrogramMatrixCache()
-        val audioFile = createAudioFile("display-range.wav")
-        val wideConfig = ReviewSpectrogramAnalysisConfig.from(SpectrogramDisplayRange.FULL, sampleRateHz = 48_000)
-        val birdConfig = ReviewSpectrogramAnalysisConfig.from(SpectrogramDisplayRange.BIRDNET_BIRD, sampleRateHz = 48_000)
-
-        assertThat(cache.cacheKey(audioFile, wideConfig)).isNotEqualTo(cache.cacheKey(audioFile, birdConfig))
+        assertThat(cache.cacheKey(audioFile, fullConfig)).isEqualTo(cache.cacheKey(audioFile, birdConfig))
+        assertThat(analyzerCalls.get()).isEqualTo(1)
+        assertThat(readSamplesCalls.get()).isEqualTo(1)
     }
 
     private fun analysisConfig(): ReviewSpectrogramAnalysisConfig =

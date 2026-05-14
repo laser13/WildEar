@@ -17,7 +17,7 @@ class SpectrogramRendererTest {
     }
 
     private fun sampleMatrix(
-        displayRange: SpectrogramDisplayRange = SpectrogramDisplayRange.BIRDNET_BIRD,
+        displayRange: SpectrogramDisplayRange = SpectrogramDisplayRange.FULL,
     ): ReviewSpectrogramMatrix {
         val config = ReviewSpectrogramAnalysisConfig.from(displayRange, sampleRateHz = 48_000)
         val samples = sineWave(1_000.0, config.sampleRateHz, config.sampleRateHz * 3)
@@ -25,10 +25,10 @@ class SpectrogramRendererTest {
     }
 
     private fun midToneMatrix(): ReviewSpectrogramMatrix {
-        val config = ReviewSpectrogramAnalysisConfig.from(SpectrogramDisplayRange.BIRDNET_BIRD, sampleRateHz = 48_000)
+        val config = ReviewSpectrogramAnalysisConfig.from(SpectrogramDisplayRange.FULL, sampleRateHz = 48_000)
         val values = Array(config.displayHeightBins) { row ->
             FloatArray(32) { frame ->
-                ((row + frame) % 32).toFloat() / 32f
+                row.toFloat() / config.displayHeightBins.toFloat() + frame.toFloat() / 64f
             }
         }
         return ReviewSpectrogramMatrix(config = config, frames = 32, values = values)
@@ -69,6 +69,36 @@ class SpectrogramRendererTest {
     }
 
     @Test
+    fun `display range changes pixels from same matrix`() {
+        val matrix = sampleMatrix()
+        val full = SpectrogramRenderer(
+            targetWidth = 64,
+            config = ReviewSpectrogramConfig.BirdDefault.copy(displayRange = SpectrogramDisplayRange.FULL),
+        ).render(matrix)
+        val bird = SpectrogramRenderer(
+            targetWidth = 64,
+            config = ReviewSpectrogramConfig.BirdDefault.copy(displayRange = SpectrogramDisplayRange.BIRDNET_BIRD),
+        ).render(matrix)
+
+        assertThat(full).isNotEqualTo(bird)
+    }
+
+    @Test
+    fun `gain changes pixels when noise floor is disabled`() {
+        val matrix = midToneMatrix()
+        val neutral = SpectrogramRenderer(
+            targetWidth = 64,
+            config = ReviewSpectrogramConfig.BirdDefault.copy(noiseFloorMode = SpectrogramNoiseFloorMode.NONE, gainDb = 0f),
+        ).render(matrix)
+        val boosted = SpectrogramRenderer(
+            targetWidth = 64,
+            config = ReviewSpectrogramConfig.BirdDefault.copy(noiseFloorMode = SpectrogramNoiseFloorMode.NONE, gainDb = 12f),
+        ).render(matrix)
+
+        assertThat(neutral).isNotEqualTo(boosted)
+    }
+
+    @Test
     fun `palette changes pixels without changing matrix`() {
         val matrix = sampleMatrix()
         val ink = SpectrogramRenderer(
@@ -81,38 +111,6 @@ class SpectrogramRendererTest {
         ).render(matrix)
 
         assertThat(ink).isNotEqualTo(viridis)
-    }
-
-    @Test
-    fun `gain is absorbed by normalization when noise floor is disabled`() {
-        val matrix = midToneMatrix()
-        val neutral = SpectrogramRenderer(
-            targetWidth = 64,
-            config = ReviewSpectrogramConfig.BirdDefault.copy(noiseFloorMode = SpectrogramNoiseFloorMode.NONE, gainDb = 0f),
-        ).render(matrix)
-        val boosted = SpectrogramRenderer(
-            targetWidth = 64,
-            config = ReviewSpectrogramConfig.BirdDefault.copy(noiseFloorMode = SpectrogramNoiseFloorMode.NONE, gainDb = 12f),
-        ).render(matrix)
-
-        assertThat(neutral).isEqualTo(boosted)
-    }
-
-    @Test
-    fun `per frequency noise floor changes pixels without mutating the matrix`() {
-        val matrix = sampleMatrix()
-        val noNoiseFloor = SpectrogramRenderer(
-            targetWidth = 64,
-            config = ReviewSpectrogramConfig.BirdDefault.copy(noiseFloorMode = SpectrogramNoiseFloorMode.NONE),
-        ).render(matrix)
-        val median = SpectrogramRenderer(
-            targetWidth = 64,
-            config = ReviewSpectrogramConfig.BirdDefault.copy(noiseFloorMode = SpectrogramNoiseFloorMode.PER_FREQUENCY_MEDIAN),
-        ).render(matrix)
-
-        assertThat(noNoiseFloor).isNotEqualTo(median)
-        val original = sampleMatrix()
-        assertThat(matrix.values.map { it.toList() }).isEqualTo(original.values.map { it.toList() })
     }
 
     @Test

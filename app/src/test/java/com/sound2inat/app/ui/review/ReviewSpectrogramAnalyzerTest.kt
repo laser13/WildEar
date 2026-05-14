@@ -52,7 +52,7 @@ class ReviewSpectrogramAnalyzerTest {
     }
 
     @Test
-    fun `changing display range changes the matrix content`() {
+    fun `display range does not change the reusable matrix content`() {
         val analyzer = ReviewSpectrogramAnalyzer()
         val samples = sineWave(1_000.0, 48_000, 48_000 * 3)
         val full = ReviewSpectrogramAnalysisConfig.from(SpectrogramDisplayRange.FULL, sampleRateHz = 48_000)
@@ -61,6 +61,6 @@ class ReviewSpectrogramAnalyzerTest {
         val fullMatrix = analyzer.analyze(samples, full)
         val birdMatrix = analyzer.analyze(samples, bird)
 
-        assertThat(fullMatrix).isNotEqualTo(birdMatrix)
+        assertThat(fullMatrix).isEqualTo(birdMatrix)
     }
 }

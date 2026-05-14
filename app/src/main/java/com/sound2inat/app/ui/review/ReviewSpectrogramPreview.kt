@@ -1,10 +1,12 @@
 package com.sound2inat.app.ui.review
 
-data class ReviewSpectrogramPreview(
+class ReviewSpectrogramPreview(
     val width: Int,
     val height: Int,
-    val argb: IntArray,
+    argb: IntArray,
 ) {
+    val argb: IntArray = argb.copyOf()
+
     init {
         require(width >= 0) { "width must be non-negative" }
         require(height >= 0) { "height must be non-negative" }

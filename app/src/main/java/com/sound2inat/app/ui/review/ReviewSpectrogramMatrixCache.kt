@@ -25,7 +25,6 @@ class ReviewSpectrogramMatrixCache(
         val cacheFile = cacheFile(audioFile, draftId, filesDir, config)
         readMatrixFromCache(
             cacheFile = cacheFile,
-            audioFile = audioFile,
             expectedConfig = config,
             expectedMetadata = expectedMetadata(audioFile, config),
         )?.let { return it }
@@ -64,7 +63,6 @@ class ReviewSpectrogramMatrixCache(
 
     private fun readMatrixFromCache(
         cacheFile: File,
-        audioFile: File,
         expectedConfig: ReviewSpectrogramAnalysisConfig,
         expectedMetadata: String,
     ): ReviewSpectrogramMatrix? {
@@ -82,11 +80,6 @@ class ReviewSpectrogramMatrixCache(
                     val frames = input.readInt()
                     val config = readConfig(input)
                     validateShape(rows, frames, expectedConfig, config)
-                    validateFrameBound(
-                        audioFile = audioFile,
-                        frames = frames,
-                        config = config,
-                    )
                     validatePayloadSize(
                         remainingBytes = fileInput.available().toLong(),
                         rows = rows,
@@ -174,6 +167,9 @@ class ReviewSpectrogramMatrixCache(
         require(frames >= 0) {
             "Unexpected negative frame count: $frames"
         }
+        require(frames <= MAX_REASONABLE_FRAMES) {
+            "Unexpected matrix frame count: $frames"
+        }
         require(rows == expectedConfig.displayHeightBins) {
             "Unexpected matrix row count: $rows"
         }
@@ -196,28 +192,6 @@ class ReviewSpectrogramMatrixCache(
         }
     }
 
-    private fun validateFrameBound(
-        audioFile: File,
-        frames: Int,
-        config: ReviewSpectrogramAnalysisConfig,
-    ) {
-        val maxFrames = maxExpectedFrames(audioFile, config)
-        require(frames <= maxFrames) {
-            "Unexpected cache frame count: $frames (max expected $maxFrames)"
-        }
-    }
-
-    private fun maxExpectedFrames(
-        audioFile: File,
-        config: ReviewSpectrogramAnalysisConfig,
-    ): Int {
-        val info = readMono16Info(audioFile)
-        val totalSamples = info.totalSamples
-        if (totalSamples < config.fftSize.toLong()) return 0
-        val expected = 1L + (totalSamples - config.fftSize.toLong()) / config.hopSize.toLong()
-        return expected.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-    }
-
     private fun deleteAndNull(file: File): ReviewSpectrogramMatrix? {
         file.delete()
         return null
@@ -227,5 +201,6 @@ class ReviewSpectrogramMatrixCache(
         private const val CACHE_ROOT = "spectrogram_matrix_cache"
         private const val MAGIC = 0x57534D43 // "WSMC"
         private const val FILE_FORMAT_VERSION = 1
+        private const val MAX_REASONABLE_FRAMES = 100_000
     }
 }

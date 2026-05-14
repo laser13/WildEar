@@ -34,4 +34,33 @@ class ReviewSpectrogramPreviewTest {
 
         assertThat(thrown).hasMessageThat().contains("same width")
     }
+
+    @Test
+    fun `equal previews compare pixel content not array identity`() {
+        val first = ReviewSpectrogramPreview.fromRows(
+            arrayOf(
+                intArrayOf(0x11, 0x12),
+                intArrayOf(0x21, 0x22),
+            ),
+        )
+        val second = ReviewSpectrogramPreview.fromRows(
+            arrayOf(
+                intArrayOf(0x11, 0x12),
+                intArrayOf(0x21, 0x22),
+            ),
+        )
+
+        assertThat(first).isEqualTo(second)
+        assertThat(first.hashCode()).isEqualTo(second.hashCode())
+    }
+
+    @Test
+    fun `constructor clones the source pixel array`() {
+        val source = intArrayOf(0x11, 0x12, 0x21, 0x22)
+        val preview = ReviewSpectrogramPreview(width = 2, height = 2, argb = source)
+
+        source[0] = 0x99
+
+        assertThat(preview.argb).isEqualTo(intArrayOf(0x11, 0x12, 0x21, 0x22))
+    }
 }
