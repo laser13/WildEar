@@ -60,6 +60,7 @@ class EndToEndTest {
             composeRule.onAllNodesWithText(BLACKBIRD_LABEL).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText(BLACKBIRD_LABEL).assertIsDisplayed()
+        composeRule.onNodeWithContentDescription(SETTINGS_DESC).assertIsDisplayed()
 
         // Save was removed — VM auto-promotes status after inference. Go back via the back arrow.
         composeRule.waitUntil(timeoutMillis = SCREEN_TIMEOUT_MS) {
@@ -94,6 +95,7 @@ class EndToEndTest {
         const val STOP_DESC = "Stop"
         const val BACK_DESC = "Back"
         const val DELETE_DESC = "Delete"
+        const val SETTINGS_DESC = "Settings"
         const val SPECIES_LABEL = "Detected species"
         const val BLACKBIRD_LABEL = "Common Blackbird"
         const val SCREEN_TIMEOUT_MS = 10_000L

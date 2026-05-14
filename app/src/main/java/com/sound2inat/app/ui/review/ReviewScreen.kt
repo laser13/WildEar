@@ -71,6 +71,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -174,14 +175,14 @@ private fun ReviewPage(
     val state by vm.state.collectAsStateWithLifecycle()
     val spectrogramFile by vm.spectrogramFile.collectAsStateWithLifecycle()
     val displayRange by vm.displayRange.collectAsStateWithLifecycle()
-    val spectrogramConfig by vm.spectrogramConfig.collectAsStateWithLifecycle()
     val waveformPeaks by vm.waveformPeaks.collectAsStateWithLifecycle()
     val windowPreds by vm.windowPreds.collectAsStateWithLifecycle()
     val highlight by vm.highlight.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
 
-    var processingSheetVisible by remember { mutableStateOf(false) }
+    var settingsSheetVisible by remember { mutableStateOf(false) }
+    var settingsTab by rememberSaveable { mutableStateOf(ReviewSettingsTab.Audio) }
     LaunchedEffect(state.audioPath) {
         if (state.audioPath != null) vm.ensureVisuals(filesDir)
     }
@@ -287,7 +288,10 @@ private fun ReviewPage(
                     PlayerControls(
                         state = state,
                         vm = vm,
-                        onSettingsClick = { processingSheetVisible = true },
+                        onSettingsClick = {
+                            settingsTab = ReviewSettingsTab.Audio
+                            settingsSheetVisible = true
+                        },
                     )
                 }
                 item {
@@ -303,10 +307,6 @@ private fun ReviewPage(
                         positionFlow = vm.playerPosition,
                         onSeek = vm::seekTo,
                         displayRange = displayRange,
-                        onDisplayRangeChange = vm::setDisplayRange,
-                        config = spectrogramConfig,
-                        onPaletteChange = vm::setSpectrogramPalette,
-                        onGainChange = vm::setSpectrogramGain,
                         windowPreds = windowPreds,
                         species = state.species,
                         highlight = highlight,
@@ -500,11 +500,14 @@ private fun ReviewPage(
         )
     }
 
-    if (processingSheetVisible) {
-        ReviewProcessingBottomSheet(
+    if (settingsSheetVisible) {
+        ReviewSettingsBottomSheet(
             state = state,
-            onConfigSelected = vm::setAudioProcessingConfig,
-            onDismiss = { processingSheetVisible = false },
+            profile = state.processingProfile,
+            selectedTab = settingsTab,
+            onSelectedTabChange = { settingsTab = it },
+            onApply = vm::setProcessingProfile,
+            onDismiss = { settingsSheetVisible = false },
         )
     }
 

@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,8 +30,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.foundation.lazy.items
-import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
 import com.sound2inat.inference.WindowPrediction
 import kotlinx.coroutines.flow.StateFlow
 
@@ -42,19 +39,6 @@ import kotlinx.coroutines.flow.StateFlow
  * Compose dp sizes individual peaks were unreadable and the strip just
  * stole vertical space from the spectrogram.
  */
-private val PALETTE_OPTIONS = listOf(
-    SpectrogramPalette.VIRIDIS,
-    SpectrogramPalette.MAGMA,
-    SpectrogramPalette.GRAY,
-)
-
-private val PALETTE_SHORT_LABELS = mapOf(
-    SpectrogramPalette.VIRIDIS to "Viridis",
-    SpectrogramPalette.MAGMA to "Magma",
-    SpectrogramPalette.GRAY to "Gray",
-)
-
-private val GAIN_OPTIONS = listOf(-20f, -10f, 0f, 10f, 20f)
 
 @Suppress("FunctionNaming")
 @Composable
@@ -65,10 +49,6 @@ internal fun WaveformAndSpectrogram(
     positionFlow: StateFlow<Long>,
     onSeek: (Long) -> Unit,
     displayRange: SpectrogramDisplayRange = SpectrogramDisplayRange.BIRD_FOCUSED,
-    onDisplayRangeChange: (SpectrogramDisplayRange) -> Unit = {},
-    config: ReviewSpectrogramConfig = ReviewSpectrogramConfig.BirdDefault,
-    onPaletteChange: (SpectrogramPalette) -> Unit = {},
-    onGainChange: (Float) -> Unit = {},
     windowPreds: List<WindowPrediction> = emptyList(),
     species: List<SpeciesRow> = emptyList(),
     highlight: Long? = null,
@@ -97,30 +77,6 @@ internal fun WaveformAndSpectrogram(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        androidx.compose.foundation.lazy.LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 4.dp),
-        ) {
-            items(PALETTE_OPTIONS) { palette ->
-                FilterChip(
-                    selected = config.palette == palette,
-                    onClick = { onPaletteChange(palette) },
-                    label = { Text(PALETTE_SHORT_LABELS[palette] ?: palette.name) },
-                )
-            }
-        }
-        androidx.compose.foundation.lazy.LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 4.dp),
-        ) {
-            items(GAIN_OPTIONS) { gain ->
-                FilterChip(
-                    selected = config.gainDb == gain,
-                    onClick = { onGainChange(gain) },
-                    label = { Text(formatGainLabel(gain)) },
-                )
-            }
-        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -221,13 +177,6 @@ private const val SPECTROGRAM_HEIGHT = 220
 private const val AXIS_WIDTH = 56
 private const val CURSOR_STROKE_PX = 2f
 private const val SELECTION_STROKE_PX = 3f
-
-private fun formatGainLabel(gainDb: Float): String =
-    when {
-        gainDb > 0f -> "+${gainDb.toInt()}"
-        gainDb == 0f -> "0"
-        else -> gainDb.toInt().toString()
-    }
 
 @Composable
 private fun FrequencyAxis(
