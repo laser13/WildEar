@@ -61,7 +61,7 @@ object SpectrogramColorMap {
     )
 
     fun gray(): IntArray = IntArray(LUT_SIZE) { i ->
-        val v = i.coerceIn(0, 255)
+        val v = (255 - i).coerceIn(0, 255)
         (0xFF shl 24) or (v shl 16) or (v shl 8) or v
     }
 

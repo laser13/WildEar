@@ -85,10 +85,10 @@ class SpectrogramColorMapTest {
     }
 
     @Test
-    fun `gray LUT runs from black to white`() {
+    fun `gray LUT runs from white to black`() {
         val lut = SpectrogramColorMap.gray()
-        assertThat(lut.first()).isEqualTo(BLACK)
-        assertThat(lut.last()).isEqualTo(WHITE)
+        assertThat(lut.first()).isEqualTo(WHITE)
+        assertThat(lut.last()).isEqualTo(BLACK)
     }
 
     @Test
