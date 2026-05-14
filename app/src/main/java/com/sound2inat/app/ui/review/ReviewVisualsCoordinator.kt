@@ -41,22 +41,24 @@ class ReviewVisualsCoordinator @Inject constructor(
             }
             val newDeferred = appScope.async(Dispatchers.Default) {
                 try {
-                    buildMutex.withLock { build() }
-                } finally {
+                    val result = buildMutex.withLock { build() }
+                    stateMutex.withLock {
+                        memoryCache[key] = result
+                        inFlight.remove(key)
+                    }
+                    result
+                } catch (t: Throwable) {
                     stateMutex.withLock {
                         inFlight.remove(key)
                     }
+                    throw t
                 }
             }
             inFlight[key] = newDeferred
             deferred = newDeferred
         }
         cached?.let { return it }
-        val result = deferred!!.await()
-        stateMutex.withLock {
-            memoryCache[key] = result
-        }
-        return result
+        return deferred!!.await()
     }
 
     private companion object {

@@ -186,7 +186,7 @@ private fun ReviewPage(
     var settingsSheetVisible by remember { mutableStateOf(false) }
     var settingsTab by rememberSaveable { mutableStateOf(ReviewSettingsTab.Audio) }
     LaunchedEffect(isActive, state.audioPath) {
-        if (isActive && state.audioPath != null) {
+        if (shouldEnsureVisualsForPage(isActive, state.audioPath)) {
             vm.ensureVisuals(filesDir)
         }
     }
@@ -539,6 +539,9 @@ private fun ReviewPage(
         )
     }
 }
+
+internal fun shouldEnsureVisualsForPage(isActive: Boolean, audioPath: String?): Boolean =
+    isActive && audioPath != null
 
 @Suppress("FunctionNaming")
 @Composable
