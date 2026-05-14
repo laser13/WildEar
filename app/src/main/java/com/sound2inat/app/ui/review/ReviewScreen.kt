@@ -159,6 +159,7 @@ fun ReviewScreen(
         ReviewPage(
             vm = vm,
             filesDir = pagerVm.factory.filesDir,
+            isActive = isActive,
             onBack = onBack,
         )
     }
@@ -170,10 +171,11 @@ fun ReviewScreen(
 private fun ReviewPage(
     vm: ReviewViewModel,
     filesDir: java.io.File,
+    isActive: Boolean,
     onBack: () -> Unit,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
-    val spectrogramFile by vm.spectrogramFile.collectAsStateWithLifecycle()
+    val spectrogramPreview by vm.spectrogramPreview.collectAsStateWithLifecycle()
     val displayRange by vm.displayRange.collectAsStateWithLifecycle()
     val waveformPeaks by vm.waveformPeaks.collectAsStateWithLifecycle()
     val windowPreds by vm.windowPreds.collectAsStateWithLifecycle()
@@ -183,8 +185,10 @@ private fun ReviewPage(
 
     var settingsSheetVisible by remember { mutableStateOf(false) }
     var settingsTab by rememberSaveable { mutableStateOf(ReviewSettingsTab.Audio) }
-    LaunchedEffect(state.audioPath) {
-        if (state.audioPath != null) vm.ensureVisuals(filesDir)
+    LaunchedEffect(isActive, state.audioPath) {
+        if (isActive && state.audioPath != null) {
+            vm.ensureVisuals(filesDir)
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -302,10 +306,11 @@ private fun ReviewPage(
                         ?.let { (it.lastSeenMs + SPECIES_CLIP_PADDING_MS).coerceAtMost(state.durationMs) }
                     WaveformAndSpectrogram(
                         peaks = waveformPeaks,
-                        spectrogramPath = spectrogramFile?.takeIf { it.exists() }?.absolutePath,
+                        spectrogramPreview = spectrogramPreview,
                         durationMs = state.durationMs,
                         positionFlow = vm.playerPosition,
                         onSeek = vm::seekTo,
+                        visualsLoading = state.visualsLoading,
                         displayRange = displayRange,
                         windowPreds = windowPreds,
                         species = state.species,

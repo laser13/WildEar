@@ -51,6 +51,9 @@ class ReviewViewModelTest {
     @get:Rule
     val tmp = TemporaryFolder()
 
+    private fun preview(color: Int = 0xFF000000.toInt()) =
+        ReviewSpectrogramPreview(width = 1, height = 1, argb = intArrayOf(color))
+
     @Test
     fun `pending inference draft kicks off inference and populates species`() =
         runTest(UnconfinedTestDispatcher()) {
@@ -256,18 +259,18 @@ class ReviewViewModelTest {
     }
 
     @Test
-    fun `ensureVisuals populates spectrogramFile and waveformPeaks`() =
+    fun `ensureVisuals populates spectrogramPreview and waveformPeaks`() =
         runTest(UnconfinedTestDispatcher()) {
             val draftId = "d7"
             val draftDao = FakeDraftDao().apply {
                 insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
             }
-            val expectedPng = tmp.newFile("expected.png")
+            val expectedPreview = preview()
             val expectedPeaks = floatArrayOf(-0.5f, 0.5f, -0.25f, 0.25f)
             var calls = 0
             val provider = VisualsProvider { _, _, _, _, _ ->
                 calls++
-                Visuals(spectrogramFile = expectedPng, waveformPeaks = expectedPeaks)
+                Visuals(spectrogramPreview = expectedPreview, waveformPeaks = expectedPeaks)
             }
             val repo = repo(draftDao, FakeDetectionDao())
             val queue = makeQueue(draftRepo = repo)
@@ -282,11 +285,60 @@ class ReviewViewModelTest {
                 externalScope = backgroundScope,
             )
             vm.ensureVisuals(tmp.root)
-            assertThat(vm.spectrogramFile.value).isEqualTo(expectedPng)
+            assertThat(vm.spectrogramPreview.value).isEqualTo(expectedPreview)
             assertThat(vm.waveformPeaks.value).isEqualTo(expectedPeaks)
             // Subsequent calls do NOT re-invoke the provider.
             vm.ensureVisuals(tmp.root)
             assertThat(calls).isEqualTo(1)
+        }
+
+    @Test
+    fun `inactive page with audio path does not start visuals until active page triggers`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val activeDraftId = "active_page"
+            val inactiveDraftId = "inactive_page"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(activeDraftId, status = DraftStatus.PENDING_REVIEW))
+                insert(draftFor(inactiveDraftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val visualsCalls = AtomicInteger(0)
+            val provider = VisualsProvider { _, _, _, _, _ ->
+                visualsCalls.incrementAndGet()
+                Visuals(spectrogramPreview = preview(), waveformPeaks = floatArrayOf(-1f, 1f))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(draftRepo = repo)
+            val activeVm = ReviewViewModel(
+                draftId = activeDraftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                visuals = provider,
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            val inactiveVm = ReviewViewModel(
+                draftId = inactiveDraftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                visuals = provider,
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            advanceUntilIdle()
+
+            assertThat(activeVm.state.value.audioPath).isNotNull()
+            assertThat(inactiveVm.state.value.audioPath).isNotNull()
+            assertThat(visualsCalls.get()).isEqualTo(0)
+
+            activeVm.ensureVisuals(tmp.root)
+            advanceUntilIdle()
+
+            assertThat(visualsCalls.get()).isEqualTo(1)
+            assertThat(inactiveVm.state.value.audioPath).isNotNull()
         }
 
     @Test
@@ -298,7 +350,6 @@ class ReviewViewModelTest {
                 insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
             }
             val gate = CompletableDeferred<Unit>()
-            val expectedPng = tmp.newFile("visuals-loading.png")
             val repo = repo(draftDao, FakeDetectionDao())
             val queue = makeQueue(draftRepo = repo)
             val vm = ReviewViewModel(
@@ -308,7 +359,7 @@ class ReviewViewModelTest {
                 inference = noopInference(),
                 visuals = VisualsProvider { _, _, _, _, _ ->
                     gate.await()
-                    Visuals(spectrogramFile = expectedPng, waveformPeaks = floatArrayOf(-1f, 1f))
+                    Visuals(spectrogramPreview = preview(), waveformPeaks = floatArrayOf(-1f, 1f))
                 },
                 queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
@@ -324,7 +375,7 @@ class ReviewViewModelTest {
             advanceUntilIdle()
 
             assertThat(vm.state.value.visualsLoading).isFalse()
-            assertThat(vm.spectrogramFile.value).isEqualTo(expectedPng)
+            assertThat(vm.spectrogramPreview.value).isEqualTo(preview())
         }
 
     @Test
@@ -347,7 +398,7 @@ class ReviewViewModelTest {
                 visuals = VisualsProvider { _, _, _, _, _ ->
                     calls++
                     gate.await()
-                    Visuals(spectrogramFile = tmp.newFile("cancel-restart-$calls.png"), waveformPeaks = floatArrayOf(-1f, 1f))
+                    Visuals(spectrogramPreview = preview(calls), waveformPeaks = floatArrayOf(-1f, 1f))
                 },
                 queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
@@ -390,7 +441,7 @@ class ReviewViewModelTest {
                 visuals = VisualsProvider { _, _, _, config, _ ->
                     visualsCalls++
                     Visuals(
-                        spectrogramFile = tmp.newFile("visual_gain_${config.gainDb}_${visualsCalls}.png"),
+                        spectrogramPreview = preview(),
                         waveformPeaks = floatArrayOf(-1f, 1f),
                     )
                 },
@@ -433,7 +484,7 @@ class ReviewViewModelTest {
                 visuals = VisualsProvider { _, _, _, config, _ ->
                     visualsCalls++
                     Visuals(
-                        spectrogramFile = tmp.newFile("visual_palette_${config.palette}_${visualsCalls}.png"),
+                        spectrogramPreview = preview(),
                         waveformPeaks = floatArrayOf(-1f, 1f),
                     )
                 },
@@ -464,10 +515,7 @@ class ReviewViewModelTest {
                 analyzerCalls.incrementAndGet()
                 ReviewSpectrogramAnalyzer().analyze(samples, config)
             })
-            val provider = ProductionVisualsProvider(
-                matrixCache = matrixCache,
-                pngWriter = SpectrogramPngWriter { _, _ -> },
-            )
+            val provider = ProductionVisualsProvider(matrixCache = matrixCache)
             val firstConfig = ReviewSpectrogramConfig.BirdDefault
             val secondConfig = firstConfig.copy(
                 palette = SpectrogramPalette.MAGMA,
@@ -489,10 +537,43 @@ class ReviewViewModelTest {
                 audioProcessingConfig = ReviewAudioProcessingConfig.Original,
             )
 
-            assertThat(first.spectrogramFile.name).isNotEqualTo(second.spectrogramFile.name)
+            assertThat(first.spectrogramPreview).isNotEqualTo(second.spectrogramPreview)
             assertThat(first.waveformPeaks).isNotEmpty()
             assertThat(second.waveformPeaks).isNotEmpty()
             assertThat(analyzerCalls.get()).isEqualTo(1)
+        }
+
+    @Test
+    fun `full range preserves the selected palette`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val audioFile = createSilentWav(tmp.newFile("full_palette.wav"), sampleRate = 48_000, durationMs = 10_000)
+            val matrixCache = ReviewSpectrogramMatrixCache(analyze = { samples, config ->
+                ReviewSpectrogramAnalyzer().analyze(samples, config)
+            })
+            val provider = ProductionVisualsProvider(matrixCache = matrixCache)
+
+            val magenta = provider.build(
+                audioPath = audioFile.absolutePath,
+                draftId = "full_palette",
+                filesDir = tmp.root,
+                config = ReviewSpectrogramConfig.BirdDefault.copy(
+                    displayRange = SpectrogramDisplayRange.FULL,
+                    palette = SpectrogramPalette.MAGMA,
+                ),
+                audioProcessingConfig = ReviewAudioProcessingConfig.Original,
+            )
+            val viridis = provider.build(
+                audioPath = audioFile.absolutePath,
+                draftId = "full_palette_2",
+                filesDir = tmp.root,
+                config = ReviewSpectrogramConfig.BirdDefault.copy(
+                    displayRange = SpectrogramDisplayRange.FULL,
+                    palette = SpectrogramPalette.VIRIDIS,
+                ),
+                audioProcessingConfig = ReviewAudioProcessingConfig.Original,
+            )
+
+            assertThat(magenta.spectrogramPreview).isNotEqualTo(viridis.spectrogramPreview)
         }
 
     @Test
@@ -502,12 +583,10 @@ class ReviewViewModelTest {
             val draftDao = FakeDraftDao().apply {
                 insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
             }
-            val expectedPng = tmp.newFile("spectrogram-submit.png").apply {
-                writeBytes(byteArrayOf(0x01, 0x02, 0x03))
-            }
             val repo = repo(draftDao, FakeDetectionDao())
             val queue = makeQueue(draftRepo = repo)
             var capturedSpectrogram: File? = null
+            var pngWrites = 0
             val submission = InatSubmissionJob { _, _, _, _, spectrogramPhoto, _ ->
                 capturedSpectrogram = spectrogramPhoto
                 InatSubmissionOutcome.Success(emptyList())
@@ -518,10 +597,15 @@ class ReviewViewModelTest {
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
                 visuals = VisualsProvider { _, _, _, _, _ ->
-                    Visuals(spectrogramFile = expectedPng, waveformPeaks = floatArrayOf(-1f, 1f))
+                    Visuals(spectrogramPreview = preview(), waveformPeaks = floatArrayOf(-1f, 1f))
                 },
                 submission = submission,
                 tokenProvider = { "jwt" },
+                spectrogramPngWriter = SpectrogramPngWriter { _, target ->
+                    pngWrites++
+                    target.parentFile?.mkdirs()
+                    target.writeBytes(byteArrayOf(1, 2, 3))
+                },
                 queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
@@ -532,7 +616,9 @@ class ReviewViewModelTest {
             vm.submitToINaturalist()
             advanceUntilIdle()
 
-            assertThat(capturedSpectrogram).isEqualTo(expectedPng)
+            assertThat(pngWrites).isEqualTo(1)
+            assertThat(capturedSpectrogram).isNotNull()
+            assertThat(capturedSpectrogram!!.exists()).isTrue()
         }
 
     @Test
@@ -714,8 +800,12 @@ class ReviewViewModelTest {
                 processedAudio = ProcessedAudioProvider { _, _, _, _ -> processedOutput },
                 submission = submission,
                 tokenProvider = { "jwt" },
+                spectrogramPngWriter = SpectrogramPngWriter { _, target ->
+                    target.parentFile?.mkdirs()
+                    target.writeBytes(byteArrayOf(1, 2, 3))
+                },
                 visuals = VisualsProvider { _, _, _, _, _ ->
-                    Visuals(spectrogramFile = tmp.newFile("spectrogram-upload.png"), waveformPeaks = floatArrayOf(-1f, 1f))
+                    Visuals(spectrogramPreview = preview(), waveformPeaks = floatArrayOf(-1f, 1f))
                 },
                 queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
@@ -747,16 +837,16 @@ class ReviewViewModelTest {
         val vm = ReviewViewModel(
             draftId = draftId,
             repo = repo,
-            player = player,
-            inference = noopInference(),
-            processedAudio = processedAudio,
-            visuals = VisualsProvider { _, _, _, _, _ ->
-                Visuals(spectrogramFile = tmp.newFile("spectrogram-play.png"), waveformPeaks = floatArrayOf(-1f, 1f))
-            },
-            queue = queue,
-            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
-            externalScope = backgroundScope,
-        )
+                player = player,
+                inference = noopInference(),
+                processedAudio = processedAudio,
+                visuals = VisualsProvider { _, _, _, _, _ ->
+                    Visuals(spectrogramPreview = preview(), waveformPeaks = floatArrayOf(-1f, 1f))
+                },
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
 
         vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
         vm.ensureVisuals(tmp.root)

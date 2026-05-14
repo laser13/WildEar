@@ -3,6 +3,7 @@ package com.sound2inat.app.ui.review
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import android.os.SystemClock
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -69,9 +70,9 @@ import kotlin.coroutines.coroutineContext
  * Decoupled from Android's `Bitmap` so the VM can be unit-tested on the JVM.
  *
  * Production wiring: [ProductionVisualsProvider] reads the WAV via
- * [WavReader.readMono16], runs [SpectrogramRenderer], persists the PNG via
- * [SpectrogramBitmap.writePng], and computes per-column peaks via
- * [WaveformBitmap.peaks].
+ * [WavReader.readMono16], runs [SpectrogramRenderer] into an in-memory
+ * preview, and computes per-column peaks via [WaveformBitmap.peaks]. PNG
+ * generation is deferred until submission/export.
  */
 fun interface VisualsProvider {
     suspend fun build(
@@ -84,23 +85,23 @@ fun interface VisualsProvider {
 }
 
 /**
- * Output of [VisualsProvider]. [spectrogramFile] points at a PNG cached on
- * disk; [waveformPeaks] is the interleaved (min, max) envelope used by the
- * Compose waveform canvas.
+ * Output of [VisualsProvider]. [spectrogramPreview] is the in-memory preview
+ * shown on screen; [waveformPeaks] is the interleaved (min, max) envelope used
+ * by the Compose waveform canvas.
  */
 data class Visuals(
-    val spectrogramFile: File,
+    val spectrogramPreview: ReviewSpectrogramPreview,
     val waveformPeaks: FloatArray,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is Visuals) return false
-        return spectrogramFile == other.spectrogramFile &&
+        return spectrogramPreview == other.spectrogramPreview &&
             waveformPeaks.contentEquals(other.waveformPeaks)
     }
 
     override fun hashCode(): Int =
-        spectrogramFile.hashCode() * HASH_PRIME + waveformPeaks.contentHashCode()
+        spectrogramPreview.hashCode() * HASH_PRIME + waveformPeaks.contentHashCode()
 
     companion object {
         private const val HASH_PRIME = 31
@@ -217,11 +218,15 @@ class ReviewViewModel(
     private val audioSaver: AudioSaver = AudioSaver { _, _ ->
         throw UnsupportedOperationException("No AudioSaver configured")
     },
+    private val spectrogramPngWriter: SpectrogramPngWriter = SpectrogramPngWriter(SpectrogramBitmap::writePng),
+    private val visualsCoordinator: ReviewVisualsCoordinator? = null,
     // Default is used only in JVM tests; production factory passes context.cacheDir/export_clips.
     private val exportClipsDir: File = File(
         checkNotNull(System.getProperty("java.io.tmpdir")),
         "export_clips"
     ),
+    /** Optional bootstrap cache root for review visuals. */
+    private val defaultFilesDir: File? = null,
     private val queue: InferenceQueue,
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
@@ -238,8 +243,8 @@ class ReviewViewModel(
     private val _processingProfile = MutableStateFlow(ReviewProcessingProfile.Default)
     val processingProfile: StateFlow<ReviewProcessingProfile> = _processingProfile
 
-    private val _spectrogramFile = MutableStateFlow<File?>(null)
-    val spectrogramFile: StateFlow<File?> = _spectrogramFile
+    private val _spectrogramPreview = MutableStateFlow<ReviewSpectrogramPreview?>(null)
+    val spectrogramPreview: StateFlow<ReviewSpectrogramPreview?> = _spectrogramPreview
 
     private val _spectrogramConfig = MutableStateFlow(ReviewProcessingProfile.Default.spectrogramConfig)
     val spectrogramConfig: StateFlow<ReviewSpectrogramConfig> = _spectrogramConfig
@@ -303,6 +308,7 @@ class ReviewViewModel(
     private var denoiseJob: Job? = null
 
     init {
+        cachedFilesDir = defaultFilesDir
         scope.launch {
             // Probe once on init — the user can install Perch later, but the
             // typical flow is: install in Settings -> open a draft. Probing
@@ -766,7 +772,21 @@ class ReviewViewModel(
             val includeByTaxon = _state.value.species.associate {
                 it.taxonScientificName to it.includeHabitatPhoto
             }
-            val spectrogramPhoto = spectrogramFile.value?.takeIf { it.exists() }
+            val fallbackRoot = _state.value.audioPath?.let { audioPath ->
+                File(audioPath).parentFile?.let { parent -> File(parent, "review_cache") }
+            }
+            val filesDir = cachedFilesDir ?: fallbackRoot
+            val spectrogramPhoto = filesDir?.let { dir ->
+                withContext(ioDispatcher) {
+                    currentSpectrogramPng(
+                        filesDir = dir,
+                        draftId = draftId,
+                        profile = _processingProfile.value,
+                        preview = _spectrogramPreview.value,
+                        writer = spectrogramPngWriter,
+                    )
+                }
+            }?.takeIf { it.exists() }
             val sourceAudioOverride = try {
                 File(currentProfileAudioPath())
             } catch (t: Throwable) {
@@ -823,16 +843,32 @@ class ReviewViewModel(
         visualsStarted = true
         visualsJob?.cancel()
         _state.update { it.copy(visualsLoading = true, visualsError = null) }
+        val startedAt = SystemClock.elapsedRealtime()
+        Log.i("ReviewVisuals", "start draft=$draftId audio=${File(path).name}")
         visualsJob = scope.launch {
             try {
                 val snapshot = _processingProfile.value
+                val audioStageStarted = SystemClock.elapsedRealtime()
                 val audioPath = withContext(ioDispatcher) {
                     currentProfileAudioPath(snapshot.audioProcessingConfig, path)
                 }
+                Log.d(
+                    "ReviewVisuals",
+                    "audio-path draft=$draftId elapsed=${SystemClock.elapsedRealtime() - audioStageStarted}ms path=${File(audioPath).name}",
+                )
+                val buildStarted = SystemClock.elapsedRealtime()
+                val requestKey = visualsRequestKey(audioPath, snapshot, filesDir)
                 val v = withContext(ioDispatcher) {
-                    visuals.build(audioPath, draftId, filesDir, snapshot.spectrogramConfig, snapshot.audioProcessingConfig)
+                    val build: suspend () -> Visuals = {
+                        visuals.build(audioPath, draftId, filesDir, snapshot.spectrogramConfig, snapshot.audioProcessingConfig)
+                    }
+                    visualsCoordinator?.getOrBuild(requestKey, build) ?: build()
                 }
-                _spectrogramFile.value = v.spectrogramFile
+                Log.i(
+                    "ReviewVisuals",
+                    "build-done draft=$draftId total=${SystemClock.elapsedRealtime() - startedAt}ms build=${SystemClock.elapsedRealtime() - buildStarted}ms",
+                )
+                _spectrogramPreview.value = v.spectrogramPreview
                 _waveformPeaks.value = v.waveformPeaks
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
@@ -847,6 +883,22 @@ class ReviewViewModel(
                 }
             }
         }
+    }
+
+    private fun visualsRequestKey(
+        audioPath: String,
+        snapshot: ReviewProcessingProfile,
+        filesDir: File,
+    ): String = buildString {
+        append(draftId)
+        append('|')
+        append(audioPath)
+        append('|')
+        append(filesDir.absolutePath)
+        append('|')
+        append(snapshot.spectrogramConfig.cacheSuffix())
+        append('|')
+        append(snapshot.audioProcessingConfig.cacheSuffix())
     }
 
     /** Switches the spectrogram display range and re-renders. No-op if already on [range]. */
@@ -909,7 +961,8 @@ class ReviewViewModel(
         val filesDir = cachedFilesDir ?: return
         if (audioChanged) {
             visualsStarted = false
-            _spectrogramFile.value = null
+            _spectrogramPreview.value = null
+            _waveformPeaks.value = null
         }
         restartVisuals(filesDir)
     }
@@ -919,16 +972,25 @@ class ReviewViewModel(
         originalAudioPath: String = requireNotNull(_state.value.audioPath) { "Audio file is missing" },
     ): String {
         if (!config.requiresProcessing) return originalAudioPath
+        val startedAt = SystemClock.elapsedRealtime()
         val fallbackRoot = File(originalAudioPath).parentFile
         val filesDir = cachedFilesDir ?: fallbackRoot?.let { File(it, "review_cache") }
             ?: error("Processed audio is not ready yet")
         filesDir.mkdirs()
         _state.update { it.copy(processingAudio = true) }
         return try {
+            Log.d(
+                "ReviewVisuals",
+                "audio-process-start draft=$draftId config=${config.cacheSuffix()} source=${File(originalAudioPath).name}",
+            )
             val file = withContext(ioDispatcher) {
                 processedAudio.materialize(originalAudioPath, draftId, filesDir, config)
             }
             _state.update { it.copy(processedAudioPath = file.absolutePath) }
+            Log.i(
+                "ReviewVisuals",
+                "audio-process-done draft=$draftId elapsed=${SystemClock.elapsedRealtime() - startedAt}ms out=${file.name}",
+            )
             file.absolutePath
         } finally {
             _state.update { it.copy(processingAudio = false) }
@@ -1349,8 +1411,9 @@ class ReviewViewModelFactory @Inject constructor(
     private val photoStore: PhotoFileStore,
     private val queue: InferenceQueue,
     private val audioExport: AudioExportManager,
+    private val visualsCoordinator: ReviewVisualsCoordinator,
 ) {
-    /** Cache root used by the screen's `ensureVisuals` call. */
+    /** Cache root used to bootstrap review visuals and submission artifacts. */
     val filesDir: File get() = context.filesDir
 
     fun create(draftId: String, externalScope: CoroutineScope): ReviewViewModel = ReviewViewModel(
@@ -1397,6 +1460,8 @@ class ReviewViewModelFactory @Inject constructor(
         photoStore = photoStore,
         audioSaver = AudioSaver { file, name -> audioExport.saveToDownloads(file, name) },
         exportClipsDir = File(context.cacheDir, "export_clips"),
+        defaultFilesDir = filesDir,
+        visualsCoordinator = visualsCoordinator,
         queue = queue,
         externalScope = externalScope,
     )
@@ -1442,18 +1507,12 @@ internal object NoopVisualsProvider : VisualsProvider {
 
 /**
  * Production [VisualsProvider]. Streams the WAV off disk so the preview can be
- * built without loading the full file into memory, then caches a PNG under
- * `<filesDir>/spectrograms/<draftId>.png` and computes waveform peaks from the
- * same stream.
- *
- * Cache policy: if the PNG already exists, the spectrogram step is skipped
- * (we still re-read the WAV for waveform peaks, which are not cached). This
- * keeps the second open instant for the spectrogram while the cheap peak
- * computation runs again on each open.
+ * built without loading the full file into memory, then returns an in-memory
+ * preview plus cached waveform peaks.
  */
 internal class ProductionVisualsProvider(
     private val matrixCache: ReviewSpectrogramMatrixCache = ReviewSpectrogramMatrixCache(),
-    private val pngWriter: SpectrogramPngWriter = SpectrogramPngWriter(SpectrogramBitmap::writePng),
+    private val waveformPeaksCache: ReviewWaveformPeaksCache = ReviewWaveformPeaksCache(),
 ) : VisualsProvider {
 
     override suspend fun build(
@@ -1463,12 +1522,17 @@ internal class ProductionVisualsProvider(
         config: ReviewSpectrogramConfig,
         audioProcessingConfig: ReviewAudioProcessingConfig,
     ): Visuals {
+        val startedAt = SystemClock.elapsedRealtime()
         val input = File(audioPath)
+        Log.d("ReviewVisuals", "provider-start draft=$draftId file=${input.name}")
+        val infoStarted = SystemClock.elapsedRealtime()
         val wavInfo = readMono16Info(input)
-        val pngDir = File(filesDir, "spectrograms").apply { mkdirs() }
+        Log.d(
+            "ReviewVisuals",
+            "wav-info draft=$draftId elapsed=${SystemClock.elapsedRealtime() - infoStarted}ms rate=${wavInfo.sampleRateHz} samples=${wavInfo.totalSamples}",
+        )
         val rendererConfig = if (config.displayRange == SpectrogramDisplayRange.FULL) {
             config.copy(
-                palette = SpectrogramPalette.VIRIDIS,
                 noiseFloorMode = SpectrogramNoiseFloorMode.NONE,
                 gateDb = 0f,
                 displayRangeDb = 80f,
@@ -1483,34 +1547,58 @@ internal class ProductionVisualsProvider(
             displayRange = rendererConfig.displayRange,
             sampleRateHz = wavInfo.sampleRateHz,
         )
-        // Cache key includes the visual profile plus the audio profile so
-        // processed and original sources never collide on disk.
-        val pngFile = File(
-            pngDir,
-            "${draftId}_${rendererConfig.cacheSuffix()}_${audioProcessingConfig.cacheSuffix()}.png",
+        val matrixStarted = SystemClock.elapsedRealtime()
+        val matrix = matrixCache.getOrCreate(
+            audioFile = input,
+            draftId = draftId,
+            filesDir = filesDir,
+            config = analysisConfig,
+            readSamples = { file ->
+                val (samples, _) = WavReader.readMono16(file)
+                FloatArray(samples.size) { index -> samples[index] / Short.MAX_VALUE.toFloat() }
+            },
         )
-        if (!pngFile.exists()) {
-            val matrix = matrixCache.getOrCreate(
-                audioFile = input,
-                draftId = draftId,
-                filesDir = filesDir,
-                config = analysisConfig,
-                readSamples = { file ->
-                    val (samples, _) = WavReader.readMono16(file)
-                    FloatArray(samples.size) { index -> samples[index] / Short.MAX_VALUE.toFloat() }
-                },
-            )
-            val pixels = SpectrogramRenderer(
+        Log.d("ReviewVisuals", "matrix-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - matrixStarted}ms rows=${matrix.values.size} frames=${matrix.frames}")
+        val renderStarted = SystemClock.elapsedRealtime()
+        val preview = ReviewSpectrogramPreview.fromRows(
+            SpectrogramRenderer(
                 targetWidth = SpectrogramRenderer.DEFAULT_TARGET_WIDTH,
                 config = rendererConfig,
-            ).render(matrix)
-            if (pixels.isNotEmpty()) {
-                pngWriter.write(pixels, pngFile)
-            }
+            ).render(matrix),
+        )
+        Log.d("ReviewVisuals", "render-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - renderStarted}ms preview=${preview.width}x${preview.height}")
+        val peaksStarted = SystemClock.elapsedRealtime()
+        val peaks = waveformPeaksCache.getOrCreate(input, draftId, filesDir) {
+            buildWaveformPeaks(input, wavInfo)
         }
-        val peaks = buildWaveformPeaks(input, wavInfo)
-        return Visuals(spectrogramFile = pngFile, waveformPeaks = peaks)
+        Log.d("ReviewVisuals", "peaks-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - peaksStarted}ms count=${peaks.size}")
+        Log.i("ReviewVisuals", "provider-done draft=$draftId total=${SystemClock.elapsedRealtime() - startedAt}ms")
+        return Visuals(spectrogramPreview = preview, waveformPeaks = peaks)
     }
+}
+
+private suspend fun currentSpectrogramPng(
+    filesDir: File,
+    draftId: String,
+    profile: ReviewProcessingProfile,
+    preview: ReviewSpectrogramPreview?,
+    writer: SpectrogramPngWriter,
+): File? {
+    val currentPreview = preview ?: return null
+    if (currentPreview.width == 0 || currentPreview.height == 0) return null
+    val outDir = File(filesDir, "spectrograms").apply { mkdirs() }
+    val outFile = File(
+        outDir,
+        "${draftId}_${profile.spectrogramConfig.cacheSuffix()}_${profile.audioProcessingConfig.cacheSuffix()}.png",
+    )
+    if (outFile.exists() && outFile.length() > 0L) return outFile
+    val rows = Array(currentPreview.height) { row ->
+        IntArray(currentPreview.width) { col ->
+            currentPreview.argb[row * currentPreview.width + col]
+        }
+    }
+    writer.write(rows, outFile)
+    return outFile.takeIf { it.exists() && it.length() > 0L }
 }
 
 internal data class Mono16Info(
