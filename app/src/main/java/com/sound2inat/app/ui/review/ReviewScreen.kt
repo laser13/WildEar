@@ -40,6 +40,7 @@ import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.MicNone
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -229,8 +230,22 @@ private fun ReviewPage(
 
     Scaffold(
         topBar = {
+            val headerText = reviewHeaderText(
+                recordedAtUtcMs = state.recordedAtUtcMs,
+                latitude = state.latitude,
+                longitude = state.longitude,
+            )
             TopAppBar(
-                title = { Text(stringResource(R.string.title_review)) },
+                title = {
+                    Column {
+                        Text(headerText.titleLine, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            headerText.subtitleLine,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -268,9 +283,13 @@ private fun ReviewPage(
             // visuals, banner, Submit and species list all scroll together so the
             // species list is no longer pinned in a tiny inner viewport.
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                item { HeaderBlock(state) }
-                item { PlayerControls(state = state, vm = vm) }
-                item { ProcessingEntryPoint(state = state, onClick = { processingSheetVisible = true }) }
+                item {
+                    PlayerControls(
+                        state = state,
+                        vm = vm,
+                        onSettingsClick = { processingSheetVisible = true },
+                    )
+                }
                 item {
                     val selectedSpecies = state.species.firstOrNull { it.isSelected }
                     val selectedStartMs = selectedSpecies
@@ -591,27 +610,6 @@ private fun ModelPickerDialog(
 
 @Suppress("FunctionNaming")
 @Composable
-private fun HeaderBlock(state: ReviewUiState) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        Text(formatTimestamp(state.recordedAtUtcMs), style = MaterialTheme.typography.titleMedium)
-        Text(
-            if (state.latitude != null && state.longitude != null) {
-                "GPS: %.4f, %.4f".format(state.latitude, state.longitude)
-            } else {
-                stringResource(R.string.review_no_location)
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Suppress("FunctionNaming")
-@Composable
 private fun InferenceProgressBlock(progress: Float) {
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(stringResource(R.string.review_analyzing_audio), style = MaterialTheme.typography.labelMedium)
@@ -669,20 +667,6 @@ private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
 
 @Suppress("FunctionNaming")
 @Composable
-private fun ProcessingEntryPoint(
-    state: ReviewUiState,
-    onClick: () -> Unit,
-) {
-    FilterChip(
-        selected = state.processingProfile != ReviewProcessingProfile.Default,
-        onClick = onClick,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        label = { Text("Processing") },
-    )
-}
-
-@Suppress("FunctionNaming")
-@Composable
 private fun UploadedBanner(
     observations: List<InatObsEntry>,
     speciesRows: List<SpeciesRow>,
@@ -736,7 +720,11 @@ private fun UploadedBanner(
 
 @Suppress("FunctionNaming")
 @Composable
-private fun PlayerControls(state: ReviewUiState, vm: ReviewViewModel) {
+private fun PlayerControls(
+    state: ReviewUiState,
+    vm: ReviewViewModel,
+    onSettingsClick: () -> Unit,
+) {
     val durationMs = state.durationMs.coerceAtLeast(1L)
     val positionMs = when (val pb = state.playback) {
         is PlaybackState.Playing -> pb.positionMs
@@ -751,19 +739,15 @@ private fun PlayerControls(state: ReviewUiState, vm: ReviewViewModel) {
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { if (isPlaying) vm.pause() else vm.play() }) {
+            IconButton(onClick = { if (isPlaying) vm.pause() else vm.play() }) {
                 Icon(
                     if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = if (isPlaying) {
-                        stringResource(
-                            R.string.btn_pause
-                        )
+                        stringResource(R.string.btn_pause)
                     } else {
                         stringResource(R.string.btn_play)
                     },
                 )
-                Spacer(Modifier.width(8.dp))
-                Text(if (isPlaying) stringResource(R.string.btn_pause) else stringResource(R.string.btn_play))
             }
             Text("${formatDurationMs(positionMs)} / ${formatDurationMs(state.durationMs)}")
             val isExporting = state.exportingAction != null
@@ -786,6 +770,9 @@ private fun PlayerControls(state: ReviewUiState, vm: ReviewViewModel) {
                 } else {
                     Icon(Icons.Outlined.FileDownload, contentDescription = stringResource(R.string.cd_save_recording))
                 }
+            }
+            IconButton(onClick = onSettingsClick) {
+                Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.cd_settings))
             }
         }
         if (state.playback is PlaybackState.Error) {
@@ -1029,9 +1016,6 @@ private fun qualityGradeLabel(grade: String): String = when (grade) {
     "casual" -> "Casual"
     else -> grade.replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
-
-private fun formatTimestamp(ms: Long): String =
-    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(ms))
 
 private const val PERCENT = 100f
 private const val SPECIES_CLIP_PADDING_MS = 1_000L
