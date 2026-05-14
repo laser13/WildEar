@@ -27,7 +27,7 @@ class SpectrogramColorMapTest {
     fun `ink LUT last entry uses configurable near-black instead of pure black`() {
         val lut = SpectrogramColorMap.ink(backgroundArgb = WHITE, maxInkArgb = NEAR_BLACK)
         assertThat(lut.last()).isEqualTo(NEAR_BLACK)
-        assertThat(lut.last()).isNotEqualTo(BLACK)
+        assertThat(lut.last()).isNotEqualTo(DARK_GRAY)
     }
 
     @Test
@@ -85,10 +85,10 @@ class SpectrogramColorMapTest {
     }
 
     @Test
-    fun `gray LUT runs from white to black`() {
+    fun `gray LUT runs from white to dark gray`() {
         val lut = SpectrogramColorMap.gray()
         assertThat(lut.first()).isEqualTo(WHITE)
-        assertThat(lut.last()).isEqualTo(BLACK)
+        assertThat(lut.last()).isEqualTo(DARK_GRAY)
     }
 
     @Test
@@ -109,7 +109,7 @@ class SpectrogramColorMapTest {
 
     companion object {
         private const val WHITE = -1 // 0xFFFFFFFF
-        private const val BLACK = -16777216 // 0xFF000000
+        private const val DARK_GRAY = -10526881 // 0xFF5F5F5F
         private const val NEAR_BLACK = -14671840 // 0xFF202020
     }
 }
