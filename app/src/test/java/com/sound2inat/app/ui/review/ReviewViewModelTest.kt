@@ -44,6 +44,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReviewViewModelTest {
@@ -455,20 +456,43 @@ class ReviewViewModelTest {
         }
 
     @Test
-    fun `production visuals provider streams long wavs without exhausting memory`() =
+    fun `production visuals provider reuses matrix cache across visual-only changes`() =
         runTest(UnconfinedTestDispatcher()) {
-            val audioFile = createLargeSilentWavStreaming(
-                dest = tmp.newFile("large_preview.wav"),
-                sampleRate = 48_000,
-                durationMs = 4 * 60_000L,
+            val audioFile = createSilentWav(tmp.newFile("large_preview.wav"), sampleRate = 48_000, durationMs = 10_000)
+            val analyzerCalls = AtomicInteger(0)
+            val matrixCache = ReviewSpectrogramMatrixCache(analyze = { samples, config ->
+                analyzerCalls.incrementAndGet()
+                ReviewSpectrogramAnalyzer().analyze(samples, config)
+            })
+            val provider = ProductionVisualsProvider(
+                matrixCache = matrixCache,
+                pngWriter = SpectrogramPngWriter { _, _ -> },
             )
-            val info = readMono16Info(audioFile)
-            val pixels = buildSpectrogramPreview(audioFile, info, ReviewSpectrogramConfig.BirdDefault)
-            val peaks = buildWaveformPeaks(audioFile, info)
+            val firstConfig = ReviewSpectrogramConfig.BirdDefault
+            val secondConfig = firstConfig.copy(
+                palette = SpectrogramPalette.MAGMA,
+                gainDb = 6f,
+            )
 
-            assertThat(pixels).isNotEmpty()
-            assertThat(pixels.first()).isNotEmpty()
-            assertThat(peaks).isNotEmpty()
+            val first = provider.build(
+                audioPath = audioFile.absolutePath,
+                draftId = "long_preview",
+                filesDir = tmp.root,
+                config = firstConfig,
+                audioProcessingConfig = ReviewAudioProcessingConfig.Original,
+            )
+            val second = provider.build(
+                audioPath = audioFile.absolutePath,
+                draftId = "long_preview",
+                filesDir = tmp.root,
+                config = secondConfig,
+                audioProcessingConfig = ReviewAudioProcessingConfig.Original,
+            )
+
+            assertThat(first.spectrogramFile.name).isNotEqualTo(second.spectrogramFile.name)
+            assertThat(first.waveformPeaks).isNotEmpty()
+            assertThat(second.waveformPeaks).isNotEmpty()
+            assertThat(analyzerCalls.get()).isEqualTo(1)
         }
 
     @Test
@@ -551,6 +575,31 @@ class ReviewViewModelTest {
             assertThat(vm.state.value.audioProcessingConfig).isEqualTo(ReviewAudioProcessingConfig.Original)
             assertThat(vm.state.value.processingProfile).isEqualTo(ReviewProcessingProfile.Default)
             assertThat(vm.state.value.processingProfile.spectrogramConfig).isEqualTo(ReviewProcessingProfile.Default.spectrogramConfig)
+        }
+
+    @Test
+    fun `setDisplayRange updates the current profile immediately`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "visual_config_live_apply"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(draftRepo = repo)
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+
+            vm.setDisplayRange(SpectrogramDisplayRange.FULL)
+
+            assertThat(vm.displayRange.value).isEqualTo(SpectrogramDisplayRange.FULL)
+            assertThat(vm.state.value.processingProfile.spectrogramConfig.displayRange).isEqualTo(SpectrogramDisplayRange.FULL)
         }
 
     @Test

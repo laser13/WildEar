@@ -42,7 +42,7 @@ internal fun ReviewSettingsBottomSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
-    var draftProfile by remember(profile) { mutableStateOf(profile) }
+    var audioDraftConfig by remember { mutableStateOf(profile.audioProcessingConfig) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -72,22 +72,25 @@ internal fun ReviewSettingsBottomSheet(
                     )
                 }
             }
-            Text(
-                when (selectedTab) {
-                    ReviewSettingsTab.Audio -> "Audio profile changes playback, analysis, and upload."
-                    ReviewSettingsTab.Visual -> "Visual settings affect preview only."
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (selectedTab.showsConfirmationButtons()) {
+                Text(
+                    "Audio profile changes playback, analysis, and upload.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             when (selectedTab) {
                 ReviewSettingsTab.Audio -> AudioSettingsTab(
-                    config = draftProfile.audioProcessingConfig,
-                    onConfigChange = { draftProfile = draftProfile.copy(audioProcessingConfig = it) },
+                    config = audioDraftConfig,
+                    onConfigChange = {
+                        audioDraftConfig = it
+                    },
                 )
                 ReviewSettingsTab.Visual -> VisualSettingsTab(
-                    config = draftProfile.spectrogramConfig,
-                    onConfigChange = { draftProfile = draftProfile.copy(spectrogramConfig = it) },
+                    config = profile.spectrogramConfig,
+                    onConfigChange = {
+                        onApply(profile.withSpectrogramConfig(it))
+                    },
                 )
             }
             when {
@@ -110,24 +113,26 @@ internal fun ReviewSettingsBottomSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.weight(1f),
+            if (selectedTab.showsConfirmationButtons()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("Cancel")
-                }
-                Button(
-                    onClick = {
-                        onApply(draftProfile)
-                        onDismiss()
-                    },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("Apply")
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Cancel")
+                    }
+                    Button(
+                        onClick = {
+                            onApply(profile.copy(audioProcessingConfig = audioDraftConfig))
+                            onDismiss()
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Apply")
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))

@@ -11,13 +11,9 @@ import com.sound2inat.app.data.Settings
 import com.sound2inat.app.inference.InferenceQueue
 import com.sound2inat.app.inference.JobStatus
 import com.sound2inat.app.inference.QueuedJob
-import com.sound2inat.audio.Spectrogram
 import com.sound2inat.app.ui.FILE_PROVIDER_AUTHORITY
-import com.sound2inat.app.ui.spectrogram.SpectrogramColorMap
 import com.sound2inat.app.ui.spectrogram.SpectrogramNoiseFloorMode
 import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
-import com.sound2inat.app.ui.spectrogram.SpectrogramPostProcessor
-import com.sound2inat.app.ui.spectrogram.SpectrogramVisualPipeline
 import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.ObservationDetail
@@ -150,6 +146,10 @@ fun interface ProcessedAudioProvider {
         filesDir: File,
         config: ReviewAudioProcessingConfig,
     ): File
+}
+
+fun interface SpectrogramPngWriter {
+    fun write(pixels: Array<IntArray>, file: File)
 }
 
 @Suppress("LongParameterList")
@@ -1451,8 +1451,10 @@ internal object NoopVisualsProvider : VisualsProvider {
  * keeps the second open instant for the spectrogram while the cheap peak
  * computation runs again on each open.
  */
-internal class ProductionVisualsProvider : VisualsProvider {
-    private val matrixCache = ReviewSpectrogramMatrixCache()
+internal class ProductionVisualsProvider(
+    private val matrixCache: ReviewSpectrogramMatrixCache = ReviewSpectrogramMatrixCache(),
+    private val pngWriter: SpectrogramPngWriter = SpectrogramPngWriter(SpectrogramBitmap::writePng),
+) : VisualsProvider {
 
     override suspend fun build(
         audioPath: String,
@@ -1503,7 +1505,7 @@ internal class ProductionVisualsProvider : VisualsProvider {
                 config = rendererConfig,
             ).render(matrix)
             if (pixels.isNotEmpty()) {
-                SpectrogramBitmap.writePng(pixels, pngFile)
+                pngWriter.write(pixels, pngFile)
             }
         }
         val peaks = buildWaveformPeaks(input, wavInfo)
@@ -1561,111 +1563,6 @@ internal fun buildWaveformPeaks(file: File, info: Mono16Info): FloatArray {
     }
 }
 
-internal fun buildSpectrogramPreview(
-    file: File,
-    info: Mono16Info,
-    config: ReviewSpectrogramConfig,
-): Array<IntArray> {
-    if (info.totalSamples < PREVIEW_FFT_SIZE.toLong()) return emptyArray()
-    val frames = ((info.totalSamples - PREVIEW_FFT_SIZE) / PREVIEW_HOP_SIZE + 1)
-        .coerceAtLeast(1L)
-        .toInt()
-    val width = minOf(SpectrogramRenderer.DEFAULT_TARGET_WIDTH, frames)
-    val accum = Array(SpectrogramRenderer.DISPLAY_HEIGHT_BINS) { FloatArray(width) }
-    val counts = IntArray(width)
-    val spectrogram = Spectrogram(
-        fftSize = PREVIEW_FFT_SIZE,
-        hopSize = PREVIEW_HOP_SIZE,
-        sampleRateHz = info.sampleRateHz,
-    )
-    val sortBuf = FloatArray(PREVIEW_FFT_SIZE / 2 + 1)
-    var frameIndex = 0
-    streamMono16(file) { chunk, _ ->
-        val floats = FloatArray(chunk.size) { i -> chunk[i] / Short.MAX_VALUE.toFloat() }
-        val columns = spectrogram.process(floats)
-        for (column in columns) {
-            if (width == 0) continue
-            val bucket = ((frameIndex.toLong() * width) / frames).toInt().coerceIn(0, width - 1)
-            val working = column.copyOf()
-            if (config.noiseFloorMode == SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN) {
-                SpectrogramVisualPipeline.whitenColumnInPlace(working, sortBuf)
-            }
-            val binned = SpectrogramVisualPipeline.logBinDown(
-                src = working,
-                outBins = SpectrogramRenderer.DISPLAY_HEIGHT_BINS,
-                sampleRateHz = info.sampleRateHz,
-                minFrequencyHz = config.displayRange.fMinHz,
-                maxFrequencyHz = config.displayRange.fMaxHz,
-            )
-            for (row in 0 until SpectrogramRenderer.DISPLAY_HEIGHT_BINS) {
-                accum[row][bucket] += binned[row] + config.gainDb
-            }
-            counts[bucket]++
-            frameIndex++
-        }
-    }
-    if (frameIndex == 0) return emptyArray()
-
-    val averaged = Array(SpectrogramRenderer.DISPLAY_HEIGHT_BINS) { row ->
-        FloatArray(width) { col ->
-            val count = counts[col].coerceAtLeast(1)
-            accum[row][col] / count
-        }
-    }
-    val normalized = if (config.noiseFloorMode == SpectrogramNoiseFloorMode.NONE) {
-        val flattened = FloatArray(averaged.size * width)
-        var index = 0
-        for (row in averaged) {
-            for (value in row) flattened[index++] = value
-        }
-        val clamped = SpectrogramRenderer.applyTopDbClamp(flattened, config.displayRangeDb)
-        val norm = SpectrogramRenderer.percentileNormalize(
-            clamped,
-            lowPercentile = config.lowPercentile,
-            highPercentile = config.highPercentile,
-        )
-        Array(SpectrogramRenderer.DISPLAY_HEIGHT_BINS) { row ->
-            FloatArray(width) { col -> norm[row * width + col] }
-        }
-    } else {
-        Array(SpectrogramRenderer.DISPLAY_HEIGHT_BINS) { row ->
-            SpectrogramPostProcessor.applyDisplayCurve(
-                values = averaged[row],
-                gateDb = config.gateDb,
-                displayRangeDb = config.displayRangeDb,
-                gamma = config.gamma,
-            )
-        }
-    }
-    val smoothed = SpectrogramPostProcessor.smoothNormalized(
-        normalized,
-        timeRadius = config.smoothingTimeRadius,
-        frequencyRadius = config.smoothingFrequencyRadius,
-    )
-    return renderPixels(smoothed, config)
-}
-
-private fun renderPixels(
-    normalized: Array<FloatArray>,
-    config: ReviewSpectrogramConfig,
-): Array<IntArray> {
-    if (normalized.isEmpty()) return emptyArray()
-    val width = normalized[0].size
-    if (width == 0) return emptyArray()
-    val lut = when (config.palette) {
-        SpectrogramPalette.INK -> SpectrogramColorMap.ink(-1, config.maxInkArgb)
-        SpectrogramPalette.VIRIDIS -> SpectrogramColorMap.viridis()
-        SpectrogramPalette.MAGMA -> SpectrogramColorMap.magma()
-        SpectrogramPalette.GRAY -> SpectrogramColorMap.gray()
-    }
-    return Array(SpectrogramRenderer.DISPLAY_HEIGHT_BINS) { row ->
-        IntArray(width) { col ->
-            val flippedRow = SpectrogramRenderer.DISPLAY_HEIGHT_BINS - 1 - row
-            SpectrogramColorMap.map(normalized[flippedRow][col], lut)
-        }
-    }
-}
-
 private fun streamMono16(
     file: File,
     blockSamples: Int = WAV_READ_BLOCK_SAMPLES,
@@ -1716,8 +1613,6 @@ private fun leU32(buf: ByteArray, o: Int): Long =
 private const val WAV_HEADER_SIZE = 44
 private const val WAV_BYTES_PER_SAMPLE = 2
 private const val WAV_BITS_PER_SAMPLE = 16
-private const val PREVIEW_FFT_SIZE = 2048
-private const val PREVIEW_HOP_SIZE = 512
 private const val WAV_READ_BLOCK_SAMPLES = 16_384
 
 internal class ProductionProcessedAudioProvider : ProcessedAudioProvider {

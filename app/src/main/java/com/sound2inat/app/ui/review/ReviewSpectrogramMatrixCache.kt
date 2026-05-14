@@ -23,7 +23,12 @@ class ReviewSpectrogramMatrixCache(
         readSamples: suspend (File) -> FloatArray,
     ): ReviewSpectrogramMatrix {
         val cacheFile = cacheFile(audioFile, draftId, filesDir, config)
-        readMatrixFromCache(cacheFile, expectedMetadata(audioFile, config))?.let { return it }
+        readMatrixFromCache(
+            cacheFile = cacheFile,
+            audioFile = audioFile,
+            expectedConfig = config,
+            expectedMetadata = expectedMetadata(audioFile, config),
+        )?.let { return it }
 
         val samples = readSamples(audioFile)
         val matrix = analyze(samples, config)
@@ -59,28 +64,41 @@ class ReviewSpectrogramMatrixCache(
 
     private fun readMatrixFromCache(
         cacheFile: File,
+        audioFile: File,
+        expectedConfig: ReviewSpectrogramAnalysisConfig,
         expectedMetadata: String,
     ): ReviewSpectrogramMatrix? {
         if (!cacheFile.exists()) return null
         return try {
-            DataInputStream(FileInputStream(cacheFile)).use { input ->
-                val magic = input.readInt()
-                if (magic != MAGIC) return deleteAndNull(cacheFile)
-                val version = input.readInt()
-                if (version != FILE_FORMAT_VERSION) return deleteAndNull(cacheFile)
-                val metadata = input.readUTF()
-                if (metadata != expectedMetadata) return deleteAndNull(cacheFile)
-                val rows = input.readInt()
-                val frames = input.readInt()
-                val config = readConfig(input)
-                val values = Array(rows) { row ->
-                    FloatArray(frames) { frame -> input.readFloat() }
+            FileInputStream(cacheFile).use { fileInput ->
+                DataInputStream(fileInput).use { input ->
+                    val magic = input.readInt()
+                    if (magic != MAGIC) return deleteAndNull(cacheFile)
+                    val version = input.readInt()
+                    if (version != FILE_FORMAT_VERSION) return deleteAndNull(cacheFile)
+                    val metadata = input.readUTF()
+                    if (metadata != expectedMetadata) return deleteAndNull(cacheFile)
+                    val rows = input.readInt()
+                    val frames = input.readInt()
+                    val config = readConfig(input)
+                    validateShape(rows, frames, expectedConfig, config)
+                    validateFrameBound(
+                        audioFile = audioFile,
+                        frames = frames,
+                        config = config,
+                    )
+                    validatePayloadSize(
+                        remainingBytes = fileInput.available().toLong(),
+                        rows = rows,
+                        frames = frames,
+                    )
+                    val values = Array(rows) { FloatArray(frames) { input.readFloat() } }
+                    ReviewSpectrogramMatrix(
+                        config = config,
+                        frames = frames,
+                        values = values,
+                    )
                 }
-                ReviewSpectrogramMatrix(
-                    config = config,
-                    frames = frames,
-                    values = values,
-                )
             }
         } catch (_: EOFException) {
             deleteAndNull(cacheFile)
@@ -145,6 +163,59 @@ class ReviewSpectrogramMatrixCache(
         return buildString(bytes.size * 2) {
             for (byte in bytes) append("%02x".format(byte.toInt() and 0xff))
         }
+    }
+
+    private fun validateShape(
+        rows: Int,
+        frames: Int,
+        expectedConfig: ReviewSpectrogramAnalysisConfig,
+        actualConfig: ReviewSpectrogramAnalysisConfig,
+    ) {
+        require(frames >= 0) {
+            "Unexpected negative frame count: $frames"
+        }
+        require(rows == expectedConfig.displayHeightBins) {
+            "Unexpected matrix row count: $rows"
+        }
+        require(rows == actualConfig.displayHeightBins) {
+            "Unexpected matrix row count in file config: ${actualConfig.displayHeightBins}"
+        }
+        require(actualConfig == expectedConfig) {
+            "Cache config does not match expected analysis config"
+        }
+    }
+
+    private fun validatePayloadSize(
+        remainingBytes: Long,
+        rows: Int,
+        frames: Int,
+    ) {
+        val expectedBytes = rows.toLong() * frames.toLong() * java.lang.Float.BYTES.toLong()
+        require(remainingBytes == expectedBytes) {
+            "Unexpected cache payload size: $remainingBytes bytes (expected $expectedBytes)"
+        }
+    }
+
+    private fun validateFrameBound(
+        audioFile: File,
+        frames: Int,
+        config: ReviewSpectrogramAnalysisConfig,
+    ) {
+        val maxFrames = maxExpectedFrames(audioFile, config)
+        require(frames <= maxFrames) {
+            "Unexpected cache frame count: $frames (max expected $maxFrames)"
+        }
+    }
+
+    private fun maxExpectedFrames(
+        audioFile: File,
+        config: ReviewSpectrogramAnalysisConfig,
+    ): Int {
+        val info = readMono16Info(audioFile)
+        val totalSamples = info.totalSamples
+        if (totalSamples < config.fftSize.toLong()) return 0
+        val expected = 1L + (totalSamples - config.fftSize.toLong()) / config.hopSize.toLong()
+        return expected.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
 
     private fun deleteAndNull(file: File): ReviewSpectrogramMatrix? {

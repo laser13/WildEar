@@ -6,7 +6,6 @@ import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
 import com.sound2inat.app.ui.spectrogram.SpectrogramPostProcessor
 import com.sound2inat.app.ui.spectrogram.SpectrogramRenderProfile
 import com.sound2inat.app.ui.spectrogram.SpectrogramVisualPipeline
-import kotlin.math.pow
 
 /**
  * Pure-JVM spectrogram pixel renderer. Produces a `[height][width]` matrix
@@ -75,6 +74,7 @@ class SpectrogramRenderer(
         if (renderConfig.noiseFloorMode == SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN) {
             applyPerColumnMedianInPlace(working)
         }
+        addGainInPlace(working)
         val noiseAdjusted = when (renderConfig.noiseFloorMode) {
             SpectrogramNoiseFloorMode.NONE,
             SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN -> working
@@ -97,6 +97,16 @@ class SpectrogramRenderer(
 
     private fun copyMatrix(matrix: ReviewSpectrogramMatrix): Array<FloatArray> =
         Array(matrix.values.size) { row -> matrix.values[row].copyOf() }
+
+    private fun addGainInPlace(matrix: Array<FloatArray>) {
+        if (renderConfig.gainDb == 0f) return
+        for (row in matrix.indices) {
+            val data = matrix[row]
+            for (i in data.indices) {
+                data[i] += renderConfig.gainDb
+            }
+        }
+    }
 
     private fun applyPerColumnMedianInPlace(matrix: Array<FloatArray>) {
         if (matrix.isEmpty()) return
@@ -156,7 +166,6 @@ class SpectrogramRenderer(
         if (frames == 0) return emptyArray()
 
         val width = minOf(targetWidth, frames)
-        val gainScale = 10f.pow(renderConfig.gainDb / 20f)
         val out = Array(height) { IntArray(width) }
         for (x in 0 until width) {
             val start = (x.toLong() * frames / width).toInt()
@@ -167,7 +176,7 @@ class SpectrogramRenderer(
                 for (f in start until start + span) {
                     acc += normalized[m][f]
                 }
-                val norm = ((acc / span) * gainScale).coerceIn(0f, 1f)
+                val norm = (acc / span).coerceIn(0f, 1f)
                 val y = height - 1 - m
                 out[y][x] = SpectrogramColorMap.map(norm, colorLut)
             }

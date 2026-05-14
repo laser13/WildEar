@@ -84,7 +84,7 @@ class SpectrogramRendererTest {
     }
 
     @Test
-    fun `gain changes pixels without changing matrix`() {
+    fun `gain is absorbed by normalization when noise floor is disabled`() {
         val matrix = midToneMatrix()
         val neutral = SpectrogramRenderer(
             targetWidth = 64,
@@ -95,7 +95,7 @@ class SpectrogramRendererTest {
             config = ReviewSpectrogramConfig.BirdDefault.copy(noiseFloorMode = SpectrogramNoiseFloorMode.NONE, gainDb = 12f),
         ).render(matrix)
 
-        assertThat(neutral).isNotEqualTo(boosted)
+        assertThat(neutral).isEqualTo(boosted)
     }
 
     @Test
