@@ -369,6 +369,92 @@ class ReviewViewModelTest {
         }
 
     @Test
+    fun `setSpectrogramGain rerenders visuals without clearing processed audio`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "visual_gain"
+            val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
+            }
+            val processedOutput = tmp.newFile("processed_gain.wav")
+            var visualsCalls = 0
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(draftRepo = repo)
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                processedAudio = ProcessedAudioProvider { _, _, _, _ -> processedOutput },
+                visuals = VisualsProvider { _, _, _, config, _ ->
+                    visualsCalls++
+                    Visuals(
+                        spectrogramFile = tmp.newFile("visual_gain_${config.gainDb}_${visualsCalls}.png"),
+                        waveformPeaks = floatArrayOf(-1f, 1f),
+                    )
+                },
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+
+            vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
+            vm.ensureVisuals(tmp.root)
+            advanceUntilIdle()
+            val processedBefore = vm.state.value.processedAudioPath
+
+            vm.setSpectrogramGain(6f)
+            advanceUntilIdle()
+
+            assertThat(visualsCalls).isEqualTo(2)
+            assertThat(vm.state.value.processedAudioPath).isEqualTo(processedBefore)
+            assertThat(vm.state.value.playback).isEqualTo(PlaybackState.Idle)
+        }
+
+    @Test
+    fun `setSpectrogramPalette rerenders visuals without clearing processed audio`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "visual_palette"
+            val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
+            }
+            val processedOutput = tmp.newFile("processed_palette.wav")
+            var visualsCalls = 0
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(draftRepo = repo)
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                processedAudio = ProcessedAudioProvider { _, _, _, _ -> processedOutput },
+                visuals = VisualsProvider { _, _, _, config, _ ->
+                    visualsCalls++
+                    Visuals(
+                        spectrogramFile = tmp.newFile("visual_palette_${config.palette}_${visualsCalls}.png"),
+                        waveformPeaks = floatArrayOf(-1f, 1f),
+                    )
+                },
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+
+            vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
+            vm.ensureVisuals(tmp.root)
+            advanceUntilIdle()
+            val processedBefore = vm.state.value.processedAudioPath
+
+            vm.setSpectrogramPalette(SpectrogramPalette.MAGMA)
+            advanceUntilIdle()
+
+            assertThat(visualsCalls).isEqualTo(2)
+            assertThat(vm.state.value.processedAudioPath).isEqualTo(processedBefore)
+            assertThat(vm.state.value.playback).isEqualTo(PlaybackState.Idle)
+        }
+
+    @Test
     fun `production visuals provider streams long wavs without exhausting memory`() =
         runTest(UnconfinedTestDispatcher()) {
             val audioFile = createLargeSilentWavStreaming(

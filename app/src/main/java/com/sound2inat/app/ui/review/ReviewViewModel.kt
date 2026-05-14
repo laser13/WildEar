@@ -815,8 +815,13 @@ class ReviewViewModel(
     fun ensureVisuals(filesDir: File) {
         cachedFilesDir = filesDir
         if (visualsStarted) return
+        restartVisuals(filesDir)
+    }
+
+    private fun restartVisuals(filesDir: File) {
         val path = _state.value.audioPath ?: return
         visualsStarted = true
+        visualsJob?.cancel()
         _state.update { it.copy(visualsLoading = true, visualsError = null) }
         visualsJob = scope.launch {
             try {
@@ -887,7 +892,9 @@ class ReviewViewModel(
     }
 
     private fun updateProcessingProfile(profile: ReviewProcessingProfile) {
-        if (_processingProfile.value == profile) return
+        val previousProfile = _processingProfile.value
+        if (previousProfile == profile) return
+        val audioChanged = previousProfile.audioProcessingConfig != profile.audioProcessingConfig
         _processingProfile.value = profile
         _spectrogramConfig.value = profile.spectrogramConfig
         _displayRange.value = profile.spectrogramConfig.displayRange
@@ -895,15 +902,16 @@ class ReviewViewModel(
             s.copy(
                 processingProfile = profile,
                 audioProcessingConfig = profile.audioProcessingConfig,
-                processedAudioPath = null,
+                processedAudioPath = if (audioChanged) null else s.processedAudioPath,
                 visualsError = null,
             )
         }
         val filesDir = cachedFilesDir ?: return
-        visualsJob?.cancel()
-        visualsStarted = false
-        _spectrogramFile.value = null
-        ensureVisuals(filesDir)
+        if (audioChanged) {
+            visualsStarted = false
+            _spectrogramFile.value = null
+        }
+        restartVisuals(filesDir)
     }
 
     private suspend fun currentProfileAudioPath(
@@ -1444,6 +1452,7 @@ internal object NoopVisualsProvider : VisualsProvider {
  * computation runs again on each open.
  */
 internal class ProductionVisualsProvider : VisualsProvider {
+    private val matrixCache = ReviewSpectrogramMatrixCache()
 
     override suspend fun build(
         audioPath: String,
@@ -1468,6 +1477,10 @@ internal class ProductionVisualsProvider : VisualsProvider {
         } else {
             config
         }
+        val analysisConfig = ReviewSpectrogramAnalysisConfig.from(
+            displayRange = rendererConfig.displayRange,
+            sampleRateHz = wavInfo.sampleRateHz,
+        )
         // Cache key includes the visual profile plus the audio profile so
         // processed and original sources never collide on disk.
         val pngFile = File(
@@ -1475,7 +1488,20 @@ internal class ProductionVisualsProvider : VisualsProvider {
             "${draftId}_${rendererConfig.cacheSuffix()}_${audioProcessingConfig.cacheSuffix()}.png",
         )
         if (!pngFile.exists()) {
-            val pixels = buildSpectrogramPreview(input, wavInfo, rendererConfig)
+            val matrix = matrixCache.getOrCreate(
+                audioFile = input,
+                draftId = draftId,
+                filesDir = filesDir,
+                config = analysisConfig,
+                readSamples = { file ->
+                    val (samples, _) = WavReader.readMono16(file)
+                    FloatArray(samples.size) { index -> samples[index] / Short.MAX_VALUE.toFloat() }
+                },
+            )
+            val pixels = SpectrogramRenderer(
+                targetWidth = SpectrogramRenderer.DEFAULT_TARGET_WIDTH,
+                config = rendererConfig,
+            ).render(matrix)
             if (pixels.isNotEmpty()) {
                 SpectrogramBitmap.writePng(pixels, pngFile)
             }

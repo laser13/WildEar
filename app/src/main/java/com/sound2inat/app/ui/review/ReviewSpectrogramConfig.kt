@@ -21,12 +21,19 @@ data class ReviewSpectrogramConfig(
 ) {
     fun cacheSuffix(): String =
         listOf(
-            displayRange.name.lowercase(),
-            palette.name.lowercase(),
+            "dr_${displayRange.name.lowercase()}",
+            "pl_${palette.name.lowercase()}",
             "gain_${(gainDb * 10).toInt()}",
-            "p${(lowPercentile * 10).toInt()}_${(highPercentile * 10).toInt()}",
-            noiseFloorMode.name.lowercase(),
-            "v1",
+            "lp_${(lowPercentile * 10).toInt()}",
+            "hp_${(highPercentile * 10).toInt()}",
+            "nf_${noiseFloorMode.name.lowercase()}_${(noiseFloorPercentile * 10).toInt()}",
+            "gate_${(gateDb * 10).toInt()}",
+            "range_${(displayRangeDb * 10).toInt()}",
+            "gamma_${(gamma * 100).toInt()}",
+            "ink_${maxInkArgb.toUInt().toString(16)}",
+            "st_${smoothingTimeRadius}",
+            "sf_${smoothingFrequencyRadius}",
+            "v2",
         ).joinToString("_")
 
     companion object {
