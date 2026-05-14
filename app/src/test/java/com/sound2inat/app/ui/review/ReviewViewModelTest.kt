@@ -501,7 +501,9 @@ class ReviewViewModelTest {
             vm.setSpectrogramPalette(SpectrogramPalette.MAGMA)
             advanceUntilIdle()
 
-            assertThat(visualsCalls).isEqualTo(2)
+            assertThat(visualsCalls).isEqualTo(1)
+            assertThat(vm.spectrogramDisplayPlane.value).isNotNull()
+            assertThat(vm.spectrogramConfig.value.palette).isEqualTo(SpectrogramPalette.MAGMA)
             assertThat(vm.state.value.processedAudioPath).isEqualTo(processedBefore)
             assertThat(vm.state.value.playback).isEqualTo(PlaybackState.Idle)
         }
@@ -597,7 +599,15 @@ class ReviewViewModelTest {
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
                 visuals = VisualsProvider { _, _, _, _, _ ->
-                    Visuals(spectrogramPreview = preview(), waveformPeaks = floatArrayOf(-1f, 1f))
+                    Visuals(
+                        displayPlane = ReviewSpectrogramDisplayPlane(
+                            width = 1,
+                            height = 1,
+                            values = arrayOf(floatArrayOf(0.5f)),
+                        ),
+                        spectrogramPreview = preview(),
+                        waveformPeaks = floatArrayOf(-1f, 1f),
+                    )
                 },
                 submission = submission,
                 tokenProvider = { "jwt" },

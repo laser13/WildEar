@@ -36,6 +36,21 @@ data class ReviewSpectrogramConfig(
             "v2",
         ).joinToString("_")
 
+    fun displayPlaneCacheSuffix(): String =
+        listOf(
+            "dr_${displayRange.name.lowercase()}",
+            "gain_${(gainDb * 10).toInt()}",
+            "lp_${(lowPercentile * 10).toInt()}",
+            "hp_${(highPercentile * 10).toInt()}",
+            "nf_${noiseFloorMode.name.lowercase()}_${(noiseFloorPercentile * 10).toInt()}",
+            "gate_${(gateDb * 10).toInt()}",
+            "range_${(displayRangeDb * 10).toInt()}",
+            "gamma_${(gamma * 100).toInt()}",
+            "st_${smoothingTimeRadius}",
+            "sf_${smoothingFrequencyRadius}",
+            "v1",
+        ).joinToString("_")
+
     companion object {
         val BirdDefault = ReviewSpectrogramConfig()
     }

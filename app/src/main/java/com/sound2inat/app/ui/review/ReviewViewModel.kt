@@ -85,23 +85,35 @@ fun interface VisualsProvider {
 }
 
 /**
- * Output of [VisualsProvider]. [spectrogramPreview] is the in-memory preview
- * shown on screen; [waveformPeaks] is the interleaved (min, max) envelope used
- * by the Compose waveform canvas.
+ * Output of [VisualsProvider]. [displayPlane] is the reusable normalized and
+ * smoothed spectrogram data; [spectrogramPreview] is the colorized preview
+ * derived from that plane; [waveformPeaks] is the interleaved (min, max)
+ * envelope used by the Compose waveform canvas.
  */
 data class Visuals(
-    val spectrogramPreview: ReviewSpectrogramPreview,
-    val waveformPeaks: FloatArray,
+    val displayPlane: ReviewSpectrogramDisplayPlane = ReviewSpectrogramDisplayPlane(
+        width = 0,
+        height = 0,
+        values = emptyArray(),
+    ),
+    val spectrogramPreview: ReviewSpectrogramPreview = ReviewSpectrogramPreview(
+        width = 0,
+        height = 0,
+        argb = IntArray(0),
+    ),
+    val waveformPeaks: FloatArray = FloatArray(0),
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is Visuals) return false
-        return spectrogramPreview == other.spectrogramPreview &&
+        return displayPlane == other.displayPlane &&
+            spectrogramPreview == other.spectrogramPreview &&
             waveformPeaks.contentEquals(other.waveformPeaks)
     }
 
     override fun hashCode(): Int =
-        spectrogramPreview.hashCode() * HASH_PRIME + waveformPeaks.contentHashCode()
+        (((displayPlane.hashCode() * HASH_PRIME) + spectrogramPreview.hashCode()) * HASH_PRIME) +
+            waveformPeaks.contentHashCode()
 
     companion object {
         private const val HASH_PRIME = 31
@@ -242,6 +254,9 @@ class ReviewViewModel(
 
     private val _processingProfile = MutableStateFlow(ReviewProcessingProfile.Default)
     val processingProfile: StateFlow<ReviewProcessingProfile> = _processingProfile
+
+    private val _displayPlane = MutableStateFlow<ReviewSpectrogramDisplayPlane?>(null)
+    val spectrogramDisplayPlane: StateFlow<ReviewSpectrogramDisplayPlane?> = _displayPlane
 
     private val _spectrogramPreview = MutableStateFlow<ReviewSpectrogramPreview?>(null)
     val spectrogramPreview: StateFlow<ReviewSpectrogramPreview?> = _spectrogramPreview
@@ -782,7 +797,7 @@ class ReviewViewModel(
                         filesDir = dir,
                         draftId = draftId,
                         profile = _processingProfile.value,
-                        preview = _spectrogramPreview.value,
+                        displayPlane = _displayPlane.value,
                         writer = spectrogramPngWriter,
                     )
                 }
@@ -869,6 +884,7 @@ class ReviewViewModel(
                     "build-done draft=$draftId total=${SystemClock.elapsedRealtime() - startedAt}ms build=${SystemClock.elapsedRealtime() - buildStarted}ms",
                 )
                 _spectrogramPreview.value = v.spectrogramPreview
+                _displayPlane.value = v.displayPlane
                 _waveformPeaks.value = v.waveformPeaks
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
@@ -947,6 +963,8 @@ class ReviewViewModel(
         val previousProfile = _processingProfile.value
         if (previousProfile == profile) return
         val audioChanged = previousProfile.audioProcessingConfig != profile.audioProcessingConfig
+        val visualsChanged = previousProfile.spectrogramConfig.displayPlaneCacheSuffix() !=
+            profile.spectrogramConfig.displayPlaneCacheSuffix()
         _processingProfile.value = profile
         _spectrogramConfig.value = profile.spectrogramConfig
         _displayRange.value = profile.spectrogramConfig.displayRange
@@ -959,12 +977,13 @@ class ReviewViewModel(
             )
         }
         val filesDir = cachedFilesDir ?: return
-        if (audioChanged) {
+        if (audioChanged || visualsChanged) {
             visualsStarted = false
+            _displayPlane.value = null
             _spectrogramPreview.value = null
             _waveformPeaks.value = null
+            restartVisuals(filesDir)
         }
-        restartVisuals(filesDir)
     }
 
     private suspend fun currentProfileAudioPath(
@@ -1512,6 +1531,7 @@ internal object NoopVisualsProvider : VisualsProvider {
  */
 internal class ProductionVisualsProvider(
     private val matrixCache: ReviewSpectrogramMatrixCache = ReviewSpectrogramMatrixCache(),
+    private val displayPlaneCache: ReviewSpectrogramDisplayPlaneCache = ReviewSpectrogramDisplayPlaneCache(),
     private val waveformPeaksCache: ReviewWaveformPeaksCache = ReviewWaveformPeaksCache(),
 ) : VisualsProvider {
 
@@ -1559,12 +1579,49 @@ internal class ProductionVisualsProvider(
             },
         )
         Log.d("ReviewVisuals", "matrix-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - matrixStarted}ms rows=${matrix.values.size} frames=${matrix.frames}")
-        val renderStarted = SystemClock.elapsedRealtime()
-        val preview = ReviewSpectrogramPreview.fromRows(
+        val displayPlaneKey = buildString {
+            append(matrixCache.cacheKey(input, analysisConfig))
+            append('|')
+            append(rendererConfig.displayPlaneCacheSuffix())
+        }
+        val planeStarted = SystemClock.elapsedRealtime()
+        val displayPlane = displayPlaneCache.getOrCreate(
+            key = displayPlaneKey,
+            draftId = draftId,
+            audioName = input.name,
+        ) {
             SpectrogramRenderer(
                 targetWidth = SpectrogramRenderer.DEFAULT_TARGET_WIDTH,
                 config = rendererConfig,
-            ).render(matrix),
+            ).buildDisplayPlane(
+                matrix,
+                trace = { step, elapsedMs ->
+                    Log.d(
+                        "ReviewVisuals",
+                        "render-step draft=$draftId stage=display-plane step=$step elapsed=${elapsedMs}ms",
+                    )
+                },
+            )
+        }
+        Log.d(
+            "ReviewVisuals",
+            "display-plane-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - planeStarted}ms rows=${displayPlane.height} cols=${displayPlane.width}",
+        )
+        val renderStarted = SystemClock.elapsedRealtime()
+        val previewRows = SpectrogramRenderer(
+            targetWidth = SpectrogramRenderer.DEFAULT_TARGET_WIDTH,
+            config = rendererConfig,
+        ).render(displayPlane) { step, elapsedMs ->
+            Log.d(
+                "ReviewVisuals",
+                "render-step draft=$draftId stage=palette-remap step=$step elapsed=${elapsedMs}ms",
+            )
+        }
+        val previewCopyStarted = SystemClock.elapsedRealtime()
+        val preview = ReviewSpectrogramPreview.fromRows(previewRows)
+        Log.d(
+            "ReviewVisuals",
+            "preview-copy draft=$draftId elapsed=${SystemClock.elapsedRealtime() - previewCopyStarted}ms width=${preview.width} height=${preview.height}",
         )
         Log.d("ReviewVisuals", "render-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - renderStarted}ms preview=${preview.width}x${preview.height}")
         val peaksStarted = SystemClock.elapsedRealtime()
@@ -1573,7 +1630,7 @@ internal class ProductionVisualsProvider(
         }
         Log.d("ReviewVisuals", "peaks-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - peaksStarted}ms count=${peaks.size}")
         Log.i("ReviewVisuals", "provider-done draft=$draftId total=${SystemClock.elapsedRealtime() - startedAt}ms")
-        return Visuals(spectrogramPreview = preview, waveformPeaks = peaks)
+        return Visuals(displayPlane = displayPlane, spectrogramPreview = preview, waveformPeaks = peaks)
     }
 }
 
@@ -1581,10 +1638,11 @@ private suspend fun currentSpectrogramPng(
     filesDir: File,
     draftId: String,
     profile: ReviewProcessingProfile,
-    preview: ReviewSpectrogramPreview?,
+    displayPlane: ReviewSpectrogramDisplayPlane?,
     writer: SpectrogramPngWriter,
 ): File? {
-    val currentPreview = preview ?: return null
+    val currentDisplayPlane = displayPlane ?: return null
+    val currentPreview = ReviewSpectrogramPreview.fromDisplayPlane(currentDisplayPlane, profile.spectrogramConfig)
     if (currentPreview.width == 0 || currentPreview.height == 0) return null
     val outDir = File(filesDir, "spectrograms").apply { mkdirs() }
     val outFile = File(

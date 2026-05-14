@@ -19,7 +19,10 @@ class ReviewVisualsCoordinatorTest {
         val coordinator = ReviewVisualsCoordinator(backgroundScope)
         val gate = CompletableDeferred<Unit>()
         val buildCalls = AtomicInteger(0)
-        val expected = Visuals(preview(), floatArrayOf(-1f, 1f))
+        val expected = Visuals(
+            spectrogramPreview = preview(),
+            waveformPeaks = floatArrayOf(-1f, 1f),
+        )
 
         val first = async {
             coordinator.getOrBuild("same-key") {
@@ -61,7 +64,10 @@ class ReviewVisualsCoordinatorTest {
                 firstCalls.incrementAndGet()
                 firstEntered.complete(Unit)
                 allowFirstToFinish.await()
-                Visuals(preview(0xFF112233.toInt()), floatArrayOf(-1f, 1f))
+                Visuals(
+                    spectrogramPreview = preview(0xFF112233.toInt()),
+                    waveformPeaks = floatArrayOf(-1f, 1f),
+                )
             }
         }
         firstEntered.await()
@@ -70,7 +76,10 @@ class ReviewVisualsCoordinatorTest {
             coordinator.getOrBuild("second-key") {
                 secondCalls.incrementAndGet()
                 secondEntered.complete(Unit)
-                Visuals(preview(0xFF445566.toInt()), floatArrayOf(-0.5f, 0.5f))
+                Visuals(
+                    spectrogramPreview = preview(0xFF445566.toInt()),
+                    waveformPeaks = floatArrayOf(-0.5f, 0.5f),
+                )
             }
         }
 

@@ -240,6 +240,7 @@ class FakeBioacousticModel : BioacousticModel {
     )
 
     override fun close() = Unit
+    override fun newInstance(): BioacousticModel = FakeBioacousticModel()
 
     private companion object {
         const val BLACKBIRD_CONFIDENCE = 0.92f

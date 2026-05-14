@@ -101,14 +101,18 @@ class SpectrogramRendererTest {
     @Test
     fun `palette changes pixels without changing matrix`() {
         val matrix = sampleMatrix()
+        val plane = SpectrogramRenderer(
+            targetWidth = 64,
+            config = ReviewSpectrogramConfig.BirdDefault.copy(palette = SpectrogramPalette.INK),
+        ).buildDisplayPlane(matrix)
         val ink = SpectrogramRenderer(
             targetWidth = 64,
             config = ReviewSpectrogramConfig.BirdDefault.copy(palette = SpectrogramPalette.INK),
-        ).render(matrix)
+        ).render(plane)
         val viridis = SpectrogramRenderer(
             targetWidth = 64,
             config = ReviewSpectrogramConfig.BirdDefault.copy(palette = SpectrogramPalette.VIRIDIS),
-        ).render(matrix)
+        ).render(plane)
 
         assertThat(ink).isNotEqualTo(viridis)
     }

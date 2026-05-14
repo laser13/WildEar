@@ -9,6 +9,7 @@ import com.sound2inat.app.ui.spectrogram.SpectrogramVisualPipeline
 import kotlin.math.ln
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.system.measureNanoTime
 
 /**
  * Pure-JVM spectrogram pixel renderer. Produces a `[height][width]` matrix
@@ -68,39 +69,89 @@ class SpectrogramRenderer(
     }
 
     /**
-     * Render [matrix] into ARGB pixels.
+     * Build a reusable display plane from [matrix].
      */
-    fun render(matrix: ReviewSpectrogramMatrix): Array<IntArray> {
-        if (matrix.frames == 0 || matrix.values.isEmpty()) return emptyArray()
+    fun buildDisplayPlane(
+        matrix: ReviewSpectrogramMatrix,
+        trace: ((String, Long) -> Unit)? = null,
+    ): ReviewSpectrogramDisplayPlane {
+        if (matrix.frames == 0 || matrix.values.isEmpty()) {
+            return ReviewSpectrogramDisplayPlane(width = 0, height = 0, values = emptyArray())
+        }
 
-        val working = projectDisplayRange(matrix)
+        val working = traceStep(trace, "project-display-range") { projectDisplayRange(matrix) }
         if (renderConfig.noiseFloorMode == SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN) {
-            applyPerColumnMedianInPlace(working)
+            traceStep(trace, "per-column-median") { applyPerColumnMedianInPlace(working) }
         }
         if (renderConfig.noiseFloorMode != SpectrogramNoiseFloorMode.NONE) {
-            addGainInPlace(working)
+            traceStep(trace, "gain-offset") { addGainInPlace(working) }
         }
-        val noiseAdjusted = when (renderConfig.noiseFloorMode) {
-            SpectrogramNoiseFloorMode.NONE,
-            SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN -> working
-            SpectrogramNoiseFloorMode.PER_FREQUENCY_MEDIAN,
-            SpectrogramNoiseFloorMode.PER_FREQUENCY_PERCENTILE ->
-                SpectrogramPostProcessor.applyNoiseFloor(
-                    working,
-                    renderConfig.noiseFloorMode,
-                    renderConfig.noiseFloorPercentile,
-                )
+        val noiseAdjusted = traceStep(trace, "noise-floor") {
+            when (renderConfig.noiseFloorMode) {
+                SpectrogramNoiseFloorMode.NONE,
+                SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN -> working
+                SpectrogramNoiseFloorMode.PER_FREQUENCY_MEDIAN,
+                SpectrogramNoiseFloorMode.PER_FREQUENCY_PERCENTILE ->
+                    SpectrogramPostProcessor.applyNoiseFloor(
+                        working,
+                        renderConfig.noiseFloorMode,
+                        renderConfig.noiseFloorPercentile,
+                    )
+            }
         }
-        val normalized = normalizeForDisplay(noiseAdjusted)
-        val smoothed = SpectrogramPostProcessor.smoothNormalized(
-            normalized,
-            timeRadius = renderConfig.smoothingTimeRadius,
-            frequencyRadius = renderConfig.smoothingFrequencyRadius,
-        )
+        val normalized = traceStep(trace, "normalize-display") {
+            normalizeForDisplay(noiseAdjusted)
+        }
+        val smoothed = traceStep(trace, "smooth-display") {
+            SpectrogramPostProcessor.smoothNormalized(
+                normalized,
+                timeRadius = renderConfig.smoothingTimeRadius,
+                frequencyRadius = renderConfig.smoothingFrequencyRadius,
+            )
+        }
         if (renderConfig.noiseFloorMode == SpectrogramNoiseFloorMode.NONE && renderConfig.gainDb != 0f) {
-            applyGainScaleInPlace(smoothed)
+            traceStep(trace, "gain-scale") { applyGainScaleInPlace(smoothed) }
         }
-        return downsampleAndColor(smoothed)
+        return ReviewSpectrogramDisplayPlane(
+            width = smoothed.firstOrNull()?.size ?: 0,
+            height = smoothed.size,
+            values = smoothed,
+        )
+    }
+
+    /**
+     * Render [matrix] into ARGB pixels.
+     */
+    fun render(
+        matrix: ReviewSpectrogramMatrix,
+        trace: ((String, Long) -> Unit)? = null,
+    ): Array<IntArray> = render(buildDisplayPlane(matrix, trace), trace)
+
+    /**
+     * Render a reusable display plane into ARGB pixels.
+     */
+    fun render(
+        plane: ReviewSpectrogramDisplayPlane,
+        trace: ((String, Long) -> Unit)? = null,
+    ): Array<IntArray> {
+        if (plane.width == 0 || plane.height == 0 || plane.values.isEmpty()) return emptyArray()
+        return traceStep(trace, "downsample-color") {
+            downsampleAndColor(plane.values)
+        }
+    }
+
+    private inline fun <T> traceStep(
+        noinline trace: ((String, Long) -> Unit)?,
+        name: String,
+        block: () -> T,
+    ): T {
+        if (trace == null) return block()
+        var result: T? = null
+        val elapsedNanos = measureNanoTime {
+            result = block()
+        }
+        trace(name, elapsedNanos / 1_000_000)
+        return checkNotNull(result)
     }
 
     private fun projectDisplayRange(matrix: ReviewSpectrogramMatrix): Array<FloatArray> {

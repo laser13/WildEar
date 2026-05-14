@@ -2,6 +2,7 @@ package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
+import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
 
 class ReviewSpectrogramPreviewTest {
     @Test
@@ -33,6 +34,26 @@ class ReviewSpectrogramPreviewTest {
         }
 
         assertThat(thrown).hasMessageThat().contains("same width")
+    }
+
+    @Test
+    fun `fromDisplayPlane renders a preview from the plane`() {
+        val config = ReviewSpectrogramConfig.BirdDefault.copy(palette = SpectrogramPalette.INK)
+        val preview = ReviewSpectrogramPreview.fromDisplayPlane(
+            ReviewSpectrogramDisplayPlane(
+                width = 2,
+                height = 2,
+                values = arrayOf(
+                    floatArrayOf(0f, 0.5f),
+                    floatArrayOf(0.5f, 1f),
+                ),
+            ),
+            config,
+        )
+
+        assertThat(preview.width).isEqualTo(2)
+        assertThat(preview.height).isEqualTo(2)
+        assertThat(preview.argb).hasLength(4)
     }
 
     @Test

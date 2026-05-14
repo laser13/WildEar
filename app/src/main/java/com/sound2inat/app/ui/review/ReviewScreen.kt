@@ -175,8 +175,9 @@ private fun ReviewPage(
     onBack: () -> Unit,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
-    val spectrogramPreview by vm.spectrogramPreview.collectAsStateWithLifecycle()
+    val displayPlane by vm.spectrogramDisplayPlane.collectAsStateWithLifecycle()
     val displayRange by vm.displayRange.collectAsStateWithLifecycle()
+    val spectrogramConfig by vm.spectrogramConfig.collectAsStateWithLifecycle()
     val waveformPeaks by vm.waveformPeaks.collectAsStateWithLifecycle()
     val windowPreds by vm.windowPreds.collectAsStateWithLifecycle()
     val highlight by vm.highlight.collectAsStateWithLifecycle()
@@ -185,11 +186,12 @@ private fun ReviewPage(
 
     var settingsSheetVisible by remember { mutableStateOf(false) }
     var settingsTab by rememberSaveable { mutableStateOf(ReviewSettingsTab.Audio) }
-    LaunchedEffect(isActive, state.audioPath) {
-        if (shouldEnsureVisualsForPage(isActive, state.audioPath)) {
-            vm.ensureVisuals(filesDir)
-        }
-    }
+    ReviewVisualsEffect(
+        isActive = isActive,
+        audioPath = state.audioPath,
+        filesDir = filesDir,
+        ensureVisuals = vm::ensureVisuals,
+    )
 
     LaunchedEffect(Unit) {
         snapshotFlow { state.exportEffect }
@@ -306,7 +308,8 @@ private fun ReviewPage(
                         ?.let { (it.lastSeenMs + SPECIES_CLIP_PADDING_MS).coerceAtMost(state.durationMs) }
                     WaveformAndSpectrogram(
                         peaks = waveformPeaks,
-                        spectrogramPreview = spectrogramPreview,
+                        displayPlane = displayPlane,
+                        spectrogramConfig = spectrogramConfig,
                         durationMs = state.durationMs,
                         positionFlow = vm.playerPosition,
                         onSeek = vm::seekTo,
@@ -540,8 +543,19 @@ private fun ReviewPage(
     }
 }
 
-internal fun shouldEnsureVisualsForPage(isActive: Boolean, audioPath: String?): Boolean =
-    isActive && audioPath != null
+@Composable
+internal fun ReviewVisualsEffect(
+    isActive: Boolean,
+    audioPath: String?,
+    filesDir: File,
+    ensureVisuals: (File) -> Unit,
+) {
+    LaunchedEffect(isActive, audioPath) {
+        if (isActive && audioPath != null) {
+            ensureVisuals(filesDir)
+        }
+    }
+}
 
 @Suppress("FunctionNaming")
 @Composable

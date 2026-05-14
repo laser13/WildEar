@@ -36,5 +36,19 @@ class ReviewSpectrogramPreview(
             }
             return ReviewSpectrogramPreview(width = width, height = rows.size, argb = flat)
         }
+
+        fun fromDisplayPlane(
+            displayPlane: ReviewSpectrogramDisplayPlane,
+            config: ReviewSpectrogramConfig,
+        ): ReviewSpectrogramPreview {
+            if (displayPlane.width == 0 || displayPlane.height == 0 || displayPlane.values.isEmpty()) {
+                return ReviewSpectrogramPreview(width = 0, height = 0, argb = IntArray(0))
+            }
+            val rows = SpectrogramRenderer(
+                targetWidth = SpectrogramRenderer.DEFAULT_TARGET_WIDTH,
+                config = config,
+            ).render(displayPlane)
+            return fromRows(rows)
+        }
     }
 }
