@@ -2,11 +2,13 @@ package com.sound2inat.app.ui.review
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -208,6 +210,7 @@ private fun AudioSettingsTab(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun VisualSettingsTab(
     config: ReviewSpectrogramConfig,
@@ -215,7 +218,11 @@ private fun VisualSettingsTab(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Palette", style = MaterialTheme.typography.labelMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             SpectrogramPalette.entries.filter { it != SpectrogramPalette.INK }.forEach { palette ->
                 FilterChip(
                     selected = config.palette == palette,
@@ -225,7 +232,11 @@ private fun VisualSettingsTab(
             }
         }
         Text("Range", style = MaterialTheme.typography.labelMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             SpectrogramDisplayRange.entries.forEach { range ->
                 FilterChip(
                     selected = config.displayRange == range,
@@ -235,7 +246,11 @@ private fun VisualSettingsTab(
             }
         }
         Text("Visual gain", style = MaterialTheme.typography.labelMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             reviewVisualGainOptions().forEach { gain ->
                 FilterChip(
                     selected = config.gainDb == gain,
