@@ -74,6 +74,13 @@ open class PhotoSubmitter @Inject constructor(
             }
         }
 
+        val warnings = mutableListOf<String>()
+        runCatching {
+            client.updateObservationTags(token, created.uuid, APP_TAG)
+        }.onFailure { e ->
+            warnings += "Tag update failed: ${e.message ?: "unknown error"}"
+        }
+
         if (uploadedCount == 0) {
             runCatching { client.deleteObservation(token, created.id) }
             val message = "All photo uploads failed: ${failures.joinToString(" | ")}"
@@ -85,6 +92,10 @@ open class PhotoSubmitter @Inject constructor(
         if (failures.isNotEmpty()) {
             repo.setUploadError(draftId, failures.joinToString(" | "))
         }
-        PhotoSubmitResult.Ok(created.url, failures)
+        PhotoSubmitResult.Ok(created.url, failures + warnings)
+    }
+
+    private companion object {
+        private const val APP_TAG = "WildEar"
     }
 }

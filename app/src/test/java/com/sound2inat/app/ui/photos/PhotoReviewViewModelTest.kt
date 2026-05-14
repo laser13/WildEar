@@ -278,10 +278,12 @@ class PhotoReviewViewModelTest {
         assertThat(vm.state.value.taxonInatId).isEqualTo(101L)
         assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).isEqualTo("/v1/computervision/score_observation/777")
         assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).contains("/v1/taxa?id=1,2,101,102")
-        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).isEqualTo("/v1/identifications")
-        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.body?.readUtf8()).contains("uuid-777")
-        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.body?.readUtf8()).contains("uuid-777")
-        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.body?.readUtf8()).contains("uuid-777")
+        val identificationRequest = server.takeRequest(5, TimeUnit.SECONDS)
+        val identificationBody = identificationRequest?.body?.readUtf8().orEmpty()
+        assertThat(identificationRequest?.path).isEqualTo("/v1/identifications")
+        assertThat(identificationBody).contains("\"observation_id\":777")
+        assertThat(identificationBody).doesNotContain("WildEar CV")
+        assertThat(identificationBody).doesNotContain("\"body\"")
     }
 
     @Test

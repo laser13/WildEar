@@ -234,7 +234,7 @@ class PhotoReviewViewModel(
                     token = token,
                     observationId = observationId,
                     taxonId = suggestion.taxonId,
-                    body = "WildEar CV $label",
+                    body = null,
                 )
             }.onFailure { error ->
                 _state.update {
