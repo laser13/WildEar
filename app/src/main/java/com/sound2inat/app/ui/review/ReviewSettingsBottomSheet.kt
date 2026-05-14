@@ -56,11 +56,6 @@ internal fun ReviewSettingsBottomSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Settings", style = MaterialTheme.typography.titleLarge)
-            Text(
-                "One shared profile controls playback, analysis, and the spectrogram view. Original WAV is kept unchanged.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             TabRow(selectedTabIndex = selectedTab.ordinal) {
                 ReviewSettingsTab.entries.forEach { tab ->
                     Tab(
@@ -77,6 +72,14 @@ internal fun ReviewSettingsBottomSheet(
                     )
                 }
             }
+            Text(
+                when (selectedTab) {
+                    ReviewSettingsTab.Audio -> "Audio profile changes playback, analysis, and upload."
+                    ReviewSettingsTab.Visual -> "Visual settings affect preview only."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             when (selectedTab) {
                 ReviewSettingsTab.Audio -> AudioSettingsTab(
                     config = draftProfile.audioProcessingConfig,
