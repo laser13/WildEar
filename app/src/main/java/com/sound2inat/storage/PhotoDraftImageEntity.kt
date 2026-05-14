@@ -20,7 +20,11 @@ import androidx.room.PrimaryKey
 data class PhotoDraftImageEntity(
     @PrimaryKey val id: String,
     val photoDraftId: String,
+    val originalPhotoPath: String,
     val photoPath: String,
+    val cropLeftPx: Int?,
+    val cropTopPx: Int?,
+    val cropSizePx: Int?,
     val takenAtUtcMs: Long,
     val sortOrder: Int,
     val width: Int?,

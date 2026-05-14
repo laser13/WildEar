@@ -3,11 +3,15 @@ package com.sound2inat.storage
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Update
 
 @Dao
 interface PhotoDraftImageDao {
     @Insert
     fun insert(image: PhotoDraftImageEntity)
+
+    @Update
+    fun update(image: PhotoDraftImageEntity)
 
     @Query("SELECT * FROM photo_draft_images WHERE id = :id LIMIT 1")
     fun getById(id: String): PhotoDraftImageEntity?

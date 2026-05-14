@@ -8,6 +8,7 @@ import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.PhotoSubmitResult
 import com.sound2inat.inat.PhotoSubmitter
 import com.sound2inat.storage.PhotoDraftRepository
+import com.sound2inat.storage.PhotoObservationFileStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,12 +16,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
+import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
 class PhotoReviewViewModel(
     savedStateHandle: SavedStateHandle,
     private val repo: PhotoDraftRepository,
+    private val fileStore: PhotoObservationFileStore,
     private val auth: INatAuthRepository,
     private val client: INaturalistClient,
     private val submitter: PhotoSubmitter,
@@ -30,6 +34,7 @@ class PhotoReviewViewModel(
     @Inject constructor(
         savedStateHandle: SavedStateHandle,
         repo: PhotoDraftRepository,
+        fileStore: PhotoObservationFileStore,
         auth: INatAuthRepository,
         client: INaturalistClient,
         submitter: PhotoSubmitter,
@@ -37,6 +42,7 @@ class PhotoReviewViewModel(
     ) : this(
         savedStateHandle = savedStateHandle,
         repo = repo,
+        fileStore = fileStore,
         auth = auth,
         client = client,
         submitter = submitter,
@@ -104,15 +110,17 @@ class PhotoReviewViewModel(
 
     suspend fun cropImageSquare(imageId: String) {
         val image = repo.getImageById(imageId) ?: return
-        val newImageId = java.util.UUID.randomUUID().toString()
-        val current = java.io.File(image.photoPath)
-        val parent = requireNotNull(current.parentFile) { "photo has no parent directory: ${current.absolutePath}" }
-        val newFile = java.io.File(parent, "$newImageId.jpg")
-        val info = cropper.cropCenterSquare(current, newFile)
-        repo.replaceImage(
+        val current = File(image.photoPath)
+        val original = ensureOriginalPhoto(image.id, image.photoDraftId, image.originalPhotoPath, current)
+        val newPhotoFile = fileStore.newPhotoFile(image.photoDraftId, "${image.id}-${UUID.randomUUID()}")
+        val info = cropper.cropCenterSquare(original, newPhotoFile)
+        repo.updateImageCrop(
             imageId = imageId,
-            newImageId = newImageId,
-            newImageFile = newFile,
+            originalPhotoPath = original.absolutePath,
+            newPhotoPath = newPhotoFile,
+            cropLeftPx = info.cropRegion.left,
+            cropTopPx = info.cropRegion.top,
+            cropSizePx = info.cropRegion.size,
             width = info.width,
             height = info.height,
         )
@@ -123,15 +131,17 @@ class PhotoReviewViewModel(
         request: PhotoCropRequest,
     ) {
         val image = repo.getImageById(imageId) ?: return
-        val newImageId = java.util.UUID.randomUUID().toString()
-        val current = java.io.File(image.photoPath)
-        val parent = requireNotNull(current.parentFile) { "photo has no parent directory: ${current.absolutePath}" }
-        val newFile = java.io.File(parent, "$newImageId.jpg")
-        val info = cropper.cropFromViewport(current, newFile, request)
-        repo.replaceImage(
+        val current = File(image.photoPath)
+        val original = ensureOriginalPhoto(image.id, image.photoDraftId, image.originalPhotoPath, current)
+        val newPhotoFile = fileStore.newPhotoFile(image.photoDraftId, "${image.id}-${UUID.randomUUID()}")
+        val info = cropper.cropFromViewport(original, newPhotoFile, request)
+        repo.updateImageCrop(
             imageId = imageId,
-            newImageId = newImageId,
-            newImageFile = newFile,
+            originalPhotoPath = original.absolutePath,
+            newPhotoPath = newPhotoFile,
+            cropLeftPx = info.cropRegion.left,
+            cropTopPx = info.cropRegion.top,
+            cropSizePx = info.cropRegion.size,
             width = info.width,
             height = info.height,
         )
@@ -332,6 +342,23 @@ class PhotoReviewViewModel(
                 controlledValueId = 2,
             )
         }
+    }
+
+    private fun ensureOriginalPhoto(
+        imageId: String,
+        draftId: String,
+        originalPhotoPath: String,
+        currentFile: File,
+    ): File {
+        val currentOriginal = File(originalPhotoPath)
+        if (currentOriginal.exists() && currentOriginal.absolutePath != currentFile.absolutePath) {
+            return currentOriginal
+        }
+        val backup = fileStore.originalPhotoFile(draftId, imageId)
+        if (!backup.exists()) {
+            currentFile.copyTo(backup, overwrite = true)
+        }
+        return backup
     }
 
     private fun shouldApplyAnnotations(suggestion: PhotoVisionSuggestion): Boolean =

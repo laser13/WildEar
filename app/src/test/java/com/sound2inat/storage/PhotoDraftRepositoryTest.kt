@@ -72,6 +72,8 @@ class PhotoDraftRepositoryTest {
 
         assertThat(repo.observeWithImages(draftId).first()?.images).hasSize(1)
         assertThat(repo.observeWithImages(draftId).first()?.images?.single()?.id).isEqualTo("photo1")
+        assertThat(repo.observeWithImages(draftId).first()?.images?.single()?.originalPhotoPath)
+            .isEqualTo(imageFile.absolutePath)
         assertThat(imageFile.exists()).isTrue()
 
         repo.deleteDraft(draftId)

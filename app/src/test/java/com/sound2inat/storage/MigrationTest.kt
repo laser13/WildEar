@@ -230,7 +230,50 @@ class MigrationTest {
     }
 
     @Test
-    fun `migrate all versions 1 through 8 preserves seed data`() {
+    fun `migrate 8 to 10 backfills original photo path for existing image rows`() {
+        helper.createDatabase(dbName, 8).use { db ->
+            db.execSQL(
+                """INSERT INTO photo_drafts (
+                    id, createdAtUtcMs, updatedAtUtcMs, observedAtUtcMs,
+                    latitude, longitude, locationAccuracyMeters,
+                    status, taxonScientificName, taxonCommonName, taxonInatId,
+                    description, inatObservationId, inatObservationUrl, inatLastError
+                ) VALUES (
+                    'pd1', 1, 1, 1,
+                    35.0, 33.0, 10.0,
+                    'PENDING_REVIEW', null, null, null,
+                    null, null, null, null
+                )""",
+            )
+            db.execSQL(
+                """INSERT INTO photo_draft_images (
+                    id, photoDraftId, photoPath, takenAtUtcMs, sortOrder, width, height, mimeType
+                ) VALUES (
+                    'img1', 'pd1', '/tmp/current.jpg', 2, 0, 4000, 3000, 'image/jpeg'
+                )""",
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            dbName,
+            10,
+            true,
+            Sound2iNatDb.MIGRATION_8_9,
+            Sound2iNatDb.MIGRATION_9_10,
+        )
+
+        db.query("SELECT originalPhotoPath, photoPath, cropLeftPx, cropTopPx, cropSizePx FROM photo_draft_images WHERE id='img1'").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getString(0)).isEqualTo("/tmp/current.jpg")
+            assertThat(c.getString(1)).isEqualTo("/tmp/current.jpg")
+            assertThat(c.isNull(2)).isTrue()
+            assertThat(c.isNull(3)).isTrue()
+            assertThat(c.isNull(4)).isTrue()
+        }
+    }
+
+    @Test
+    fun `migrate all versions 1 through 10 preserves seed data`() {
         helper.createDatabase(dbName, 1).use { db ->
             db.execSQL(
                 """INSERT INTO drafts (id, audioPath, recordedAtUtcMs, durationMs,
@@ -249,7 +292,7 @@ class MigrationTest {
         }
 
         val db = helper.runMigrationsAndValidate(
-            dbName, 8, true,
+            dbName, 10, true,
             Sound2iNatDb.MIGRATION_1_2,
             Sound2iNatDb.MIGRATION_2_3,
             Sound2iNatDb.MIGRATION_3_4,
@@ -257,6 +300,8 @@ class MigrationTest {
             Sound2iNatDb.MIGRATION_5_6,
             Sound2iNatDb.MIGRATION_6_7,
             Sound2iNatDb.MIGRATION_7_8,
+            Sound2iNatDb.MIGRATION_8_9,
+            Sound2iNatDb.MIGRATION_9_10,
         )
 
         db.query("SELECT COUNT(*) FROM drafts WHERE id='d5'").use { c ->

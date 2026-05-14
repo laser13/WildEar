@@ -12,6 +12,11 @@ class PhotoObservationFileStore(private val rootDir: File) {
         return File(dir, "$photoId.jpg")
     }
 
+    fun originalPhotoFile(photoDraftId: String, photoId: String): File {
+        val dir = File(rootDir, photoDraftId).apply { mkdirs() }
+        return File(dir, "$photoId-original.jpg")
+    }
+
     fun deleteDraftFiles(photoDraftId: String) {
         File(rootDir, photoDraftId).deleteRecursively()
     }

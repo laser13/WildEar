@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PhotoDraftEntity::class,
         PhotoDraftImageEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -190,6 +190,29 @@ abstract class Sound2iNatDb : RoomDatabase() {
         val MIGRATION_8_9: Migration = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE photo_drafts ADD COLUMN inatObservationUuid TEXT")
+            }
+        }
+
+        // v10: keep the original capture file alongside the current cropped
+        // version and persist crop rect metadata so the editor can reopen the
+        // source image and restore the last crop state.
+        val MIGRATION_9_10: Migration = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE photo_draft_images ADD COLUMN originalPhotoPath TEXT NOT NULL DEFAULT ''",
+                )
+                db.execSQL(
+                    "ALTER TABLE photo_draft_images ADD COLUMN cropLeftPx INTEGER",
+                )
+                db.execSQL(
+                    "ALTER TABLE photo_draft_images ADD COLUMN cropTopPx INTEGER",
+                )
+                db.execSQL(
+                    "ALTER TABLE photo_draft_images ADD COLUMN cropSizePx INTEGER",
+                )
+                db.execSQL(
+                    "UPDATE photo_draft_images SET originalPhotoPath = photoPath WHERE originalPhotoPath = ''",
+                )
             }
         }
     }

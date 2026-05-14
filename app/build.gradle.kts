@@ -59,6 +59,11 @@ android {
 
     buildFeatures { compose = true }
 
+    sourceSets {
+        getByName("test").assets.srcDir("$projectDir/schemas")
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+
     packaging {
         resources.excludes += setOf(
             "META-INF/AL2.0",
@@ -127,6 +132,7 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
+    implementation(libs.androidx.exifinterface)
 
     debugImplementation(libs.compose.ui.tooling)
 

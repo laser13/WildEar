@@ -600,24 +600,74 @@ private fun PhotoImageDialog(
     var cropScale by remember(image.id) { mutableStateOf(1f) }
     var cropOffset by remember(image.id) { mutableStateOf(Offset.Zero) }
     var cropFrameSizePx by remember(image.id) { mutableStateOf(0) }
-    val imageBounds = remember(image.photoPath) { loadImageBounds(image.photoPath) }
+    var cropInitialized by remember(image.id) { mutableStateOf(false) }
+    val sourcePath = remember(image.id, image.originalPhotoPath, image.photoPath) {
+        image.originalPhotoPath.takeIf { it.isNotBlank() } ?: image.photoPath
+    }
+    val imageBounds = remember(sourcePath) { readPhotoImageBounds(sourcePath) }
 
     fun clampOffset(offset: Offset, scale: Float): Offset {
         val bounds = imageBounds ?: return offset
         if (cropFrameSizePx <= 0) return offset
         val coverScale = maxOf(
-            cropFrameSizePx.toFloat() / bounds.first.toFloat(),
-            cropFrameSizePx.toFloat() / bounds.second.toFloat(),
+            cropFrameSizePx.toFloat() / bounds.width.toFloat(),
+            cropFrameSizePx.toFloat() / bounds.height.toFloat(),
         )
         val totalScale = coverScale * scale
-        val renderedWidth = bounds.first * totalScale
-        val renderedHeight = bounds.second * totalScale
+        val renderedWidth = bounds.width * totalScale
+        val renderedHeight = bounds.height * totalScale
         val maxX = ((renderedWidth - cropFrameSizePx) / 2f).coerceAtLeast(0f)
         val maxY = ((renderedHeight - cropFrameSizePx) / 2f).coerceAtLeast(0f)
         return Offset(
             x = offset.x.coerceIn(-maxX, maxX),
             y = offset.y.coerceIn(-maxY, maxY),
         )
+    }
+
+    fun initialRequestFromSavedCrop(region: CropRegion): PhotoCropRequest? {
+        val bounds = imageBounds ?: return null
+        if (cropFrameSizePx <= 0 || region.size <= 0) return null
+        val frameSize = cropFrameSizePx.coerceAtLeast(1)
+        val coverScale = maxOf(
+            frameSize.toFloat() / bounds.width.toFloat(),
+            frameSize.toFloat() / bounds.height.toFloat(),
+        )
+        val totalScale = frameSize.toFloat() / region.size.toFloat()
+        val scale = (totalScale / coverScale).coerceAtLeast(1f)
+        val centerX = region.left + region.size / 2f
+        val centerY = region.top + region.size / 2f
+        val offsetX = (bounds.width / 2f - centerX) * totalScale
+        val offsetY = (bounds.height / 2f - centerY) * totalScale
+        return PhotoCropRequest(
+            frameSizePx = frameSize,
+            scale = scale,
+            offsetX = offsetX,
+            offsetY = offsetY,
+        )
+    }
+
+    LaunchedEffect(
+        cropFrameSizePx,
+        sourcePath,
+        image.cropLeftPx,
+        image.cropTopPx,
+        image.cropSizePx,
+        imageBounds,
+        image.id,
+    ) {
+        if (cropInitialized || cropFrameSizePx <= 0 || imageBounds == null) return@LaunchedEffect
+        val savedRegion = image.cropLeftPx?.let { left ->
+            val top = image.cropTopPx ?: return@let null
+            val size = image.cropSizePx ?: return@let null
+            CropRegion(left = left, top = top, size = size)
+        }
+        if (savedRegion != null) {
+            initialRequestFromSavedCrop(savedRegion)?.let { request ->
+                cropScale = request.scale
+                cropOffset = Offset(request.offsetX, request.offsetY)
+            }
+        }
+        cropInitialized = true
     }
 
     Dialog(
@@ -662,9 +712,9 @@ private fun PhotoImageDialog(
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         AsyncImage(
-                            model = File(image.photoPath),
+                            model = File(sourcePath),
                             contentDescription = "Selected photo",
-                            contentScale = ContentScale.Crop,
+                            contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .pointerInput(image.id, cropFrameSizePx, imageBounds) {
@@ -727,7 +777,7 @@ private fun PhotoImageDialog(
                     AssistChip(
                         onClick = {},
                         enabled = false,
-                        label = { Text(formatCropSourceLabel(image)) },
+                        label = { Text(formatCropSourceLabel(image, sourcePath)) },
                     )
                     AssistChip(
                         onClick = {},
@@ -790,7 +840,7 @@ private fun formatCoordinates(
 private fun formatResolution(photo: com.sound2inat.storage.PhotoDraftImageEntity?): String {
     if (photo == null) return "Unknown"
     return formatResolution(photo.width, photo.height).takeIf { it != "Unknown" }
-        ?: loadImageBounds(photo.photoPath)?.let { formatResolution(it.first, it.second) }
+        ?: readPhotoImageBounds(photo.photoPath)?.let { formatResolution(it.width, it.height) }
         ?: "Unknown"
 }
 
@@ -799,12 +849,16 @@ private fun formatResolution(width: Int?, height: Int?): String {
     return "${width}×${height}px"
 }
 
-private fun formatCropSourceLabel(image: com.sound2inat.storage.PhotoDraftImageEntity): String {
-    val resolution = formatResolution(image.width, image.height).takeIf { it != "Unknown" }
-        ?: loadImageBounds(image.photoPath)?.let { formatResolution(it.first, it.second) }
+private fun formatCropSourceLabel(
+    image: com.sound2inat.storage.PhotoDraftImageEntity,
+    sourcePath: String,
+): String {
+    val sourceBounds = readPhotoImageBounds(sourcePath)
+    val resolution = sourceBounds?.let { formatResolution(it.width, it.height) }
+        ?: formatResolution(image.width, image.height).takeIf { it != "Unknown" }
         ?: "Unknown"
-    val ratio = formatAspectRatio(image.width, image.height)
-        ?: loadImageBounds(image.photoPath)?.let { formatAspectRatio(it.first, it.second) }
+    val ratio = sourceBounds?.let { formatAspectRatio(it.width, it.height) }
+        ?: formatAspectRatio(image.width, image.height)
     return if (ratio == null) {
         "Source $resolution"
     } else {
@@ -829,12 +883,4 @@ private fun gcd(first: Int, second: Int): Int {
         b = remainder
     }
     return a.absoluteValue
-}
-
-private fun loadImageBounds(path: String): Pair<Int, Int>? {
-    val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    android.graphics.BitmapFactory.decodeFile(path, options)
-    val width = options.outWidth.takeIf { it > 0 } ?: return null
-    val height = options.outHeight.takeIf { it > 0 } ?: return null
-    return width to height
 }

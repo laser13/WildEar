@@ -9,7 +9,6 @@ import com.sound2inat.location.LocationProvider
 import com.sound2inat.storage.PhotoDraftRepository
 import com.sound2inat.storage.PhotoObservationFileStore
 import dagger.hilt.android.lifecycle.HiltViewModel
-import android.graphics.BitmapFactory
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -159,10 +158,6 @@ class PhotoCaptureViewModel(
     }
 
     private fun readImageBounds(file: File): Pair<Int, Int>? {
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, options)
-        val width = options.outWidth.takeIf { it > 0 } ?: return null
-        val height = options.outHeight.takeIf { it > 0 } ?: return null
-        return width to height
+        return readPhotoImageBounds(file.absolutePath)?.let { it.width to it.height }
     }
 }

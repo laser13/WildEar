@@ -153,10 +153,13 @@ class PhotoReviewViewModelTest {
         vm.cropImageSquare("p1")
 
         val image = vm.state.value.images.single()
-        assertThat(image.id).isNotEqualTo("p1")
+        assertThat(image.id).isEqualTo("p1")
+        assertThat(image.originalPhotoPath).isEqualTo(fileStore.originalPhotoFile(draftId, "p1").absolutePath)
+        assertThat(image.photoPath).isNotEqualTo(original.absolutePath)
         assertThat(image.width).isEqualTo(2)
         assertThat(image.height).isEqualTo(2)
-        assertThat(original.exists()).isTrue()
+        assertThat(original.exists()).isFalse()
+        assertThat(File(image.originalPhotoPath).exists()).isTrue()
         assertThat(File(image.photoPath).exists()).isTrue()
     }
 
@@ -321,6 +324,7 @@ class PhotoReviewViewModelTest {
     ): PhotoReviewViewModel = PhotoReviewViewModel(
         savedStateHandle = SavedStateHandle(mapOf("photoDraftId" to draftId)),
         repo = repo,
+        fileStore = fileStore,
         auth = auth,
         client = client,
         submitter = submitter,

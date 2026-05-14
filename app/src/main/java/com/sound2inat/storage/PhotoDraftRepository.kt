@@ -58,7 +58,7 @@ class PhotoDraftRepository(
         val id = idFactory()
         val now = nowMs()
         draftDao.insert(
-            PhotoDraftEntity(
+                PhotoDraftEntity(
                 id = id,
                 createdAtUtcMs = now,
                 updatedAtUtcMs = now,
@@ -95,7 +95,11 @@ class PhotoDraftRepository(
                 PhotoDraftImageEntity(
                     id = photoId,
                     photoDraftId = draftId,
+                    originalPhotoPath = imageFile.absolutePath,
                     photoPath = imageFile.absolutePath,
+                    cropLeftPx = null,
+                    cropTopPx = null,
+                    cropSizePx = null,
                     takenAtUtcMs = takenAtUtcMs,
                     sortOrder = sortOrder,
                     width = width,
@@ -130,33 +134,41 @@ class PhotoDraftRepository(
         val image = imageDao.getById(imageId) ?: return@withContext
         imageDao.deleteById(imageId)
         File(image.photoPath).delete()
+        val original = image.originalPhotoPath
+        if (original.isNotBlank() && original != image.photoPath) {
+            File(original).delete()
+        }
     }
 
-    suspend fun replaceImage(
+    suspend fun updateImageCrop(
         imageId: String,
-        newImageId: String,
-        newImageFile: File,
+        originalPhotoPath: String,
+        newPhotoPath: File,
+        cropLeftPx: Int,
+        cropTopPx: Int,
+        cropSizePx: Int,
         width: Int?,
         height: Int?,
     ) = withContext(ioDispatcher) {
         val image = imageDao.getById(imageId) ?: error("photo image $imageId missing")
+        val updated = image.copy(
+            originalPhotoPath = originalPhotoPath,
+            photoPath = newPhotoPath.absolutePath,
+            cropLeftPx = cropLeftPx,
+            cropTopPx = cropTopPx,
+            cropSizePx = cropSizePx,
+            width = width,
+            height = height,
+        )
         runInTransaction {
-            imageDao.deleteById(imageId)
-            imageDao.insert(
-                PhotoDraftImageEntity(
-                    id = newImageId,
-                    photoDraftId = image.photoDraftId,
-                    photoPath = newImageFile.absolutePath,
-                    takenAtUtcMs = image.takenAtUtcMs,
-                    sortOrder = image.sortOrder,
-                    width = width,
-                    height = height,
-                    mimeType = image.mimeType,
-                ),
-            )
+            imageDao.update(updated)
             draftDao.getById(image.photoDraftId)?.let { draft ->
                 draftDao.update(draft.copy(updatedAtUtcMs = nowMs()))
             }
+        }
+        val previousPath = image.photoPath
+        if (previousPath != newPhotoPath.absolutePath && previousPath != originalPhotoPath) {
+            File(previousPath).delete()
         }
     }
 
