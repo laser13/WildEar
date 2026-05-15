@@ -70,6 +70,10 @@ class InferenceRunner(
         if (plan.frames == 0) {
             models.forEach { runCatching { it.close() } }
             runCatching { yamNetGate?.close() }
+                .onFailure { e ->
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.w("InferenceRunner", "yamNetGate.close() threw", e)
+                }
             _progress.value = 1f
             return emptyList()
         }
@@ -137,7 +141,10 @@ class InferenceRunner(
             model.close()
         }
         runCatching { yamNetGate?.close() }
-            .onFailure { Log.w("InferenceRunner", "yamNetGate.close() threw", it) }
+            .onFailure { e ->
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.w("InferenceRunner", "yamNetGate.close() threw", e)
+            }
         Log.d(
             "InferenceTiming",
             "${model.modelId}: loop done — ${plan.frames} windows in " +
@@ -226,7 +233,10 @@ class InferenceRunner(
         }
         _progress.value = 1f
         runCatching { yamNetGate?.close() }
-            .onFailure { Log.w("InferenceRunner", "yamNetGate.close() threw", it) }
+            .onFailure { e ->
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.w("InferenceRunner", "yamNetGate.close() threw", e)
+            }
         return results.flatten().sortedBy { it.startMs }
     }
 

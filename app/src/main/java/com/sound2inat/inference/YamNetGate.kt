@@ -11,5 +11,5 @@ fun interface YamNetGate {
     suspend fun classify(pcmFloat32: FloatArray, sampleRateHz: Int): YamNetGateResult?
 
     /** Releases native TFLite resources. Safe to call multiple times. */
-    fun close() {}
+    suspend fun close() {}
 }

@@ -102,9 +102,11 @@ class YamNetTfliteGate(
         }
     }
 
-    override fun close() {
-        runCatching { interpreter?.close() }
-        interpreter = null
+    override suspend fun close() {
+        mutex.withLock {
+            runCatching { interpreter?.close() }
+            interpreter = null
+        }
     }
 
     companion object {
