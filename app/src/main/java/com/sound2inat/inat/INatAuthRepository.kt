@@ -95,7 +95,10 @@ open class INatAuthRepository @Inject constructor(
         }
         val login = pair?.first
         val userId = pair?.second
-        storage.save(token, login, userId, System.currentTimeMillis())
+        // Blocking commit() must run on IO — callers may be on Main (e.g. Hilt viewModelScope).
+        withContext(ioDispatcher) {
+            storage.save(token, login, userId, System.currentTimeMillis())
+        }
         _tokenState.value = token
         _loginState.value = login
         _userIdState.value = userId
@@ -105,8 +108,14 @@ open class INatAuthRepository @Inject constructor(
      * Wipes encrypted storage, system WebView cookies, and JS-storage so
      * the next interactive login starts on a fresh iNat session.
      */
-    suspend fun logout(mainDispatcher: CoroutineDispatcher = Dispatchers.Main) {
-        storage.clear()
+    suspend fun logout(
+        ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+        mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
+    ) {
+        // Blocking commit() must run on IO — callers may be on Main (e.g. Hilt viewModelScope).
+        withContext(ioDispatcher) {
+            storage.clear()
+        }
         _tokenState.value = null
         _loginState.value = null
         _userIdState.value = null
@@ -203,7 +212,11 @@ open class INatAuthRepository @Inject constructor(
             // Mark fetched-at = "now" so the freshness check at least gives the
             // legacy token one normal TTL window before triggering refresh —
             // we don't actually know how old it was.
-            storage.save(legacy, legacyLogin, null, System.currentTimeMillis())
+            // Blocking commit() must run on IO — migration is invoked from getValidToken
+            // which may be called from Main-thread coroutines.
+            withContext(Dispatchers.IO) {
+                storage.save(legacy, legacyLogin, null, System.currentTimeMillis())
+            }
             _tokenState.value = legacy
             _loginState.value = legacyLogin
         }

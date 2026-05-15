@@ -167,6 +167,11 @@ class DefaultRecorder(
         source.stop()
         job?.cancelAndJoin()
         job = null
+        // Tolerate IOException from close (e.g. disk full during patchHeader).
+        // The WAV payload is already on disk; only the header update may be stale.
+        // We still return a RecordingResult so the draft is persisted and the user
+        // doesn't lose the recording entirely. The downstream inference path can
+        // fail gracefully on a stale header rather than us losing the file.
         runCatching { writer?.close() }
             .onFailure { Log.w(TAG, "writer.close() failed; WAV may have stale header", it) }
         writer = null

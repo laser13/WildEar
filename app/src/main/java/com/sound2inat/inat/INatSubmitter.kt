@@ -250,13 +250,23 @@ class INatSubmitter(
             draft.draft.id,
             det.taxonScientificName,
         )
-        if (existing != null) {
+        if (existing != null && existing.observationUrl.isNotBlank() && existing.observationId > 0L) {
             android.util.Log.d(
                 LOG_TAG,
                 "Reusing existing iNat observation ${existing.observationId}" +
                     " for ${det.taxonScientificName}",
             )
             return SubmittedObs(existing, uuid = "")
+        }
+        if (existing != null) {
+            android.util.Log.w(
+                LOG_TAG,
+                "Discarding malformed inat_observations row for ${det.taxonScientificName}" +
+                    " (id=${existing.observationId}, url='${existing.observationUrl}') — will recreate",
+            )
+            // Wipe the corrupt row so we don't loop on retry. Consistent with
+            // the atomic wipe-and-replace in persistAndMarkUploaded.
+            inatObservations.deleteForDraft(draft.draft.id)
         }
         val genusId = client.resolveGenus(det.taxonScientificName, token) ?: return null
         val cropFile = File(cropDir, cropFileName(draft.draft.id, det))
