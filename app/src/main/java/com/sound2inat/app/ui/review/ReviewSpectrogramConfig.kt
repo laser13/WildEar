@@ -31,8 +31,8 @@ data class ReviewSpectrogramConfig(
             "range_${(displayRangeDb * 10).toInt()}",
             "gamma_${(gamma * 100).toInt()}",
             "ink_${maxInkArgb.toUInt().toString(16)}",
-            "st_${smoothingTimeRadius}",
-            "sf_${smoothingFrequencyRadius}",
+            "st_$smoothingTimeRadius",
+            "sf_$smoothingFrequencyRadius",
             "v2",
         ).joinToString("_")
 
@@ -46,8 +46,8 @@ data class ReviewSpectrogramConfig(
             "gate_${(gateDb * 10).toInt()}",
             "range_${(displayRangeDb * 10).toInt()}",
             "gamma_${(gamma * 100).toInt()}",
-            "st_${smoothingTimeRadius}",
-            "sf_${smoothingFrequencyRadius}",
+            "st_$smoothingTimeRadius",
+            "sf_$smoothingFrequencyRadius",
             "v1",
         ).joinToString("_")
 

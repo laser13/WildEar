@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,7 +35,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sound2inat.inference.WindowPrediction
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
 
 /**
  * Cached mel-spectrogram view with the play cursor and (when supplied)
@@ -122,28 +125,37 @@ internal fun WaveformAndSpectrogram(
                 ) {
                     Box(
                         modifier = Modifier
-                    .width(contentWidthDp)
-                    .height(SPECTROGRAM_HEIGHT.dp),
-            ) {
-                        val bitmap: ImageBitmap? = remember(displayPlane, spectrogramConfig) {
-                            displayPlane
-                                ?.takeIf { it.width > 0 && it.height > 0 }
-                                ?.let { plane ->
-                                    ReviewSpectrogramPreview.fromDisplayPlane(plane, spectrogramConfig)
-                                }
-                                ?.takeIf { it.width > 0 && it.height > 0 }
-                                ?.let { preview ->
-                                    Bitmap.createBitmap(
-                                        preview.argb,
-                                        preview.width,
-                                        preview.height,
-                                        Bitmap.Config.ARGB_8888,
-                                    ).asImageBitmap()
-                                }
+                            .width(contentWidthDp)
+                            .height(SPECTROGRAM_HEIGHT.dp),
+                    ) {
+                        // Build the Bitmap off the Main thread to avoid jank.
+                        // produceState cancels and restarts whenever displayPlane
+                        // or spectrogramConfig change.
+                        val bitmap: ImageBitmap? by produceState<ImageBitmap?>(
+                            initialValue = null,
+                            key1 = displayPlane,
+                            key2 = spectrogramConfig,
+                        ) {
+                            value = withContext(Dispatchers.Default) {
+                                displayPlane
+                                    ?.takeIf { it.width > 0 && it.height > 0 }
+                                    ?.let { plane ->
+                                        ReviewSpectrogramPreview.fromDisplayPlane(plane, spectrogramConfig)
+                                    }
+                                    ?.takeIf { it.width > 0 && it.height > 0 }
+                                    ?.let { preview ->
+                                        Bitmap.createBitmap(
+                                            preview.argb,
+                                            preview.width,
+                                            preview.height,
+                                            Bitmap.Config.ARGB_8888,
+                                        ).asImageBitmap()
+                                    }
+                            }
                         }
-                        if (bitmap != null) {
+                        bitmap?.let { bmp ->
                             Image(
-                                bitmap = bitmap,
+                                bitmap = bmp,
                                 contentDescription = "Mel spectrogram",
                                 contentScale = ContentScale.FillBounds,
                                 modifier = Modifier.fillMaxSize(),
@@ -250,7 +262,7 @@ private fun formatFrequencyLabel(hz: Int): String =
     when {
         hz >= 1_000 -> {
             val khz = hz / 1_000f
-            if (hz % 1_000 == 0) "${khz.toInt()}kHz" else String.format("%.1fkHz", khz)
+            if (hz % 1_000 == 0) "${khz.toInt()}kHz" else String.format(java.util.Locale.ROOT, "%.1fkHz", khz)
         }
         else -> "${hz}Hz"
     }

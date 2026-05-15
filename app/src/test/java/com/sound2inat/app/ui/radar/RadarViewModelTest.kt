@@ -1,6 +1,8 @@
 package com.sound2inat.app.ui.radar
 
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.inat.CachedResult
+import com.sound2inat.inat.FilterKey
 import com.sound2inat.location.Fix
 import com.sound2inat.location.LocationProvider
 import kotlinx.coroutines.ExperimentalCoroutinesApi

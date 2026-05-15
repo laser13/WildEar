@@ -1,9 +1,9 @@
 package com.sound2inat.app.ui.review
 
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.ln
-import kotlin.math.abs
 
 object ReviewAudioProcessor {
     fun process(

@@ -340,7 +340,7 @@ class SpectrogramRenderer(
             highPercentile: Float = 95f,
         ): FloatArray {
             if (values.isEmpty()) return values
-            val sorted = values.toMutableList().also { it.sort() }
+            val sorted = values.copyOf().also { it.sort() }
             val low = sorted[
                 ((sorted.size - 1) * (lowPercentile.coerceIn(0f, 100f) / 100f))
                     .toInt()

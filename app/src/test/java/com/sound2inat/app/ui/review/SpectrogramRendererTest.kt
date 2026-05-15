@@ -88,11 +88,17 @@ class SpectrogramRendererTest {
         val matrix = midToneMatrix()
         val neutral = SpectrogramRenderer(
             targetWidth = 64,
-            config = ReviewSpectrogramConfig.BirdDefault.copy(noiseFloorMode = SpectrogramNoiseFloorMode.NONE, gainDb = 0f),
+            config = ReviewSpectrogramConfig.BirdDefault.copy(
+                noiseFloorMode = SpectrogramNoiseFloorMode.NONE,
+                gainDb = 0f
+            ),
         ).render(matrix)
         val boosted = SpectrogramRenderer(
             targetWidth = 64,
-            config = ReviewSpectrogramConfig.BirdDefault.copy(noiseFloorMode = SpectrogramNoiseFloorMode.NONE, gainDb = 12f),
+            config = ReviewSpectrogramConfig.BirdDefault.copy(
+                noiseFloorMode = SpectrogramNoiseFloorMode.NONE,
+                gainDb = 12f
+            ),
         ).render(matrix)
 
         assertThat(neutral).isNotEqualTo(boosted)

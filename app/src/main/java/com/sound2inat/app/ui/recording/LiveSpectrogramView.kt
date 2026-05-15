@@ -121,13 +121,16 @@ private fun fillPixels(
             for (x in 0 until xOffset) out[rowStart + x] = bgArgb
         }
     }
-    for (x in 0 until drawCols) {
-        val px = xOffset + x
-        for (y in 0 until h) {
+    // Outer loop over rows (y) so consecutive writes go to out[y*w + ...],
+    // which is sequential in memory and cache-friendly.
+    for (y in 0 until h) {
+        val ringY = h - 1 - y
+        for (x in 0 until drawCols) {
+            val px = xOffset + x
             val db = SpectrogramVisualPipeline.smoothedRingValue(
                 ring = ring,
                 x = x,
-                y = h - 1 - y,
+                y = ringY,
                 timeRadius = LIVE_PROFILE.smoothingTimeRadius,
                 frequencyRadius = LIVE_PROFILE.smoothingFrequencyRadius,
             )

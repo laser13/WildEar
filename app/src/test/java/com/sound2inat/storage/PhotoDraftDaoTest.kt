@@ -37,7 +37,9 @@ class PhotoDraftDaoTest {
     @Test
     fun `insert and query images for draft`() = runTest {
         draftDao.insert(photoDraft("d1"))
-        imageDao.insert(PhotoDraftImageEntity("p1", "d1", "/tmp/a-original.jpg", "/tmp/a.jpg", null, null, null, 2L, 0, 4000, 3000))
+        imageDao.insert(
+            PhotoDraftImageEntity("p1", "d1", "/tmp/a-original.jpg", "/tmp/a.jpg", null, null, null, 2L, 0, 4000, 3000)
+        )
 
         val images = draftDao.observeWithImages("d1").first()?.images.orEmpty()
 
@@ -48,7 +50,9 @@ class PhotoDraftDaoTest {
     @Test
     fun `delete draft cascades images`() = runTest {
         draftDao.insert(photoDraft("d1"))
-        imageDao.insert(PhotoDraftImageEntity("p1", "d1", "/tmp/a-original.jpg", "/tmp/a.jpg", null, null, null, 2L, 0, 4000, 3000))
+        imageDao.insert(
+            PhotoDraftImageEntity("p1", "d1", "/tmp/a-original.jpg", "/tmp/a.jpg", null, null, null, 2L, 0, 4000, 3000)
+        )
 
         draftDao.deleteById("d1")
 

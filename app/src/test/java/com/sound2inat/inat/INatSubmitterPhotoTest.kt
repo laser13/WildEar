@@ -77,6 +77,7 @@ class INatSubmitterPhotoTest {
             token: String,
             observationUuid: String,
             photoFile: File,
+            mimeType: String,
         ): Long {
             photoUploadRequestCounts += server.requestCount
             uploadedPhotos += observationUuid to photoFile

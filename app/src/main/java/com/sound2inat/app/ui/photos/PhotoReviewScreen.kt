@@ -1,65 +1,65 @@
 package com.sound2inat.app.ui.photos
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Crop
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.AssistChip
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -74,6 +74,7 @@ import java.time.format.DateTimeFormatter
 import kotlin.math.absoluteValue
 
 @Suppress("FunctionNaming")
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PhotoReviewScreen(
     onBack: () -> Unit,
@@ -82,6 +83,7 @@ fun PhotoReviewScreen(
     val vm: PhotoReviewViewModel = hiltViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val uriHandler = LocalUriHandler.current
     var selectedImage by remember { mutableStateOf<com.sound2inat.storage.PhotoDraftImageEntity?>(null) }
     var heroImageId by rememberSaveable(state.draftId) { mutableStateOf<String?>(null) }
 
@@ -101,69 +103,70 @@ fun PhotoReviewScreen(
         return
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+    PullToRefreshBox(
+        isRefreshing = state.isSyncingObservation,
+        onRefresh = { vm.syncObservationDetails(force = true) },
+        modifier = Modifier.fillMaxSize(),
     ) {
-        PhotoHeroSection(
-            images = state.images,
-            heroImage = heroImage,
-            onSelectHero = { heroImageId = it.id },
-            onOpenHero = { image -> selectedImage = image },
-            onDeleteImage = { imageId -> scope.launch { vm.deleteImage(imageId) } },
-        )
-
-        PhotoMetadataStrip(state = state)
-
-        PhotoActionRail(
-            canUpload = state.images.isNotEmpty() && state.inatObservationId == null && !state.isSubmitting,
-            canRunVision = state.inatObservationId != null && !state.vision.isLoading,
-            onAddMorePhotos = { onAddMorePhotos(state.draftId) },
-            onUpload = { vm.submit() },
-            onRunVision = { vm.loadVisionSuggestions() },
-        )
-
-        state.submitError?.let { error ->
-            Text(error, color = MaterialTheme.colorScheme.error)
-        }
-        state.uploadedUrl?.let {
-            Text("Uploaded to iNaturalist.", color = MaterialTheme.colorScheme.primary)
-        }
-
-        if (state.vision.isLoading || state.vision.error != null || state.vision.ladder != null || state.vision.message != null) {
-            PhotoVisionSection(
-                vision = state.vision,
-                onApplySpecies = { vm.applyVision(PhotoVisionTarget.SPECIES) },
-                onApplyGenus = { vm.applyVision(PhotoVisionTarget.GENUS) },
-                onApplyFamily = { vm.applyVision(PhotoVisionTarget.FAMILY) },
-                onApplyCandidate = { suggestion -> vm.applyVisionSuggestion(suggestion, suggestion.rank) },
-                onClose = { vm.clearVisionSuggestions() },
-                onRetry = { vm.loadVisionSuggestions() },
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            PhotoActionTile(
-                icon = Icons.AutoMirrored.Outlined.ArrowBack,
-                label = "Back",
-                onClick = onBack,
+            PhotoHeroSection(
+                images = state.images,
+                heroImage = heroImage,
+                onSelectHero = { heroImageId = it.id },
+                onOpenHero = { image -> selectedImage = image },
+                onDeleteImage = { imageId -> scope.launch { vm.deleteImage(imageId) } },
+                onAddMorePhotos = { onAddMorePhotos(state.draftId) },
             )
-            PhotoActionTile(
-                icon = Icons.Outlined.Delete,
-                label = "Delete album",
-                onClick = {
-                    scope.launch {
-                        vm.deleteAlbum()
-                        onBack()
-                    }
-                },
+
+            IdentificationStatusCard(state = state)
+
+            PhotoObservationSyncCard(
+                state = state,
+                onRefresh = { vm.syncObservationDetails(force = true) },
             )
+
+            val showVisionCard = state.isUploaded || state.vision.isLoading ||
+                state.vision.error != null || state.vision.ladder != null || state.vision.message != null
+            if (showVisionCard) {
+                PhotoVisionSuggestionsCard(
+                    state = state,
+                    onApplySuggestion = { suggestion, label -> vm.applyVisionSuggestion(suggestion, label) },
+                    onRetry = { vm.loadVisionSuggestions() },
+                )
+            }
+
+            PhotoObservationFooter(
+                state = state,
+                onUpload = { vm.submit() },
+                onOpenObservation = { uriHandler.openUri(it) },
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                PhotoActionTile(
+                    icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                    label = "Back",
+                    onClick = onBack,
+                )
+                PhotoActionTile(
+                    icon = Icons.Outlined.Delete,
+                    label = "Delete album",
+                    onClick = {
+                        scope.launch {
+                            vm.deleteAlbum()
+                            onBack()
+                        }
+                    },
+                )
+            }
         }
     }
 
@@ -194,6 +197,7 @@ private fun PhotoHeroSection(
     onSelectHero: (com.sound2inat.storage.PhotoDraftImageEntity) -> Unit,
     onOpenHero: (com.sound2inat.storage.PhotoDraftImageEntity) -> Unit,
     onDeleteImage: (String) -> Unit,
+    onAddMorePhotos: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -226,6 +230,10 @@ private fun PhotoHeroSection(
                                 "Take a few shots to build the album.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            OutlinedButton(onClick = onAddMorePhotos) {
+                                Icon(imageVector = Icons.Outlined.AddPhotoAlternate, contentDescription = null)
+                                Text("Add photos")
+                            }
                         }
                     }
                 }
@@ -270,7 +278,7 @@ private fun PhotoHeroSection(
                     AssistChip(
                         onClick = {},
                         enabled = false,
-                        label = { Text("${images.size} photo${if (images.size == 1) "" else "s"}") },
+                        label = { Text(images.size.toString()) },
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .padding(12.dp),
@@ -291,245 +299,83 @@ private fun PhotoHeroSection(
                                 onOpen = { onSelectHero(image) },
                             )
                         }
+                        AddPhotoThumbnail(onClick = onAddMorePhotos)
                     }
+                } else {
+                    AddPhotoThumbnail(onClick = onAddMorePhotos)
                 }
             }
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PhotoMetadataStrip(state: PhotoReviewUiState) {
+private fun PhotoObservationFooter(
+    state: PhotoReviewUiState,
+    onUpload: () -> Unit,
+    onOpenObservation: (String) -> Unit,
+) {
+    val observationUrl = state.observationUrl
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLowest,
     ) {
-        FlowRow(
-            modifier = Modifier.padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            PhotoMetaChip(
-                label = "Observed",
-                value = state.observedAtUtcMs?.let(::formatUtc) ?: "Unknown",
-            )
-            PhotoMetaChip(
-                label = "Coordinates",
-                value = formatCoordinates(state.latitude, state.longitude, state.locationAccuracyMeters),
-            )
-            PhotoMetaChip(
-                label = "Resolution",
-                value = formatResolution(state.images.firstOrNull()),
-            )
-            PhotoMetaChip(
-                label = "Photos",
-                value = state.images.size.toString(),
-            )
-            state.inatObservationUrl?.let {
-                PhotoMetaChip(
-                    label = "iNaturalist",
-                    value = "Uploaded",
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PhotoActionRail(
-    canUpload: Boolean,
-    canRunVision: Boolean,
-    onAddMorePhotos: () -> Unit,
-    onUpload: () -> Unit,
-    onRunVision: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Row(
-            modifier = Modifier.padding(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            PhotoActionTile(
-                icon = Icons.Outlined.AddPhotoAlternate,
-                label = "Add photos",
-                onClick = onAddMorePhotos,
-            )
-            PhotoActionTile(
-                icon = Icons.Outlined.CloudUpload,
-                label = "Upload to iNaturalist",
-                enabled = canUpload,
-                onClick = onUpload,
-            )
-            PhotoActionTile(
-                icon = Icons.Outlined.AutoAwesome,
-                label = "Computer vision",
-                enabled = canRunVision,
-                onClick = onRunVision,
-            )
-        }
-    }
-}
-
-@Composable
-private fun PhotoMetaChip(
-    label: String,
-    value: String,
-) {
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-    )
-    {
         Column(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.bodyMedium)
-        }
-    }
-}
-
-@Composable
-private fun PhotoVisionSection(
-    vision: PhotoVisionPanelUiState,
-    onApplySpecies: () -> Unit,
-    onApplyGenus: () -> Unit,
-    onApplyFamily: () -> Unit,
-    onApplyCandidate: (PhotoVisionSuggestion) -> Unit,
-    onClose: () -> Unit,
-    onRetry: () -> Unit,
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.AutoAwesome, contentDescription = null)
-                    Text("Computer vision", style = MaterialTheme.typography.titleMedium)
-                }
-                OutlinedIconButton(onClick = onClose) {
-                    Icon(Icons.Outlined.Close, contentDescription = "Close CV")
-                }
-            }
-
-            when {
-                vision.isLoading -> {
-                    Text("Loading suggestions...")
-                }
-                vision.error != null -> {
-                    Text(vision.error, color = MaterialTheme.colorScheme.error)
-                    OutlinedButton(onClick = onRetry) {
-                        Text("Try again")
-                    }
-                }
-                vision.ladder != null -> {
-                    vision.message?.let {
-                        Text(it, color = MaterialTheme.colorScheme.primary)
-                    }
-                    vision.ladder.topCandidates.firstOrNull()?.let { top ->
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Text("Best suggestion", style = MaterialTheme.typography.labelMedium)
-                                Text(top.commonName ?: top.scientificName, style = MaterialTheme.typography.titleMedium)
-                                Text(
-                                    top.scientificName,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    "${top.rank} • ${"%.1f".format(top.score)}",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        PhotoRankAction("Apply species", vision.ladder.topCandidates.firstOrNull(), !vision.isLoading, onApplySpecies)
-                        PhotoRankAction("Apply genus", vision.ladder.higherTaxa.firstOrNull { it.rank == "genus" }, !vision.isLoading, onApplyGenus)
-                        PhotoRankAction("Apply family", vision.ladder.higherTaxa.firstOrNull { it.rank == "family" }, !vision.isLoading, onApplyFamily)
-                    }
-
-                    if (vision.ladder.topCandidates.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Other options", style = MaterialTheme.typography.labelMedium)
-                            vision.ladder.topCandidates.forEach { suggestion ->
-                                VisionCandidateRow(
-                                    suggestion = suggestion,
-                                    enabled = !vision.isLoading,
-                                    onApply = { onApplyCandidate(suggestion) },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PhotoRankAction(
-    label: String,
-    suggestion: PhotoVisionSuggestion?,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    OutlinedButton(
-        enabled = suggestion != null && enabled,
-        onClick = onClick,
-    ) {
-        Text(label)
-    }
-}
-
-@Composable
-private fun VisionCandidateRow(
-    suggestion: PhotoVisionSuggestion,
-    enabled: Boolean,
-    onApply: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(suggestion.commonName ?: suggestion.scientificName, style = MaterialTheme.typography.bodyMedium)
             Text(
-                suggestion.scientificName,
+                text = "Observed ${state.observedAtUtcMs?.let(::formatUtc) ?: "Unknown"}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-        OutlinedButton(enabled = enabled, onClick = onApply) {
-            Text("Apply")
+            Text(
+                text = "Coordinates ${formatCoordinates(
+                    state.latitude,
+                    state.longitude,
+                    state.locationAccuracyMeters
+                )}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            when {
+                state.submitError != null && !state.isUploaded -> {
+                    Text(
+                        text = "iNaturalist upload error: ${state.submitError}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    TextButton(onClick = onUpload) {
+                        Text("Upload to iNaturalist")
+                    }
+                }
+                state.isUploaded -> {
+                    state.inatObservationId?.let { id ->
+                        if (observationUrl != null) {
+                            TextButton(onClick = { onOpenObservation(observationUrl) }) {
+                                Text("Observation ID $id")
+                            }
+                        } else {
+                            Text(
+                                text = "Observation ID $id",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                else -> {
+                    Text(
+                        text = "iNaturalist not uploaded yet",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(onClick = onUpload) {
+                        Text("Upload to iNaturalist")
+                    }
+                }
+            }
         }
     }
 }
@@ -586,6 +432,32 @@ private fun PhotoThumbnail(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
+        }
+    }
+}
+
+@Composable
+private fun AddPhotoThumbnail(onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .widthIn(max = 92.dp)
+            .aspectRatio(1f)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Outlined.AddPhotoAlternate,
+                    contentDescription = "Add photos",
+                )
+            }
         }
     }
 }
@@ -777,7 +649,7 @@ private fun PhotoImageDialog(
                     AssistChip(
                         onClick = {},
                         enabled = false,
-                        label = { Text(formatCropSourceLabel(image, sourcePath)) },
+                        label = { Text(formatCropSourceLabel(image, imageBounds)) },
                     )
                     AssistChip(
                         onClick = {},
@@ -837,23 +709,15 @@ private fun formatCoordinates(
     return "$lat, $lon$accuracy"
 }
 
-private fun formatResolution(photo: com.sound2inat.storage.PhotoDraftImageEntity?): String {
-    if (photo == null) return "Unknown"
-    return formatResolution(photo.width, photo.height).takeIf { it != "Unknown" }
-        ?: readPhotoImageBounds(photo.photoPath)?.let { formatResolution(it.width, it.height) }
-        ?: "Unknown"
-}
-
 private fun formatResolution(width: Int?, height: Int?): String {
     if (width == null || height == null) return "Unknown"
-    return "${width}×${height}px"
+    return "$width×${height}px"
 }
 
 private fun formatCropSourceLabel(
     image: com.sound2inat.storage.PhotoDraftImageEntity,
-    sourcePath: String,
+    sourceBounds: PhotoImageBounds?,
 ): String {
-    val sourceBounds = readPhotoImageBounds(sourcePath)
     val resolution = sourceBounds?.let { formatResolution(it.width, it.height) }
         ?: formatResolution(image.width, image.height).takeIf { it != "Unknown" }
         ?: "Unknown"

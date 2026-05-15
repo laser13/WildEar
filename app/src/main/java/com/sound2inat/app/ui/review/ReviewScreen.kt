@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -39,14 +38,13 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.MicNone
 import androidx.compose.material.icons.outlined.Public
-import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,7 +52,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -69,9 +66,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -102,9 +99,6 @@ import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.DraftStatus
 import kotlinx.coroutines.launch
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import java.util.UUID
 
 /**
@@ -750,13 +744,16 @@ private fun PlayerControls(
     vm: ReviewViewModel,
     onSettingsClick: () -> Unit,
 ) {
+    // Collect playback from its own StateFlow so position ticks (~20 Hz during
+    // playback) do not recompose the entire ReviewPage via _state updates.
+    val playback by vm.playback.collectAsStateWithLifecycle()
     val durationMs = state.durationMs.coerceAtLeast(1L)
-    val positionMs = when (val pb = state.playback) {
+    val positionMs = when (val pb = playback) {
         is PlaybackState.Playing -> pb.positionMs
         is PlaybackState.Paused -> pb.positionMs
         else -> 0L
     }
-    val isPlaying = state.playback is PlaybackState.Playing
+    val isPlaying = playback is PlaybackState.Playing
 
     Column(
         modifier = Modifier
@@ -800,8 +797,8 @@ private fun PlayerControls(
                 Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.cd_settings))
             }
         }
-        if (state.playback is PlaybackState.Error) {
-            Text(state.playback.message, color = MaterialTheme.colorScheme.error)
+        if (playback is PlaybackState.Error) {
+            Text((playback as PlaybackState.Error).message, color = MaterialTheme.colorScheme.error)
         }
     }
     // Slider removed — the spectrogram already shows position via the red

@@ -2,8 +2,8 @@ package com.sound2inat.app.ui.review
 
 import android.content.Context
 import android.net.Uri
-import android.util.Log
 import android.os.SystemClock
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -312,6 +312,14 @@ class ReviewViewModel(
     /** Latest playback position from the player; ticks every 50 ms during playback. */
     val playerPosition: StateFlow<Long> = player.position
 
+    /**
+     * Playback state as a standalone [StateFlow] so that composables displaying
+     * play/pause controls do not trigger recomposition of the entire screen on
+     * every 50 ms position tick during playback.
+     */
+    private val _playback = MutableStateFlow<PlaybackState>(PlaybackState.Idle)
+    val playback: StateFlow<PlaybackState> = _playback
+
     private var inferenceStarted = false
     private var visualsStarted = false
     private var visualsJob: Job? = null
@@ -471,35 +479,36 @@ class ReviewViewModel(
             }
         }
 
-        // Mirror player flows into UI state.
+        // Mirror player flows into the dedicated _playback StateFlow.
+        // Position updates tick at ~20 Hz during playback — keeping them out of
+        // _state prevents recomposition of the entire ReviewPage on every tick.
         scope.launch {
             player.position.collect { pos ->
-                _state.update { s ->
-                    if (s.playback is PlaybackState.Playing) {
-                        s.copy(playback = PlaybackState.Playing(pos))
-                    } else {
-                        s
-                    }
+                if (_playback.value is PlaybackState.Playing) {
+                    _playback.value = PlaybackState.Playing(pos)
                 }
             }
         }
         scope.launch {
             player.isPlaying.collect { playing ->
-                _state.update { s ->
-                    s.copy(
-                        playback = when {
-                            playing -> PlaybackState.Playing(player.position.value)
-                            s.playback is PlaybackState.Playing -> PlaybackState.Paused(player.position.value)
-                            else -> s.playback
-                        },
-                    )
+                val newPlayback = when {
+                    playing -> PlaybackState.Playing(player.position.value)
+                    _playback.value is PlaybackState.Playing ->
+                        PlaybackState.Paused(player.position.value)
+                    else -> _playback.value
                 }
+                _playback.value = newPlayback
+                // Keep _state.playback in sync for callers that still read it
+                // (e.g. tests or future code paths).
+                _state.update { s -> s.copy(playback = newPlayback) }
             }
         }
         scope.launch {
             player.lastError.collect { err ->
                 if (err != null) {
-                    _state.update { s -> s.copy(playback = PlaybackState.Error(err)) }
+                    val errState = PlaybackState.Error(err)
+                    _playback.value = errState
+                    _state.update { s -> s.copy(playback = errState) }
                 }
             }
         }
@@ -1000,7 +1009,9 @@ class ReviewViewModel(
         return try {
             Log.d(
                 "ReviewVisuals",
-                "audio-process-start draft=$draftId config=${config.cacheSuffix()} source=${File(originalAudioPath).name}",
+                "audio-process-start draft=$draftId config=${config.cacheSuffix()} source=${File(
+                    originalAudioPath
+                ).name}",
             )
             val file = withContext(ioDispatcher) {
                 processedAudio.materialize(originalAudioPath, draftId, filesDir, config)
@@ -1446,14 +1457,16 @@ class ReviewViewModelFactory @Inject constructor(
             // Pulling the freshest draft + detections so the submitter sees the
             // user's current selection, not a stale snapshot.
             val dwd = repo.observeWithDetections(id).first()
-            when (val r = submitter.submit(
-                token = token,
-                draft = dwd,
-                habitatPhotos = photoFiles,
-                includeHabitatPhotoByTaxon = includeByTaxon,
-                spectrogramPhoto = spectrogramPhoto,
-                sourceAudioOverride = sourceAudioOverride,
-            )) {
+            when (
+                val r = submitter.submit(
+                    token = token,
+                    draft = dwd,
+                    habitatPhotos = photoFiles,
+                    includeHabitatPhotoByTaxon = includeByTaxon,
+                    spectrogramPhoto = spectrogramPhoto,
+                    sourceAudioOverride = sourceAudioOverride,
+                )
+            ) {
                 is INatSubmitter.Result.Ok -> InatSubmissionOutcome.Success(r.urls)
                 is INatSubmitter.Result.Failure -> InatSubmissionOutcome.Failure(r.message)
             }
@@ -1578,7 +1591,10 @@ internal class ProductionVisualsProvider(
                 FloatArray(samples.size) { index -> samples[index] / Short.MAX_VALUE.toFloat() }
             },
         )
-        Log.d("ReviewVisuals", "matrix-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - matrixStarted}ms rows=${matrix.values.size} frames=${matrix.frames}")
+        Log.d(
+            "ReviewVisuals",
+            "matrix-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - matrixStarted}ms rows=${matrix.values.size} frames=${matrix.frames}"
+        )
         val displayPlaneKey = buildString {
             append(matrixCache.cacheKey(input, analysisConfig))
             append('|')
@@ -1623,12 +1639,18 @@ internal class ProductionVisualsProvider(
             "ReviewVisuals",
             "preview-copy draft=$draftId elapsed=${SystemClock.elapsedRealtime() - previewCopyStarted}ms width=${preview.width} height=${preview.height}",
         )
-        Log.d("ReviewVisuals", "render-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - renderStarted}ms preview=${preview.width}x${preview.height}")
+        Log.d(
+            "ReviewVisuals",
+            "render-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - renderStarted}ms preview=${preview.width}x${preview.height}"
+        )
         val peaksStarted = SystemClock.elapsedRealtime()
         val peaks = waveformPeaksCache.getOrCreate(input, draftId, filesDir) {
             buildWaveformPeaks(input, wavInfo)
         }
-        Log.d("ReviewVisuals", "peaks-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - peaksStarted}ms count=${peaks.size}")
+        Log.d(
+            "ReviewVisuals",
+            "peaks-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - peaksStarted}ms count=${peaks.size}"
+        )
         Log.i("ReviewVisuals", "provider-done draft=$draftId total=${SystemClock.elapsedRealtime() - startedAt}ms")
         return Visuals(displayPlane = displayPlane, spectrogramPreview = preview, waveformPeaks = peaks)
     }
@@ -1689,7 +1711,8 @@ internal fun readMono16Info(file: File): Mono16Info {
 
 internal fun buildWaveformPeaks(file: File, info: Mono16Info): FloatArray {
     if (info.totalSamples <= 0L) return FloatArray(0)
-    val width = minOf(WaveformBitmap.DEFAULT_TARGET_WIDTH, info.totalSamples.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+    val width =
+        minOf(WaveformBitmap.DEFAULT_TARGET_WIDTH, info.totalSamples.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
     if (width <= 0) return FloatArray(0)
     val lows = FloatArray(width) { Float.POSITIVE_INFINITY }
     val highs = FloatArray(width) { Float.NEGATIVE_INFINITY }
@@ -1704,8 +1727,11 @@ internal fun buildWaveformPeaks(file: File, info: Mono16Info): FloatArray {
     }
     return FloatArray(width * 2) { idx ->
         val bucket = idx / 2
-        if (idx % 2 == 0) lows[bucket].takeIf { it.isFinite() } ?: 0f
-        else highs[bucket].takeIf { it.isFinite() } ?: 0f
+        if (idx % 2 == 0) {
+            lows[bucket].takeIf { it.isFinite() } ?: 0f
+        } else {
+            highs[bucket].takeIf { it.isFinite() } ?: 0f
+        }
     }
 }
 

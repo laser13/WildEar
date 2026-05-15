@@ -4,6 +4,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sound2inat.app.data.Settings
+import com.sound2inat.inat.CachedResult
+import com.sound2inat.inat.FilterKey
 import com.sound2inat.inat.INatAuthRepository
 import com.sound2inat.inat.INatObservationsRepository
 import com.sound2inat.location.Fix

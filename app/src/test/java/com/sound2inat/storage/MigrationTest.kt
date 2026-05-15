@@ -262,7 +262,9 @@ class MigrationTest {
             Sound2iNatDb.MIGRATION_9_10,
         )
 
-        db.query("SELECT originalPhotoPath, photoPath, cropLeftPx, cropTopPx, cropSizePx FROM photo_draft_images WHERE id='img1'").use { c ->
+        db.query(
+            "SELECT originalPhotoPath, photoPath, cropLeftPx, cropTopPx, cropSizePx FROM photo_draft_images WHERE id='img1'"
+        ).use { c ->
             assertThat(c.moveToFirst()).isTrue()
             assertThat(c.getString(0)).isEqualTo("/tmp/current.jpg")
             assertThat(c.getString(1)).isEqualTo("/tmp/current.jpg")

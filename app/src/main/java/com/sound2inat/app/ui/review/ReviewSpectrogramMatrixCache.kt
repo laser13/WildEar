@@ -9,9 +9,9 @@ import java.io.EOFException
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.security.MessageDigest
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.security.MessageDigest
 
 /**
  * Loads or builds reusable spectrogram matrices for immutable audio artifacts.
@@ -86,43 +86,39 @@ class ReviewSpectrogramMatrixCache(
     ): ReviewSpectrogramMatrix? {
         if (!cacheFile.exists()) return null
         return try {
-            FileInputStream(cacheFile).use { rawInput ->
-                BufferedInputStream(rawInput).use { bufferedInput ->
-                    DataInputStream(bufferedInput).use { input ->
-                    val magic = input.readInt()
-                    if (magic != MAGIC) return deleteAndNull(cacheFile)
-                    val version = input.readInt()
-                    if (version != FILE_FORMAT_VERSION) return deleteAndNull(cacheFile)
-                    val metadata = input.readUTF()
-                    if (metadata != expectedMetadata) return deleteAndNull(cacheFile)
-                    val rows = input.readInt()
-                    val frames = input.readInt()
-                    val config = readConfig(input)
-                    validateShape(rows, frames, expectedConfig, config)
-                    validatePayloadSize(
-                        remainingBytes = bufferedInput.available().toLong(),
-                        rows = rows,
-                        frames = frames,
-                    )
-                    val payloadBytes = rows.toLong() * frames.toLong() * java.lang.Float.BYTES.toLong()
-                    require(payloadBytes in 0..Int.MAX_VALUE.toLong()) {
-                        "Matrix payload too large: $payloadBytes bytes"
-                    }
-                    val bytes = ByteArray(payloadBytes.toInt())
-                    input.readFully(bytes)
-                    val floats = FloatArray(rows * frames)
-                    ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN).asFloatBuffer().get(floats)
-                    val values = Array(rows) { row ->
-                        val start = row * frames
-                        floats.copyOfRange(start, start + frames)
-                    }
-                    ReviewSpectrogramMatrix(
-                        config = config,
-                        frames = frames,
-                        values = values,
-                    )
-                    }
+            DataInputStream(BufferedInputStream(FileInputStream(cacheFile))).use { input ->
+                val magic = input.readInt()
+                if (magic != MAGIC) return deleteAndNull(cacheFile)
+                val version = input.readInt()
+                if (version != FILE_FORMAT_VERSION) return deleteAndNull(cacheFile)
+                val metadata = input.readUTF()
+                if (metadata != expectedMetadata) return deleteAndNull(cacheFile)
+                val rows = input.readInt()
+                val frames = input.readInt()
+                val config = readConfig(input)
+                validateShape(rows, frames, expectedConfig, config)
+                validatePayloadSize(
+                    remainingBytes = input.available().toLong(),
+                    rows = rows,
+                    frames = frames,
+                )
+                val payloadBytes = rows.toLong() * frames.toLong() * java.lang.Float.BYTES.toLong()
+                require(payloadBytes in 0..Int.MAX_VALUE.toLong()) {
+                    "Matrix payload too large: $payloadBytes bytes"
                 }
+                val bytes = ByteArray(payloadBytes.toInt())
+                input.readFully(bytes)
+                val floats = FloatArray(rows * frames)
+                ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN).asFloatBuffer().get(floats)
+                val values = Array(rows) { row ->
+                    val start = row * frames
+                    floats.copyOfRange(start, start + frames)
+                }
+                ReviewSpectrogramMatrix(
+                    config = config,
+                    frames = frames,
+                    values = values,
+                )
             }
         } catch (_: EOFException) {
             deleteAndNull(cacheFile)
@@ -139,19 +135,15 @@ class ReviewSpectrogramMatrixCache(
         cacheFile.parentFile?.mkdirs()
         val tmpFile = File(cacheFile.parentFile, "${cacheFile.name}.tmp")
         try {
-            BufferedOutputStream(FileOutputStream(tmpFile)).use { bufferedOutput ->
-                DataOutputStream(bufferedOutput).use { output ->
-                    output.writeInt(MAGIC)
-                    output.writeInt(FILE_FORMAT_VERSION)
-                    output.writeUTF(metadata)
-                    output.writeInt(matrix.values.size)
-                    output.writeInt(matrix.frames)
-                    writeConfig(output, matrix.config)
-                    for (row in matrix.values) {
-                        for (value in row) output.writeFloat(value)
-                    }
-                    output.flush()
-                }
+            DataOutputStream(BufferedOutputStream(FileOutputStream(tmpFile))).use { output ->
+                output.writeInt(MAGIC)
+                output.writeInt(FILE_FORMAT_VERSION)
+                output.writeUTF(metadata)
+                output.writeInt(matrix.values.size)
+                output.writeInt(matrix.frames)
+                writeConfig(output, matrix.config)
+                matrix.values.forEach { row -> row.forEach(output::writeFloat) }
+                output.flush()
             }
             if (cacheFile.exists()) cacheFile.delete()
             if (!tmpFile.renameTo(cacheFile)) {

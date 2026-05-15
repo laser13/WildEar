@@ -25,7 +25,7 @@ data class ReviewAudioProcessingConfig(
             preset.name.lowercase(),
             "hp_${highPassHz ?: 0}",
             "gain_${(gainDb * 10).toInt()}",
-            "norm_${normalizePeak}",
+            "norm_$normalizePeak",
             "v1",
         ).joinToString("_")
 

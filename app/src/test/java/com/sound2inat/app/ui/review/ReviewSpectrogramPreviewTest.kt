@@ -1,8 +1,8 @@
 package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
-import org.junit.Test
 import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
+import org.junit.Test
 
 class ReviewSpectrogramPreviewTest {
     @Test

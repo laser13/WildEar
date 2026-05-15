@@ -81,6 +81,33 @@ class INatSubmitter(
         if (!srcAudio.exists()) return@withContext Result.Failure("Audio file missing on disk")
 
         val cropDir = File(tmpRoot, "inat_uploads").apply { mkdirs() }
+        try {
+            doSubmit(
+                token,
+                draft,
+                srcAudio,
+                cropDir,
+                selected,
+                habitatPhotos,
+                includeHabitatPhotoByTaxon,
+                spectrogramPhoto
+            )
+        } finally {
+            runCatching { cropDir.deleteRecursively() }
+        }
+    }
+
+    @Suppress("ReturnCount", "LongMethod", "TooGenericExceptionCaught")
+    private suspend fun doSubmit(
+        token: String,
+        draft: DraftWithDetections,
+        srcAudio: File,
+        cropDir: File,
+        selected: List<DetectionEntity>,
+        habitatPhotos: List<File>,
+        includeHabitatPhotoByTaxon: Map<String, Boolean>,
+        spectrogramPhoto: File?,
+    ): Result {
         val pendingRows = mutableListOf<InatObservationEntity>()
         val createdPairs = mutableListOf<Pair<SubmittedObs, DetectionEntity>>()
         val failures = mutableListOf<String>()
@@ -136,7 +163,7 @@ class INatSubmitter(
             drafts.update(
                 draft.draft.copy(inatLastError = msg, updatedAtUtcMs = nowMs()),
             )
-            return@withContext Result.Failure(msg)
+            return Result.Failure(msg)
         }
 
         // Cross-link pass — best-effort; failures don't unwind the upload.
@@ -157,7 +184,7 @@ class INatSubmitter(
                 updatedAtUtcMs = nowMs(),
             ),
         )
-        Result.Ok(primary.observationUrl, createdRows.map { it.observationUrl })
+        return Result.Ok(primary.observationUrl, createdRows.map { it.observationUrl })
     }
 
     /**
@@ -415,23 +442,13 @@ class INatSubmitter(
         private const val LOG_TAG = "INatSubmitter"
         private const val APP_TAG = "WildEar"
 
-        // iNaturalist controlled-vocabulary IDs. Source: iNaturalist Helper
-        // Chrome extension (`scripts/vision.js`). The pairs we apply to every
-        // WildEar observation:
-        //   17 → 18 = "Alive or Dead" → "Alive"
-        //   22 → 24 = "Evidence of Presence" → "Organism"
-        private const val ATTR_ALIVE_OR_DEAD = 17
-        private const val VALUE_ALIVE = 18
-        private const val ATTR_EVIDENCE = 22
-        private const val VALUE_ORGANISM = 24
-
         // iNaturalist observation field used to cross-link sibling observations
         // from the same recording (space-separated observation URLs).
         // Field name: "Linked Observation" (field id 7014).
         private const val LINKED_OBS_FIELD_ID = 7014
         private val DEFAULT_ANNOTATIONS: List<Pair<Int, Int>> = listOf(
-            ATTR_ALIVE_OR_DEAD to VALUE_ALIVE,
-            ATTR_EVIDENCE to VALUE_ORGANISM,
+            InatAnnotationIds.ATTR_ALIVE_OR_DEAD to InatAnnotationIds.VAL_ALIVE,
+            InatAnnotationIds.ATTR_EVIDENCE_OF_PRESENCE to InatAnnotationIds.VAL_ORGANISM,
         )
     }
 }

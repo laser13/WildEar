@@ -66,7 +66,12 @@ open class PhotoSubmitter @Inject constructor(
         images.forEach { image ->
             val file = File(image.photoPath)
             runCatching {
-                client.uploadObservationPhoto(token, created.uuid, file)
+                client.uploadObservationPhoto(
+                    token = token,
+                    observationUuid = created.uuid,
+                    photoFile = file,
+                    mimeType = image.mimeType.takeIf { it.isNotBlank() } ?: "image/jpeg",
+                )
             }.onSuccess {
                 uploadedCount++
             }.onFailure { e ->

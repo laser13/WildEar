@@ -226,11 +226,14 @@ internal object WavReader {
             }
             val raw = ByteArray(dataSize.toInt())
             raf.readFully(raw)
-            val samples = ShortArray(dataSize.toInt() / 2)
-            for (i in samples.indices) {
+            // Build ShortArray after fully reading raw bytes so both arrays do
+            // not need to coexist in heap. The local `raw` reference becomes
+            // unreachable after the lambda exits and can be collected early.
+            val sampleCount = dataSize.toInt() / 2
+            val samples = ShortArray(sampleCount) { i ->
                 val lo = raw[2 * i].toInt() and 0xFF
                 val hi = raw[2 * i + 1].toInt()
-                samples[i] = ((hi shl 8) or lo).toShort()
+                ((hi shl 8) or lo).toShort()
             }
             return samples to sr
         }

@@ -1,8 +1,6 @@
 package com.sound2inat.inat
 
-import com.sound2inat.app.ui.radar.FilterKey
-import com.sound2inat.app.ui.radar.MapPin
-import com.sound2inat.app.ui.radar.SpeciesAggregate
+import com.sound2inat.app.BuildConfig
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -110,25 +108,29 @@ open class INaturalistClient(
     /** Returns a taxon summary map for the given iNat taxon ids. */
     suspend fun getTaxa(ids: Collection<Long>): Map<Long, InatTaxonInfo> = withContext(ioDispatcher) {
         if (ids.isEmpty()) return@withContext emptyMap()
-        val idList = ids.joinToString(",")
-        val req = anonGet("/taxa?id=$idList")
-        val results = executeJson(req).optJSONArray("results") ?: return@withContext emptyMap()
         buildMap {
-            for (i in 0 until results.length()) {
-                val taxon = results.optJSONObject(i) ?: continue
-                val taxonId = taxon.optLong("id", 0L).takeIf { it > 0 } ?: continue
-                put(
-                    taxonId,
-                    InatTaxonInfo(
-                        scientificName = taxon.optString("name", ""),
-                        commonName = taxon.optString("preferred_common_name", "")
-                            .takeIf { it.isNotBlank() },
-                        rank = taxon.optString("rank", ""),
-                        rankLevel = taxon.optInt("rank_level", 0),
-                        iconicTaxonName = taxon.optString("iconic_taxon_name", "")
-                            .takeIf { it.isNotBlank() },
-                    ),
-                )
+            for (chunk in ids.chunked(200)) {
+                val idList = chunk.joinToString(",")
+                val req = anonGet("/taxa?id=$idList&per_page=200")
+                val results = executeJson(req).optJSONArray("results") ?: continue
+                for (i in 0 until results.length()) {
+                    val taxon = results.optJSONObject(i) ?: continue
+                    val taxonId = taxon.optLong("id", 0L).takeIf { it > 0 } ?: continue
+                    put(
+                        taxonId,
+                        InatTaxonInfo(
+                            scientificName = taxon.optString("name", ""),
+                            commonName = taxon.optString("preferred_common_name", "")
+                                .takeIf { it.isNotBlank() },
+                            rank = taxon.optString("rank", ""),
+                            rankLevel = taxon.optInt("rank_level", 0),
+                            iconicTaxonName = taxon.optString("iconic_taxon_name", "")
+                                .takeIf { it.isNotBlank() },
+                            photoUrl = taxon.optJSONObject("default_photo")
+                                ?.optString("medium_url", "")?.takeIf { it.isNotBlank() },
+                        ),
+                    )
+                }
             }
         }
     }
@@ -307,6 +309,7 @@ open class INaturalistClient(
         token: String,
         observationUuid: String,
         photoFile: File,
+        mimeType: String = "image/jpeg",
     ): Long = withContext(ioDispatcher) {
         require(observationUuid.isNotBlank()) { "uploadObservationPhoto requires observation UUID" }
         require(photoFile.exists() && photoFile.length() > 0) {
@@ -318,7 +321,7 @@ open class INaturalistClient(
             .addFormDataPart(
                 name = "file",
                 filename = photoFile.name,
-                body = photoFile.asRequestBody(JPEG_MEDIA_TYPE),
+                body = photoFile.asRequestBody(mimeType.toMediaType()),
             )
             .build()
         val req = Request.Builder()
@@ -873,7 +876,11 @@ open class INaturalistClient(
         if (code in SUCCESS_RANGE) {
             android.util.Log.d(LOG_TAG, "${req.method} ${req.url} -> $code (${raw.length}B)")
         } else {
-            android.util.Log.w(LOG_TAG, "${req.method} ${req.url} -> $code body=${raw.take(LOG_BODY_LEN)}")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.w(LOG_TAG, "${req.method} ${req.url} -> $code body=${raw.take(LOG_BODY_LEN)}")
+            } else {
+                android.util.Log.w(LOG_TAG, "${req.method} ${req.url} -> $code")
+            }
         }
     }
 
@@ -915,16 +922,6 @@ open class INaturalistClient(
         private const val TAXON_TTL_MS = 24L * 60 * 60 * 1000 // taxon ids are stable
         private const val TAXON_FAILURE_TTL_MS = 5L * 60 * 1000 // retry transient failures
         private const val MAX_PREVIEW_COMMENTS = 3
-
-        // iNaturalist's "iconic taxa" — the top-level groupings on a taxon's
-        // record. We accept anything that's a vocalising or audibly active
-        // organism; explicitly reject Plantae/Fungi/Protozoa/Chromista where
-        // a name collision would be silly (or worse, recorded under a wrong
-        // kingdom on the user's account).
-        private val ANIMAL_ICONIC_TAXA = setOf(
-            "Animalia", "Aves", "Mammalia", "Insecta", "Arachnida",
-            "Reptilia", "Amphibia", "Mollusca", "Actinopterygii",
-        )
     }
 }
 

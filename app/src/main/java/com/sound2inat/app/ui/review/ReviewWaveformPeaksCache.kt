@@ -56,23 +56,21 @@ class ReviewWaveformPeaksCache {
     private fun readPeaksFromCache(cacheFile: File, expectedMetadata: String): FloatArray? {
         if (!cacheFile.exists()) return null
         return try {
-            FileInputStream(cacheFile).use { fileInput ->
-                DataInputStream(fileInput).use { input ->
-                    val magic = input.readInt()
-                    if (magic != MAGIC) return deleteAndNull(cacheFile)
-                    val version = input.readInt()
-                    if (version != FILE_FORMAT_VERSION) return deleteAndNull(cacheFile)
-                    val metadata = input.readUTF()
-                    if (metadata != expectedMetadata) return deleteAndNull(cacheFile)
-                    val count = input.readInt()
-                    validateCount(count)
-                    val expectedBytes = count.toLong() * java.lang.Float.BYTES.toLong()
-                    val remainingBytes = fileInput.available().toLong()
-                    require(remainingBytes == expectedBytes) {
-                        "Unexpected peak payload size: $remainingBytes bytes (expected $expectedBytes)"
-                    }
-                    FloatArray(count) { input.readFloat() }
+            DataInputStream(FileInputStream(cacheFile)).use { input ->
+                val magic = input.readInt()
+                if (magic != MAGIC) return deleteAndNull(cacheFile)
+                val version = input.readInt()
+                if (version != FILE_FORMAT_VERSION) return deleteAndNull(cacheFile)
+                val metadata = input.readUTF()
+                if (metadata != expectedMetadata) return deleteAndNull(cacheFile)
+                val count = input.readInt()
+                validateCount(count)
+                val expectedBytes = count.toLong() * java.lang.Float.BYTES.toLong()
+                val remainingBytes = input.available().toLong()
+                require(remainingBytes == expectedBytes) {
+                    "Unexpected peak payload size: $remainingBytes bytes (expected $expectedBytes)"
                 }
+                FloatArray(count) { input.readFloat() }
             }
         } catch (_: EOFException) {
             deleteAndNull(cacheFile)

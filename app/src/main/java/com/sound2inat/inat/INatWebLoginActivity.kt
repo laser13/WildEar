@@ -138,10 +138,7 @@ internal fun buildWebView(
         javaScriptEnabled = true
         domStorageEnabled = true
     }
-    CookieManager.getInstance().apply {
-        setAcceptCookie(true)
-        setAcceptThirdPartyCookies(webView, true)
-    }
+    CookieManager.getInstance().setAcceptCookie(true)
     webView.webViewClient = TokenCaptureClient(onLoadingChange, onTokenCaptured)
     webView.loadUrl(INatWebLoginActivity.LOGIN_URL)
     return webView

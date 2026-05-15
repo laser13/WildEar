@@ -5,17 +5,26 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sound2inat.inat.INatAuthRepository
 import com.sound2inat.inat.INaturalistClient
+import com.sound2inat.inat.ObservationDetail
+import com.sound2inat.inat.PhotoAnnotationUseCase
 import com.sound2inat.inat.PhotoSubmitResult
 import com.sound2inat.inat.PhotoSubmitter
+import com.sound2inat.inat.PhotoVisionPlanner
+import com.sound2inat.inat.PhotoVisionSuggestion
+import com.sound2inat.inat.PhotoVisionTarget
+import com.sound2inat.inat.PhotoVisionUseCase
 import com.sound2inat.storage.PhotoDraftRepository
 import com.sound2inat.storage.PhotoObservationFileStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
@@ -29,6 +38,8 @@ class PhotoReviewViewModel(
     private val client: INaturalistClient,
     private val submitter: PhotoSubmitter,
     private val cropper: PhotoImageCropper,
+    private val visionUseCase: PhotoVisionUseCase,
+    private val annotationUseCase: PhotoAnnotationUseCase,
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
     @Inject constructor(
@@ -39,6 +50,8 @@ class PhotoReviewViewModel(
         client: INaturalistClient,
         submitter: PhotoSubmitter,
         cropper: PhotoImageCropper,
+        visionUseCase: PhotoVisionUseCase,
+        annotationUseCase: PhotoAnnotationUseCase,
     ) : this(
         savedStateHandle = savedStateHandle,
         repo = repo,
@@ -47,6 +60,8 @@ class PhotoReviewViewModel(
         client = client,
         submitter = submitter,
         cropper = cropper,
+        visionUseCase = visionUseCase,
+        annotationUseCase = annotationUseCase,
         externalScope = null,
     )
 
@@ -54,6 +69,7 @@ class PhotoReviewViewModel(
         "photoDraftId is required"
     }
     private val scope = externalScope ?: viewModelScope
+    private var lastAutoSyncObservationId: Long? = null
     private val _state = MutableStateFlow(PhotoReviewUiState(draftId = draftId))
     val state: StateFlow<PhotoReviewUiState> = _state
 
@@ -75,6 +91,9 @@ class PhotoReviewViewModel(
                                 inatObservationId = null,
                                 inatObservationUuid = null,
                                 inatObservationUrl = null,
+                                observationDetail = null,
+                                isSyncingObservation = false,
+                                syncError = null,
                             )
                         }
                     } else {
@@ -97,10 +116,20 @@ class PhotoReviewViewModel(
                                 description = draft.description,
                                 submitError = draft.inatLastError ?: current.submitError,
                                 uploadedUrl = draft.inatObservationUrl ?: current.uploadedUrl,
+                                observationDetail = current.observationDetail,
+                                isSyncingObservation = current.isSyncingObservation,
+                                syncError = current.syncError,
                             )
                         }
                     }
                 }
+        }
+        // Trigger auto-sync only when inatObservationId actually changes,
+        // not on every state emission (B5 fix).
+        scope.launch {
+            _state
+                .distinctUntilChangedBy { it.inatObservationId }
+                .collect { syncObservationDetails() }
         }
     }
 
@@ -168,7 +197,13 @@ class PhotoReviewViewModel(
 
     fun loadVisionSuggestions() {
         val observationId = _state.value.inatObservationId ?: run {
-            _state.update { it.copy(vision = PhotoVisionPanelUiState(error = "Upload to iNaturalist first")) }
+            _state.update {
+                it.copy(
+                    vision = PhotoVisionPanelUiState(
+                        error = "Upload this photo observation before requesting iNaturalist suggestions.",
+                    ),
+                )
+            }
             return
         }
         if (_state.value.vision.isLoading) return
@@ -176,15 +211,16 @@ class PhotoReviewViewModel(
         scope.launch {
             val token = auth.getValidToken().orEmpty()
             if (token.isBlank()) {
-                _state.update { it.copy(vision = it.vision.copy(isLoading = false, error = "No iNaturalist token in Settings")) }
+                _state.update {
+                    it.copy(
+                        vision = it.vision.copy(isLoading = false, error = "No iNaturalist token in Settings")
+                    )
+                }
                 return@launch
             }
 
             runCatching {
-                val response = client.scoreObservationVision(token, observationId)
-                val ancestorIds = PhotoVisionPlanner.collectAncestorIds(response)
-                val taxonInfo = client.getTaxa(ancestorIds)
-                PhotoVisionPlanner.buildLadder(response, taxonInfo)
+                visionUseCase.scoreSuggestions(token, observationId)
             }.onSuccess { ladder ->
                 _state.update { it.copy(vision = PhotoVisionPanelUiState(isLoading = false, ladder = ladder)) }
             }.onFailure { error ->
@@ -194,6 +230,35 @@ class PhotoReviewViewModel(
                             isLoading = false,
                             error = error.message ?: "Vision unavailable",
                         ),
+                    )
+                }
+            }
+        }
+    }
+
+    fun syncObservationDetails(force: Boolean = false) {
+        val observationId = _state.value.resolvedObservationId ?: return
+        if (!force && lastAutoSyncObservationId == observationId) return
+        if (_state.value.isSyncingObservation) return
+
+        lastAutoSyncObservationId = observationId
+        _state.update { it.copy(isSyncingObservation = true, syncError = null) }
+        scope.launch {
+            runCatching {
+                client.getObservation(observationId.toString())
+            }.onSuccess { detail ->
+                _state.update {
+                    it.copy(
+                        isSyncingObservation = false,
+                        syncError = null,
+                        observationDetail = detail.toUiState(),
+                    )
+                }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        isSyncingObservation = false,
+                        syncError = error.message ?: "Could not sync iNaturalist details",
                     )
                 }
             }
@@ -215,7 +280,13 @@ class PhotoReviewViewModel(
 
     fun applyVisionSuggestion(suggestion: PhotoVisionSuggestion, label: String = suggestion.rank) {
         val observationId = _state.value.inatObservationId ?: run {
-            _state.update { it.copy(vision = it.vision.copy(error = "Upload to iNaturalist first")) }
+            _state.update {
+                it.copy(
+                    vision = it.vision.copy(
+                        error = "Upload this photo observation before requesting iNaturalist suggestions.",
+                    ),
+                )
+            }
             return
         }
         val observationUuid = _state.value.inatObservationUuid?.takeIf { it.isNotBlank() } ?: run {
@@ -240,11 +311,10 @@ class PhotoReviewViewModel(
             }
 
             runCatching {
-                client.addIdentification(
+                annotationUseCase.addIdentification(
                     token = token,
                     observationId = observationId,
-                    taxonId = suggestion.taxonId,
-                    body = null,
+                    suggestion = suggestion,
                 )
             }.onFailure { error ->
                 _state.update {
@@ -259,12 +329,10 @@ class PhotoReviewViewModel(
             }
 
             val warnings = mutableListOf<String>()
-            if (shouldApplyAnnotations(suggestion)) {
-                runCatching { applyAnnotationSet(token, observationUuid, suggestion) }
-                    .onFailure { error ->
-                        warnings += error.message ?: "Annotation update failed"
-                    }
-            }
+            runCatching { annotationUseCase.applyAnnotations(token, observationUuid, suggestion) }
+                .onFailure { error ->
+                    warnings += error.message ?: "Annotation update failed"
+                }
 
             repo.updateDetails(
                 draftId = draftId,
@@ -279,7 +347,7 @@ class PhotoReviewViewModel(
                     vision = PhotoVisionPanelUiState(
                         isLoading = false,
                         message = buildString {
-                            append("Applied $label: ${suggestion.scientificName}")
+                            append("Added $label: ${suggestion.scientificName}")
                             if (warnings.isNotEmpty()) {
                                 append(" | ")
                                 append(warnings.joinToString(" | "))
@@ -289,6 +357,7 @@ class PhotoReviewViewModel(
                     ),
                 )
             }
+            syncObservationDetails(force = true)
         }
     }
 
@@ -314,67 +383,30 @@ class PhotoReviewViewModel(
         }
     }
 
-    private suspend fun applyAnnotationSet(
-        token: String,
-        observationUuid: String,
-        suggestion: PhotoVisionSuggestion,
-    ) {
-        val iconic = suggestion.iconicTaxonName.orEmpty()
-        if (iconic !in ANIMAL_ICONIC_TAXA) return
-
-        client.createAnnotation(
-            token = token,
-            observationUuid = observationUuid,
-            controlledAttributeId = 17,
-            controlledValueId = 18,
-        )
-        client.createAnnotation(
-            token = token,
-            observationUuid = observationUuid,
-            controlledAttributeId = 22,
-            controlledValueId = 24,
-        )
-        if (iconic == "Insecta") {
-            client.createAnnotation(
-                token = token,
-                observationUuid = observationUuid,
-                controlledAttributeId = 1,
-                controlledValueId = 2,
-            )
-        }
-    }
-
-    private fun ensureOriginalPhoto(
+    private suspend fun ensureOriginalPhoto(
         imageId: String,
         draftId: String,
         originalPhotoPath: String,
         currentFile: File,
-    ): File {
+    ): File = withContext(Dispatchers.IO) {
         val currentOriginal = File(originalPhotoPath)
         if (currentOriginal.exists() && currentOriginal.absolutePath != currentFile.absolutePath) {
-            return currentOriginal
+            return@withContext currentOriginal
         }
         val backup = fileStore.originalPhotoFile(draftId, imageId)
         if (!backup.exists()) {
             currentFile.copyTo(backup, overwrite = true)
         }
-        return backup
+        backup
     }
 
-    private fun shouldApplyAnnotations(suggestion: PhotoVisionSuggestion): Boolean =
-        suggestion.iconicTaxonName in ANIMAL_ICONIC_TAXA
-
-    private companion object {
-        val ANIMAL_ICONIC_TAXA = setOf(
-            "Animalia",
-            "Aves",
-            "Mammalia",
-            "Insecta",
-            "Arachnida",
-            "Reptilia",
-            "Amphibia",
-            "Mollusca",
-            "Actinopterygii",
+    private fun ObservationDetail.toUiState(): PhotoObservationDetailUiState =
+        PhotoObservationDetailUiState(
+            qualityGrade = qualityGrade,
+            agreeingIdCount = agreeingIdCount,
+            commentsCount = commentsCount,
+            comments = comments,
+            taxonScientificName = taxonName,
+            taxonCommonName = taxonCommonName,
         )
-    }
 }

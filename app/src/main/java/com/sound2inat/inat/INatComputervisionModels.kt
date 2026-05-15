@@ -30,4 +30,5 @@ data class InatTaxonInfo(
     val rank: String,
     val rankLevel: Int,
     val iconicTaxonName: String?,
+    val photoUrl: String? = null,
 )

@@ -1,17 +1,22 @@
 package com.sound2inat.app.ui.photos
 
+import android.graphics.Bitmap
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import androidx.lifecycle.SavedStateHandle
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
-import android.graphics.Bitmap
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.app.data.Settings
 import com.sound2inat.inat.INatAuthRepository
 import com.sound2inat.inat.INatTokenStore
 import com.sound2inat.inat.INaturalistClient
+import com.sound2inat.inat.PhotoAnnotationUseCase
 import com.sound2inat.inat.PhotoSubmitResult
 import com.sound2inat.inat.PhotoSubmitter
+import com.sound2inat.inat.PhotoVisionLadder
+import com.sound2inat.inat.PhotoVisionSuggestion
+import com.sound2inat.inat.PhotoVisionTarget
+import com.sound2inat.inat.PhotoVisionUseCase
 import com.sound2inat.storage.PhotoDraftRepository
 import com.sound2inat.storage.PhotoObservationFileStore
 import com.sound2inat.storage.Sound2iNatDb
@@ -124,10 +129,12 @@ class PhotoReviewViewModelTest {
 
         vm.submit()
         assertThat(vm.state.value.uploadedUrl).isEqualTo("https://inat.test/observations/1")
+        assertThat(vm.state.value.isUploaded).isTrue()
 
         repo.updateDetails(draftId, "Quercus robur", null, 123L, "tree")
 
         assertThat(vm.state.value.uploadedUrl).isEqualTo("https://inat.test/observations/1")
+        assertThat(vm.state.value.isUploaded).isTrue()
     }
 
     @Test
@@ -202,7 +209,118 @@ class PhotoReviewViewModelTest {
     }
 
     @Test
-    fun `load vision suggestions and apply genus from iNat response`() = runTest {
+    fun `load vision suggestions and apply species via fake use cases`() = runTest {
+        val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
+        repo.markUploaded(
+            draftId,
+            observationId = 777L,
+            observationUuid = "uuid-777",
+            observationUrl = "https://www.inaturalist.org/observations/777",
+        )
+        // getObservation is still called via client (syncObservationDetails)
+        server.enqueue(
+            MockResponse().setBody(
+                """{
+                  "results": [
+                    {
+                      "quality_grade": "needs_id",
+                      "comments_count": 0,
+                      "identifications": [],
+                      "comments": [],
+                      "taxon": null
+                    }
+                  ]
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val fakeLadder = PhotoVisionLadder(
+            topCandidates = listOf(
+                PhotoVisionSuggestion(
+                    taxonId = 102L,
+                    scientificName = "Ammophila sabulosa",
+                    commonName = "Sand wasp",
+                    rank = "species",
+                    rankLevel = 10,
+                    score = 0.71,
+                    iconicTaxonName = "Insecta",
+                ),
+            ),
+            higherTaxa = emptyList(),
+        )
+        var visionCalledWithObservationId: Long? = null
+        var identificationCalledWithTaxonId: Long? = null
+        var annotationsCalledWithUuid: String? = null
+
+        val visionUseCase = object : PhotoVisionUseCase(client) {
+            override suspend fun scoreSuggestions(token: String, observationId: Long): PhotoVisionLadder {
+                visionCalledWithObservationId = observationId
+                return fakeLadder
+            }
+        }
+        val annotationUseCase = object : PhotoAnnotationUseCase(client) {
+            override suspend fun addIdentification(
+                token: String,
+                observationId: Long,
+                suggestion: PhotoVisionSuggestion,
+            ) {
+                identificationCalledWithTaxonId = suggestion.taxonId
+            }
+
+            override suspend fun applyAnnotations(
+                token: String,
+                observationUuid: String,
+                suggestion: PhotoVisionSuggestion,
+            ) {
+                annotationsCalledWithUuid = observationUuid
+            }
+        }
+
+        val vm = viewModel(
+            draftId,
+            visionUseCase = visionUseCase,
+            annotationUseCase = annotationUseCase,
+            submitter = fakeSubmitter { _, _ -> error("submit not expected") },
+        )
+
+        vm.loadVisionSuggestions()
+
+        repeat(50) {
+            if (vm.state.value.vision.ladder != null) return@repeat
+            delay(10)
+        }
+        assertThat(vm.state.value.vision.ladder).isNotNull()
+        assertThat(visionCalledWithObservationId).isEqualTo(777L)
+
+        vm.applyVision(PhotoVisionTarget.SPECIES)
+
+        repeat(50) {
+            if (vm.state.value.vision.message != null) return@repeat
+            delay(10)
+        }
+        assertThat(vm.state.value.vision.message).isNotNull()
+        assertThat(identificationCalledWithTaxonId).isEqualTo(102L)
+        assertThat(annotationsCalledWithUuid).isEqualTo("uuid-777")
+        assertThat(vm.state.value.taxonScientificName).isEqualTo("Ammophila sabulosa")
+        assertThat(vm.state.value.taxonCommonName).isEqualTo("Sand wasp")
+        assertThat(vm.state.value.taxonInatId).isEqualTo(102L)
+    }
+
+    @Test
+    fun `load vision suggestions without upload shows friendly prompt`() = runTest {
+        val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
+        val vm = viewModel(draftId)
+
+        vm.loadVisionSuggestions()
+
+        assertThat(vm.state.value.vision.error).isEqualTo(
+            "Upload this photo observation before requesting iNaturalist suggestions.",
+        )
+    }
+
+    @Test
+    fun `opened uploaded draft auto syncs observation details and comments`() = runTest {
         val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
         repo.markUploaded(
             draftId,
@@ -215,78 +333,44 @@ class PhotoReviewViewModelTest {
                 """{
                   "results": [
                     {
-                      "combined_score": 0.82,
+                      "quality_grade": "research",
+                      "comments_count": 2,
+                      "identifications": [
+                        {"current": true},
+                        {"current": false}
+                      ],
+                      "comments": [
+                        {"user": {"login": "alice"}, "body": "Nice find"},
+                        {"user": {"login": "bob"}, "body": "Agree"}
+                      ],
                       "taxon": {
-                        "id": 101,
-                        "name": "Ammophila",
-                        "preferred_common_name": null,
-                        "rank": "genus",
-                        "rank_level": 20,
-                        "ancestry": "1/2/101",
-                        "iconic_taxon_name": "Insecta"
-                      }
-                    },
-                    {
-                      "combined_score": 0.71,
-                      "taxon": {
-                        "id": 102,
                         "name": "Ammophila sabulosa",
-                        "preferred_common_name": "Sand wasp",
-                        "rank": "species",
-                        "rank_level": 10,
-                        "ancestry": "1/2/101/102",
-                        "iconic_taxon_name": "Insecta"
+                        "preferred_common_name": "Sand wasp"
                       }
                     }
                   ]
-                }""".trimIndent(),
+                }
+                """.trimIndent(),
             ),
         )
-        server.enqueue(
-            MockResponse().setBody(
-                """{"results":[
-                    {"id":1,"name":"Animalia","rank":"kingdom","rank_level":70,"iconic_taxon_name":"Animalia"},
-                    {"id":2,"name":"Vespidae","preferred_common_name":"Paper wasps","rank":"family","rank_level":30,"iconic_taxon_name":"Insecta"},
-                    {"id":101,"name":"Ammophila","rank":"genus","rank_level":20,"iconic_taxon_name":"Insecta"},
-                    {"id":102,"name":"Ammophila sabulosa","rank":"species","rank_level":10,"iconic_taxon_name":"Insecta"}
-                ]}""".trimIndent(),
-            ),
-        )
-        server.enqueue(MockResponse().setBody("""{"id":1}"""))
-        server.enqueue(MockResponse().setBody("""{"id":2}"""))
-        server.enqueue(MockResponse().setBody("""{"id":3}"""))
 
-        val vm = viewModel(
-            draftId,
-            client = client,
-            submitter = fakeSubmitter { _, _ -> error("submit not expected") },
-        )
-
-        vm.loadVisionSuggestions()
+        val vm = viewModel(draftId)
 
         repeat(50) {
-            if (vm.state.value.vision.ladder != null) return@repeat
+            if (vm.state.value.observationDetail != null) return@repeat
             delay(10)
         }
-        assertThat(vm.state.value.vision.ladder).isNotNull()
 
-        vm.applyVision(PhotoVisionTarget.GENUS)
-
-        repeat(50) {
-            if (vm.state.value.vision.message != null) return@repeat
-            delay(10)
-        }
-        assertThat(vm.state.value.vision.message).isNotNull()
-        assertThat(vm.state.value.taxonScientificName).isEqualTo("Ammophila")
-        assertThat(vm.state.value.taxonInatId).isEqualTo(101L)
-        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).isEqualTo("/v1/computervision/score_observation/777")
-        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).contains("/v1/taxa?id=1,2,101,102")
-        val identificationRequest = server.takeRequest(5, TimeUnit.SECONDS)
-        val identificationBody = identificationRequest?.body?.readUtf8().orEmpty()
-        assertThat(identificationRequest?.path).isEqualTo("/v1/identifications")
-        assertThat(identificationBody).contains("\"observation_id\":777")
-        assertThat(identificationBody).doesNotContain("WildEar CV")
-        assertThat(identificationBody).doesNotContain("\"body\"")
+        val detail = vm.state.value.observationDetail
+        assertThat(detail).isNotNull()
+        assertThat(detail?.qualityGrade).isEqualTo("research")
+        assertThat(detail?.agreeingIdCount).isEqualTo(1)
+        assertThat(detail?.commentsCount).isEqualTo(2)
+        assertThat(detail?.comments).hasSize(2)
+        assertThat(detail?.taxonScientificName).isEqualTo("Ammophila sabulosa")
+        assertThat(detail?.taxonCommonName).isEqualTo("Sand wasp")
+        assertThat(vm.state.value.syncError).isNull()
+        assertThat(server.takeRequest(5, TimeUnit.SECONDS)?.path).isEqualTo("/v1/observations/777")
     }
 
     @Test
@@ -318,9 +402,10 @@ class PhotoReviewViewModelTest {
     private fun viewModel(
         draftId: String,
         auth: INatAuthRepository = fakeAuth(),
-        client: INaturalistClient = this.client,
         submitter: PhotoSubmitter = PhotoSubmitter(client, repo),
         cropper: PhotoImageCropper = PhotoImageCropper(),
+        visionUseCase: PhotoVisionUseCase = PhotoVisionUseCase(client),
+        annotationUseCase: PhotoAnnotationUseCase = PhotoAnnotationUseCase(client),
     ): PhotoReviewViewModel = PhotoReviewViewModel(
         savedStateHandle = SavedStateHandle(mapOf("photoDraftId" to draftId)),
         repo = repo,
@@ -329,6 +414,8 @@ class PhotoReviewViewModelTest {
         client = client,
         submitter = submitter,
         cropper = cropper,
+        visionUseCase = visionUseCase,
+        annotationUseCase = annotationUseCase,
         externalScope = TestScope(UnconfinedTestDispatcher()),
     )
 

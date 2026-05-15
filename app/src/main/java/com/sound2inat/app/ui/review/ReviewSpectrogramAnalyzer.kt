@@ -1,7 +1,7 @@
 package com.sound2inat.app.ui.review
 
-import com.sound2inat.audio.Spectrogram
 import com.sound2inat.app.ui.spectrogram.SpectrogramVisualPipeline
+import com.sound2inat.audio.Spectrogram
 
 /**
  * Builds reusable review spectrogram matrices from mono audio samples.

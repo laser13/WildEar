@@ -196,14 +196,20 @@ open class INatAuthRepository @Inject constructor(
     private suspend fun ensureMigrated() = migrationMutex.withLock {
         if (migrationChecked) return@withLock
         migrationChecked = true
-        if (storage.token != null) return@withLock
-        val (legacy, legacyLogin) = readLegacyToken() ?: return@withLock
-        // Mark fetched-at = "now" so the freshness check at least gives the
-        // legacy token one normal TTL window before triggering refresh —
-        // we don't actually know how old it was.
-        storage.save(legacy, legacyLogin, null, System.currentTimeMillis())
-        _tokenState.value = legacy
-        _loginState.value = legacyLogin
+        val legacyPair = readLegacyToken() ?: return@withLock
+        val (legacy, legacyLogin) = legacyPair
+        // Migrate to encrypted storage only if not already present.
+        if (storage.token == null) {
+            // Mark fetched-at = "now" so the freshness check at least gives the
+            // legacy token one normal TTL window before triggering refresh —
+            // we don't actually know how old it was.
+            storage.save(legacy, legacyLogin, null, System.currentTimeMillis())
+            _tokenState.value = legacy
+            _loginState.value = legacyLogin
+        }
+        // Always scrub the plain-text DataStore copy regardless of whether we
+        // just migrated it — if it was already in encrypted storage, the legacy
+        // copy was left behind by a previous incomplete migration.
         clearLegacyToken()
     }
 

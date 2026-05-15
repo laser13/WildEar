@@ -22,6 +22,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.sound2inat.inat.SpeciesAggregate
 
 @Composable
 internal fun SpeciesCountRow(

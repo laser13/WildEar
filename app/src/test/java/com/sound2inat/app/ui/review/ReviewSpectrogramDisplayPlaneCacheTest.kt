@@ -24,8 +24,12 @@ class ReviewSpectrogramDisplayPlaneCacheTest {
         val matrix = sampleMatrix()
         val calls = AtomicInteger(0)
         val baseKey = "matrix-key"
-        val inkSuffix = ReviewSpectrogramConfig.BirdDefault.copy(palette = SpectrogramPalette.INK).displayPlaneCacheSuffix()
-        val viridisSuffix = ReviewSpectrogramConfig.BirdDefault.copy(palette = SpectrogramPalette.VIRIDIS).displayPlaneCacheSuffix()
+        val inkSuffix = ReviewSpectrogramConfig.BirdDefault.copy(
+            palette = SpectrogramPalette.INK
+        ).displayPlaneCacheSuffix()
+        val viridisSuffix = ReviewSpectrogramConfig.BirdDefault.copy(
+            palette = SpectrogramPalette.VIRIDIS
+        ).displayPlaneCacheSuffix()
 
         val first = runSuspend {
             cache.getOrCreate(
@@ -63,8 +67,12 @@ class ReviewSpectrogramDisplayPlaneCacheTest {
         val cache = ReviewSpectrogramDisplayPlaneCache()
         val matrix = sampleMatrix()
         val calls = AtomicInteger(0)
-        val fullSuffix = ReviewSpectrogramConfig.BirdDefault.copy(displayRange = SpectrogramDisplayRange.FULL).displayPlaneCacheSuffix()
-        val birdSuffix = ReviewSpectrogramConfig.BirdDefault.copy(displayRange = SpectrogramDisplayRange.BIRDNET_BIRD).displayPlaneCacheSuffix()
+        val fullSuffix = ReviewSpectrogramConfig.BirdDefault.copy(
+            displayRange = SpectrogramDisplayRange.FULL
+        ).displayPlaneCacheSuffix()
+        val birdSuffix = ReviewSpectrogramConfig.BirdDefault.copy(
+            displayRange = SpectrogramDisplayRange.BIRDNET_BIRD
+        ).displayPlaneCacheSuffix()
 
         val first = runSuspend {
             cache.getOrCreate(
@@ -88,7 +96,9 @@ class ReviewSpectrogramDisplayPlaneCacheTest {
                 calls.incrementAndGet()
                 SpectrogramRenderer(
                     targetWidth = 64,
-                    config = ReviewSpectrogramConfig.BirdDefault.copy(displayRange = SpectrogramDisplayRange.BIRDNET_BIRD),
+                    config = ReviewSpectrogramConfig.BirdDefault.copy(
+                        displayRange = SpectrogramDisplayRange.BIRDNET_BIRD
+                    ),
                 ).buildDisplayPlane(matrix)
             }
         }

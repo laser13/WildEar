@@ -2,14 +2,13 @@ package com.sound2inat.app.ui.photos
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,60 +34,54 @@ fun PhotoDraftCard(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
     ) {
-        Row(modifier = Modifier.padding(12.dp)) {
-            AsyncImage(
-                model = draft.firstPhotoPath?.let(::File),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(72.dp)
-                    .clip(RoundedCornerShape(12.dp)),
-            )
-            Spacer(Modifier.width(12.dp))
-            Column {
+        ListItem(
+            colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+            leadingContent = {
+                AsyncImage(
+                    model = draft.firstPhotoPath?.let(::File),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(RoundedCornerShape(12.dp)),
+                )
+            },
+            headlineContent = {
                 Text(
-                    draft.taxonCommonName ?: draft.taxonScientificName ?: "Unidentified observation",
+                    draft.taxonCommonName ?: draft.taxonScientificName ?: "Observation",
                     style = MaterialTheme.typography.titleMedium,
                 )
-                Text(
-                    "${draft.photoCount} photo${if (draft.photoCount == 1) "" else "s"}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    dateFormatter.format(Instant.ofEpochMilli(draft.observedAtUtcMs)),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                draft.coordinateLabel()?.let {
+            },
+            supportingContent = {
+                Column {
                     Text(
-                        it,
+                        dateFormatter.format(Instant.ofEpochMilli(draft.observedAtUtcMs)),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    draft.inatLastError?.let {
+                        Text(
+                            it,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
-                draft.inatLastError?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
+            },
+            trailingContent = {
+                Text(
+                    draft.photoCount.toString(),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+        )
     }
 }
-
-private fun PhotoDraftSummary.coordinateLabel(): String? {
-    val lat = latitude ?: return null
-    val lon = longitude ?: return null
-    val coords = "${formatCoordinate(lat)}, ${formatCoordinate(lon)}"
-    val accuracy = locationAccuracyMeters
-    return if (accuracy != null) {
-        "$coords • ±${accuracy.toInt()}m"
-    } else {
-        coords
-    }
-}
-
-private fun formatCoordinate(value: Double): String =
-    String.format("%.5f", value)
 
 private val dateFormatter: DateTimeFormatter =
     DateTimeFormatter.ofPattern("MMM d, HH:mm").withZone(ZoneId.systemDefault())

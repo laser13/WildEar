@@ -34,6 +34,7 @@ import com.sound2inat.app.R
 import com.sound2inat.app.permissions.LocalPermissionsController
 import com.sound2inat.app.permissions.Permission
 import com.sound2inat.app.permissions.PermissionStatus
+import com.sound2inat.inat.SpeciesAggregate
 
 private const val MAP_HEIGHT_DP = 280
 

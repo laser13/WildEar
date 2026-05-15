@@ -198,7 +198,8 @@ class INaturalistClientTest {
                       }
                     }
                   ]
-                }""".trimIndent(),
+                }
+                """.trimIndent(),
             ),
         )
 
@@ -218,7 +219,8 @@ class INaturalistClientTest {
                 """{"results":[
                     {"id": 1, "name": "Animalia", "preferred_common_name": null, "rank": "kingdom", "rank_level": 70, "iconic_taxon_name": "Animalia"},
                     {"id": 2, "name": "Aves", "preferred_common_name": "Birds", "rank": "class", "rank_level": 40, "iconic_taxon_name": "Aves"}
-                ]}""".trimIndent(),
+                ]}
+                """.trimIndent(),
             ),
         )
 
@@ -304,7 +306,7 @@ class INaturalistClientTest {
                 }""",
             ),
         )
-        val key = com.sound2inat.app.ui.radar.FilterKey(
+        val key = FilterKey(
             latGrid = 5050,
             lonGrid = 1010,
             radiusKm = 5,
@@ -346,7 +348,7 @@ class INaturalistClientTest {
 
     @Test fun `nearbySpeciesCounts omits empty taxa and null user_id`() = runTest {
         server.enqueue(MockResponse().setBody("""{"results":[]}"""))
-        val key = com.sound2inat.app.ui.radar.FilterKey(
+        val key = FilterKey(
             latGrid = 5050,
             lonGrid = 1010,
             radiusKm = 25,
@@ -387,7 +389,7 @@ class INaturalistClientTest {
             }""",
             ),
         )
-        val key = com.sound2inat.app.ui.radar.FilterKey(
+        val key = FilterKey(
             latGrid = 5050,
             lonGrid = 1010,
             radiusKm = 5,
@@ -426,7 +428,7 @@ class INaturalistClientTest {
                 }""",
             ),
         )
-        val key = com.sound2inat.app.ui.radar.FilterKey(
+        val key = FilterKey(
             latGrid = 5000,
             lonGrid = 1000,
             radiusKm = 5,

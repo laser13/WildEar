@@ -13,8 +13,14 @@ import kotlinx.coroutines.sync.withLock
  */
 class ReviewSpectrogramDisplayPlaneCache {
     private val mutex = Mutex()
-    private val memoryCache = object : LinkedHashMap<String, ReviewSpectrogramDisplayPlane>(MAX_CACHED_PLANES, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ReviewSpectrogramDisplayPlane>?): Boolean =
+    private val memoryCache = object : LinkedHashMap<String, ReviewSpectrogramDisplayPlane>(
+        MAX_CACHED_PLANES,
+        0.75f,
+        true
+    ) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, ReviewSpectrogramDisplayPlane>?
+        ): Boolean =
             size > MAX_CACHED_PLANES
     }
 

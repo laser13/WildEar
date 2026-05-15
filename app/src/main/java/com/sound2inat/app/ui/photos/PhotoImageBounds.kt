@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import androidx.exifinterface.media.ExifInterface
-import java.io.File
 import java.io.FileInputStream
 
 internal data class PhotoImageBounds(

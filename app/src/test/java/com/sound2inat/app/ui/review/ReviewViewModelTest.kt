@@ -4,6 +4,7 @@ import android.net.Uri
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.app.inference.InferenceQueue
 import com.sound2inat.app.inference.QueuedJob
+import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inat.RegionLookup
 import com.sound2inat.inat.RegionalStatusRepository
@@ -26,7 +27,6 @@ import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.DraftRepository
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.WavFileStore
-import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -663,14 +663,18 @@ class ReviewViewModelTest {
             assertThat(vm.state.value.processingProfile).isEqualTo(customProfile)
 
             vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
-            assertThat(vm.state.value.processingProfile.audioProcessingConfig).isEqualTo(ReviewAudioProcessingConfig.BirdClean)
+            assertThat(
+                vm.state.value.processingProfile.audioProcessingConfig
+            ).isEqualTo(ReviewAudioProcessingConfig.BirdClean)
             assertThat(vm.state.value.audioProcessingConfig).isEqualTo(ReviewAudioProcessingConfig.BirdClean)
 
             vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.Original)
 
             assertThat(vm.state.value.audioProcessingConfig).isEqualTo(ReviewAudioProcessingConfig.Original)
             assertThat(vm.state.value.processingProfile).isEqualTo(ReviewProcessingProfile.Default)
-            assertThat(vm.state.value.processingProfile.spectrogramConfig).isEqualTo(ReviewProcessingProfile.Default.spectrogramConfig)
+            assertThat(
+                vm.state.value.processingProfile.spectrogramConfig
+            ).isEqualTo(ReviewProcessingProfile.Default.spectrogramConfig)
         }
 
     @Test
@@ -695,7 +699,9 @@ class ReviewViewModelTest {
             vm.setDisplayRange(SpectrogramDisplayRange.FULL)
 
             assertThat(vm.displayRange.value).isEqualTo(SpectrogramDisplayRange.FULL)
-            assertThat(vm.state.value.processingProfile.spectrogramConfig.displayRange).isEqualTo(SpectrogramDisplayRange.FULL)
+            assertThat(
+                vm.state.value.processingProfile.spectrogramConfig.displayRange
+            ).isEqualTo(SpectrogramDisplayRange.FULL)
         }
 
     @Test
@@ -847,16 +853,16 @@ class ReviewViewModelTest {
         val vm = ReviewViewModel(
             draftId = draftId,
             repo = repo,
-                player = player,
-                inference = noopInference(),
-                processedAudio = processedAudio,
-                visuals = VisualsProvider { _, _, _, _, _ ->
-                    Visuals(spectrogramPreview = preview(), waveformPeaks = floatArrayOf(-1f, 1f))
-                },
-                queue = queue,
-                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
-                externalScope = backgroundScope,
-            )
+            player = player,
+            inference = noopInference(),
+            processedAudio = processedAudio,
+            visuals = VisualsProvider { _, _, _, _, _ ->
+                Visuals(spectrogramPreview = preview(), waveformPeaks = floatArrayOf(-1f, 1f))
+            },
+            queue = queue,
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+            externalScope = backgroundScope,
+        )
 
         vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
         vm.ensureVisuals(tmp.root)

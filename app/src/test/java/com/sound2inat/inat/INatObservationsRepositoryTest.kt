@@ -1,9 +1,6 @@
 package com.sound2inat.inat
 
 import com.google.common.truth.Truth.assertThat
-import com.sound2inat.app.ui.radar.FilterKey
-import com.sound2inat.app.ui.radar.MapPin
-import com.sound2inat.app.ui.radar.SpeciesAggregate
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.UnconfinedTestDispatcher

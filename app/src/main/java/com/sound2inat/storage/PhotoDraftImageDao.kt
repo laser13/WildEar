@@ -24,4 +24,7 @@ interface PhotoDraftImageDao {
 
     @Query("SELECT * FROM photo_draft_images WHERE photoDraftId = :draftId ORDER BY sortOrder ASC, takenAtUtcMs ASC")
     fun listForDraft(draftId: String): List<PhotoDraftImageEntity>
+
+    @Query("SELECT * FROM photo_draft_images ORDER BY sortOrder ASC, takenAtUtcMs ASC")
+    suspend fun listAll(): List<PhotoDraftImageEntity>
 }

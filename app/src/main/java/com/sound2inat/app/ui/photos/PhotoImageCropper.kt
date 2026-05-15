@@ -1,39 +1,42 @@
 package com.sound2inat.app.ui.photos
 
 import android.graphics.Bitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import javax.inject.Inject
 
 open class PhotoImageCropper @Inject constructor() {
-    fun cropCenterSquare(source: File, destination: File): CroppedImageInfo {
-        require(source.exists() && source.length() > 0) { "Source photo missing: ${source.absolutePath}" }
-        destination.parentFile?.mkdirs()
+    suspend fun cropCenterSquare(source: File, destination: File): CroppedImageInfo =
+        withContext(Dispatchers.IO) {
+            require(source.exists() && source.length() > 0) { "Source photo missing: ${source.absolutePath}" }
+            destination.parentFile?.mkdirs()
 
-        val bitmap = loadBitmap(source)
-        val bounds = PhotoImageBounds(width = bitmap.width, height = bitmap.height)
-        val region = centerSquareRegion(bounds)
-        return decodeRegionToFile(
-            source = bitmap,
-            destination = destination,
-            left = region.left,
-            top = region.top,
-            size = region.size,
-            region = region,
-        )
-    }
+            val bitmap = loadBitmap(source)
+            val bounds = PhotoImageBounds(width = bitmap.width, height = bitmap.height)
+            val region = centerSquareRegion(bounds)
+            decodeRegionToFile(
+                source = bitmap,
+                destination = destination,
+                left = region.left,
+                top = region.top,
+                size = region.size,
+                region = region,
+            )
+        }
 
-    fun cropFromViewport(
+    suspend fun cropFromViewport(
         source: File,
         destination: File,
         request: PhotoCropRequest,
-    ): CroppedImageInfo {
+    ): CroppedImageInfo = withContext(Dispatchers.IO) {
         require(source.exists() && source.length() > 0) { "Source photo missing: ${source.absolutePath}" }
         destination.parentFile?.mkdirs()
         val bitmap = loadBitmap(source)
         val bounds = PhotoImageBounds(width = bitmap.width, height = bitmap.height)
         val region = viewportRegion(bounds, request)
-        return decodeRegionToFile(
+        decodeRegionToFile(
             source = bitmap,
             destination = destination,
             left = region.left,
@@ -94,7 +97,6 @@ data class CropRegion(
     val top: Int,
     val size: Int,
 )
-
 
 data class CroppedImageInfo(
     val width: Int,

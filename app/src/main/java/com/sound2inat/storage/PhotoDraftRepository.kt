@@ -20,10 +20,10 @@ class PhotoDraftRepository(
 ) {
     fun observeSummaries(): Flow<List<PhotoDraftSummary>> =
         draftDao.observeAll().map { drafts ->
-            // TODO: Replace the per-draft image lookup with a single SQL
-            // summary query before the photo album list grows large.
+            val allImages = imageDao.listAll()
+            val imagesByDraft = allImages.groupBy { it.photoDraftId }
             drafts.map { draft ->
-                val images = imageDao.listForDraft(draft.id)
+                val images = imagesByDraft[draft.id] ?: emptyList()
                 PhotoDraftSummary(
                     id = draft.id,
                     observedAtUtcMs = draft.observedAtUtcMs,
@@ -58,7 +58,7 @@ class PhotoDraftRepository(
         val id = idFactory()
         val now = nowMs()
         draftDao.insert(
-                PhotoDraftEntity(
+            PhotoDraftEntity(
                 id = id,
                 createdAtUtcMs = now,
                 updatedAtUtcMs = now,
