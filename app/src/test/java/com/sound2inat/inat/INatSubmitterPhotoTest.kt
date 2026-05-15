@@ -376,6 +376,8 @@ private class LocalFakeInatDao : InatObservationDao {
     }
     override fun listForDraft(draftId: String): List<InatObservationEntity> =
         rows.filter { it.draftId == draftId }
+    override fun findForDraftAndSpecies(draftId: String, species: String): InatObservationEntity? =
+        rows.firstOrNull { it.draftId == draftId && it.taxonScientificName == species }
     override fun observeForDraft(draftId: String): Flow<List<InatObservationEntity>> =
         flowOf(listForDraft(draftId))
     override fun deleteForDraft(draftId: String): Int =

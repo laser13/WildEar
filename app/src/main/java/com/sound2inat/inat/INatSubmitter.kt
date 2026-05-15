@@ -5,6 +5,7 @@ import com.sound2inat.inference.SourceStats
 import com.sound2inat.modelmanager.KnownModels
 import com.sound2inat.storage.DetectionEntity
 import com.sound2inat.storage.DraftDao
+import com.sound2inat.storage.DraftEntity
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.DraftWithDetections
 import com.sound2inat.storage.InatObservationDao
@@ -62,7 +63,13 @@ class INatSubmitter(
         data class Failure(val message: String) : Result
     }
 
-    /** Carries both the persisted entity and the observation UUID returned by iNat. */
+    /**
+     * Carries the persisted entity and the iNat-assigned UUID for a submitted observation.
+     *
+     * [uuid] is empty (`""`) when this represents a **reused** pre-existing row
+     * (idempotency path — the original UUID was never persisted). UUID-dependent calls
+     * (e.g. [INaturalistClient.createObservationFieldValue]) must skip such rows.
+     */
     private data class SubmittedObs(val entity: InatObservationEntity, val uuid: String)
 
     @Suppress("ReturnCount", "LongMethod", "TooGenericExceptionCaught")
@@ -171,40 +178,48 @@ class INatSubmitter(
             crossLink(token, createdPairs)
         }
 
-        // Atomic wipe-and-replace: delete any prior rows for this draft, then
-        // insert the freshly created observations in a single transaction so a
-        // mid-insert failure never leaves the table in a torn state.
-        val createdRows = persistObservations(draft.draft.id, pendingRows)
-
-        val primary = createdRows.first()
-        drafts.update(
-            draft.draft.copy(
-                status = DraftStatus.UPLOADED,
-                inatLastError = if (failures.isEmpty()) null else failures.joinToString(" | "),
-                updatedAtUtcMs = nowMs(),
-            ),
+        // Atomic wipe-and-replace + status flip: delete any prior rows for
+        // this draft, insert the freshly created observations, and update the
+        // draft's status in a SINGLE transaction. Previously the status flip
+        // ran outside the transaction — if the process died between the
+        // persist and the update, iNat had observations but the draft was
+        // stuck in REVIEWED, so a retry would re-POST /observations and
+        // create duplicates on iNaturalist. Now both writes commit together
+        // or roll back together; the idempotency pre-check in `submitOne`
+        // covers the narrower window between createObservation and persist.
+        val updatedDraft = draft.draft.copy(
+            status = DraftStatus.UPLOADED,
+            inatLastError = if (failures.isEmpty()) null else failures.joinToString(" | "),
+            updatedAtUtcMs = nowMs(),
         )
+        val createdRows = persistAndMarkUploaded(draft.draft.id, pendingRows, updatedDraft)
+        val primary = createdRows.first()
         return Result.Ok(primary.observationUrl, createdRows.map { it.observationUrl })
     }
 
     /**
-     * Atomically deletes all prior iNat observation rows for [draftId] and
-     * inserts [rows]. When a [Sound2iNatDb] reference is available the two
-     * operations run inside a single [withTransaction] block; otherwise they
-     * execute sequentially (test paths with fake DAOs).
+     * Atomically deletes all prior iNat observation rows for [draftId],
+     * inserts [rows], and flips the draft to its [updatedDraft] state
+     * (typically `UPLOADED`). When a [Sound2iNatDb] reference is available
+     * all three operations run inside a single [withTransaction] block;
+     * otherwise they execute sequentially (test paths with fake DAOs that
+     * have no transactional guarantee).
      */
-    private suspend fun persistObservations(
+    private suspend fun persistAndMarkUploaded(
         draftId: String,
         rows: List<InatObservationEntity>,
+        updatedDraft: DraftEntity,
     ): List<InatObservationEntity> {
-        fun doInsert(): List<InatObservationEntity> {
+        fun doPersist(): List<InatObservationEntity> {
             inatObservations.deleteForDraft(draftId)
-            return rows.map { row ->
+            val saved = rows.map { row ->
                 val savedId = inatObservations.insert(row)
                 row.copy(id = savedId)
             }
+            drafts.update(updatedDraft)
+            return saved
         }
-        return if (db != null) db.withTransaction { doInsert() } else doInsert()
+        return if (db != null) db.withTransaction { doPersist() } else doPersist()
     }
 
     /**
@@ -225,6 +240,24 @@ class INatSubmitter(
         uploadSpectrogramPhoto: Boolean = false,
         onSpectrogramPhotoAttempt: () -> Unit = {},
     ): SubmittedObs? {
+        // Idempotency pre-check: if a prior submission attempt already created
+        // an observation for this (draftId, species) on iNat but crashed before
+        // persisting the corresponding inat_observations row, reuse the saved
+        // entity instead of POSTing /observations a second time. The empty
+        // uuid is a sentinel — we never persisted the original UUID, so
+        // crossLink must skip uuid-dependent calls for reused entities.
+        val existing = inatObservations.findForDraftAndSpecies(
+            draft.draft.id,
+            det.taxonScientificName,
+        )
+        if (existing != null) {
+            android.util.Log.d(
+                LOG_TAG,
+                "Reusing existing iNat observation ${existing.observationId}" +
+                    " for ${det.taxonScientificName}",
+            )
+            return SubmittedObs(existing, uuid = "")
+        }
         val genusId = client.resolveGenus(det.taxonScientificName, token) ?: return null
         val cropFile = File(cropDir, cropFileName(draft.draft.id, det))
         cropPerSpecies(srcAudio, det, draft.draft.durationMs, cropFile)
@@ -376,21 +409,27 @@ class INatSubmitter(
                 "\n\nSibling observations from the same recording:\n$siblings"
             runCatching {
                 client.updateObservationDescription(token, submitted.entity.observationId, description)
+            }.onFailure { e ->
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                android.util.Log.w(LOG_TAG, "Description update failed for ${submitted.entity.observationId}", e)
             }
-            val siblingUrls = others.joinToString(" ") { it.first.entity.observationUrl }
-            runCatching {
-                client.createObservationFieldValue(
-                    token,
-                    submitted.uuid,
-                    LINKED_OBS_FIELD_ID,
-                    siblingUrls,
-                )
-            }.onFailure {
-                android.util.Log.w(
-                    LOG_TAG,
-                    "Linked Observation field on ${submitted.entity.observationId} failed",
-                    it,
-                )
+            if (submitted.uuid.isNotBlank()) {
+                val siblingUrls = others.joinToString(" ") { it.first.entity.observationUrl }
+                runCatching {
+                    client.createObservationFieldValue(
+                        token,
+                        submitted.uuid,
+                        LINKED_OBS_FIELD_ID,
+                        siblingUrls,
+                    )
+                }.onFailure { e ->
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    android.util.Log.w(
+                        LOG_TAG,
+                        "Linked Observation field on ${submitted.entity.observationId} failed",
+                        e,
+                    )
+                }
             }
         }
     }

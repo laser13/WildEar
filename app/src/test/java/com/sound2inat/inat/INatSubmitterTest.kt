@@ -287,6 +287,85 @@ class INatSubmitterTest {
         assertThat(inatDao.rows.first().taxonScientificName).isEqualTo("Parus major")
     }
 
+    /**
+     * Idempotency contract: a prior submission attempt may have created an iNat
+     * observation but crashed before persisting the local row. On retry,
+     * `submitOne` must detect the existing row (via `findForDraftAndSpecies`)
+     * and skip the HTTP `createObservation` for that species — otherwise the
+     * user accumulates duplicate observations on iNaturalist.
+     *
+     * Scenario: draft has two selected species; the first already has a row
+     * in `inat_observations` from a prior attempt. The second is fresh. We
+     * expect:
+     *   - Exactly one full HTTP create-flow (resolveGenus + createObservation
+     *     + sound + tag + 2 annotations + addIdentification) for the new
+     *     species.
+     *   - No HTTP traffic at all for the already-persisted species.
+     *   - The cross-link PUT description still runs for both (we have two
+     *     siblings), and POST /observation_field_values is skipped for the
+     *     reused observation (no uuid available).
+     *   - Final result Ok with both URLs; the reused row stays in the DB.
+     */
+    @Test fun `pre-existing inat row short-circuits createObservation on retry`() = runTest {
+        // Pre-populate as if a prior attempt landed the Parus observation
+        // on iNat but never persisted the draft status.
+        val preExisting = InatObservationEntity(
+            id = 0,
+            draftId = "d-1",
+            taxonScientificName = "Parus major",
+            taxonInatId = 1L,
+            observationId = 700L,
+            observationUrl = "https://www.inaturalist.org/observations/700",
+            createdAtUtcMs = 0L,
+        )
+        inatDao.rows += preExisting.copy(id = 1L)
+
+        // Only Sylvia needs HTTP: resolveGenus + create + sound + tag +
+        // 2 annotations + addIdentification = 7 calls.
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":2,"iconic_taxon_name":"Aves"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":701,"uuid":"u-B"}"""))
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":556}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":10}"""))
+        server.enqueue(MockResponse().setBody("""{"id":13}"""))
+        server.enqueue(MockResponse().setBody("""{"id":14}"""))
+        server.enqueue(MockResponse().setBody("""{"id":22}"""))
+        // Cross-link PUTs (2 species → 2 PUTs). The reused observation has
+        // a blank uuid so POST /observation_field_values is skipped for it;
+        // the new Sylvia observation gets one POST.
+        server.enqueue(MockResponse().setBody("""{"id":700}""")) // PUT description on reused 700
+        server.enqueue(MockResponse().setBody("""{"id":701}""")) // PUT description on new 701
+        server.enqueue(MockResponse().setBody("""{"id":32}""")) // POST OFV for u-B (Sylvia only)
+
+        val result = submitter.submit("jwt", draftWith(listOf("Parus major", "Sylvia")))
+
+        assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
+        val ok = result as INatSubmitter.Result.Ok
+        assertThat(ok.urls).hasSize(2)
+        assertThat(ok.urls).containsExactly(
+            "https://www.inaturalist.org/observations/700",
+            "https://www.inaturalist.org/observations/701",
+        )
+
+        // Total HTTP: 7 (Sylvia create-flow) + 2 (description PUTs) + 1 (OFV
+        // for Sylvia only — reused Parus has no uuid). The Parus species
+        // contributes ZERO HTTP requests for its create-flow.
+        assertThat(server.requestCount).isEqualTo(10)
+
+        // First HTTP request must be Sylvia's resolveGenus — the reused
+        // Parus observation skipped the HTTP path entirely.
+        val firstReq = server.takeRequest()
+        assertThat(firstReq.path).contains("/taxa")
+        assertThat(firstReq.path).contains("Sylvia")
+
+        // Persistence: the delete+insert wipe-and-replace runs in our
+        // post-success transaction, so after submit() the DB has one row
+        // per current observation. Both observation IDs must be present.
+        assertThat(inatDao.rows).hasSize(2)
+        assertThat(inatDao.rows.map { it.observationId }).containsExactly(700L, 701L)
+        // Draft is marked UPLOADED.
+        assertThat(dao.inserted.first().status).isEqualTo(DraftStatus.UPLOADED)
+    }
+
     @Test fun `sourceAudioOverride is used when trimming uploaded sound`() = runTest {
         val original = createConstantWav(tmp.newFile("original.wav"), sampleValue = 0x0000, durationMs = 4_000L)
         val processed = createConstantWav(tmp.newFile("processed.wav"), sampleValue = 0x1234, durationMs = 1_000L)
@@ -541,6 +620,8 @@ private class FakeInatDao : InatObservationDao {
     }
     override fun listForDraft(draftId: String): List<InatObservationEntity> =
         rows.filter { it.draftId == draftId }
+    override fun findForDraftAndSpecies(draftId: String, species: String): InatObservationEntity? =
+        rows.firstOrNull { it.draftId == draftId && it.taxonScientificName == species }
     override fun observeForDraft(draftId: String): Flow<List<InatObservationEntity>> =
         flowOf(listForDraft(draftId))
     override fun deleteForDraft(draftId: String): Int =

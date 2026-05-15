@@ -13,6 +13,19 @@ interface InatObservationDao {
     @Query("SELECT * FROM inat_observations WHERE draftId = :draftId ORDER BY id ASC")
     fun listForDraft(draftId: String): List<InatObservationEntity>
 
+    /**
+     * Idempotency helper: returns the existing row for a given
+     * `(draftId, scientificName)` pair, or null if none was persisted yet.
+     * Used by [com.sound2inat.inat.INatSubmitter] to skip a duplicate
+     * `createObservation` call when a prior submission already landed the
+     * species on iNaturalist but the local persist step never completed.
+     */
+    @Query(
+        "SELECT * FROM inat_observations WHERE draftId = :draftId " +
+            "AND taxonScientificName = :species LIMIT 1",
+    )
+    fun findForDraftAndSpecies(draftId: String, species: String): InatObservationEntity?
+
     @Query("SELECT * FROM inat_observations WHERE draftId = :draftId ORDER BY id ASC")
     fun observeForDraft(draftId: String): Flow<List<InatObservationEntity>>
 
