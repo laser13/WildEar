@@ -57,6 +57,11 @@ class InferenceRunner(
      * that passed through the YamNet gate. Read after [run] returns; returns
      * [SceneTags.EMPTY] when no gate was configured or the gate never observed
      * biological activity.
+     *
+     * Not safe for concurrent or re-entrant [run] calls on the same instance:
+     * the unsynchronised reset at the start of [run] would race with in-flight
+     * per-window merges. Production wires a fresh [InferenceRunner] per model
+     * inside [ProductionInferenceJob], so this single-caller assumption holds.
      */
     fun consumeSceneTags(): SceneTags = sceneTagsAccumulator
 
