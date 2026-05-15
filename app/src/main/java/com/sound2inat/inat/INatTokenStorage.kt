@@ -2,6 +2,7 @@ package com.sound2inat.inat
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -19,14 +20,16 @@ interface INatTokenStore {
 }
 
 /**
- * Encrypted-at-rest storage for the iNaturalist API token + login. Uses
+ * EncryptedSharedPreferences-backed storage for the iNaturalist OAuth token + login. Uses
  * Jetpack `security-crypto` (`EncryptedSharedPreferences`, AES256-GCM, key
  * material in the Android Keystore) so a rooted device cannot pull the
  * token out of plain DataStore.
  *
- * Reads/writes are synchronous on purpose — `EncryptedSharedPreferences` is
- * fast enough for occasional access and async storage adds plumbing without
- * solving anything for this use case.
+ * Reads/writes are synchronous (`commit()`, not `apply()`) so that on process
+ * kill immediately after [save] or [clear] the change is durable on disk.
+ * Callers MUST invoke [save] and [clear] from a background dispatcher
+ * ([kotlinx.coroutines.Dispatchers.IO] or equivalent); calling these from the
+ * main thread will perform blocking disk I/O.
  */
 @Singleton
 class INatTokenStorage @Inject constructor(
@@ -53,20 +56,22 @@ class INatTokenStorage @Inject constructor(
     override val tokenFetchedAtUtcMs: Long get() = prefs.getLong(KEY_FETCHED_AT, 0L)
 
     override fun save(token: String, login: String?, userId: Long?, fetchedAtUtcMs: Long) {
-        prefs.edit().apply {
+        val ok = prefs.edit().apply {
             putString(KEY_TOKEN, token)
             if (login != null) putString(KEY_LOGIN, login) else remove(KEY_LOGIN)
             if (userId != null && userId > 0) putLong(KEY_USER_ID, userId) else remove(KEY_USER_ID)
             putLong(KEY_FETCHED_AT, fetchedAtUtcMs)
-            apply()
-        }
+        }.commit()
+        if (!ok) Log.w(TAG, "save(): SharedPreferences.commit() returned false")
     }
 
     override fun clear() {
-        prefs.edit().clear().apply()
+        val ok = prefs.edit().clear().commit()
+        if (!ok) Log.w(TAG, "clear(): SharedPreferences.commit() returned false")
     }
 
     private companion object {
+        const val TAG = "INatTokenStorage"
         const val FILE_NAME = "inat_auth"
         const val KEY_TOKEN = "api_token"
         const val KEY_LOGIN = "login"

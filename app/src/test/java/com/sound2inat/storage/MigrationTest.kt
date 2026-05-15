@@ -170,6 +170,57 @@ class MigrationTest {
     }
 
     @Test
+    fun `migrate 5 to 6 creates draft_photos table with index`() {
+        helper.createDatabase(dbName, 5).use { db ->
+            db.execSQL(
+                """INSERT INTO drafts (id, audioPath, recordedAtUtcMs, durationMs,
+                    latitude, longitude, locationAccuracyMeters,
+                    status, modelId, modelVersion, createdAtUtcMs, updatedAtUtcMs,
+                    inatObservationId, inatObservationUrl, inatLastError)
+                   VALUES ('d5', '/audio/e.wav', 5000, 7000,
+                    NULL, NULL, NULL,
+                    'ANALYSED', 'birdnet', '2.4', 5000, 5000,
+                    NULL, NULL, NULL)""",
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            dbName,
+            6,
+            true,
+            Sound2iNatDb.MIGRATION_5_6,
+        )
+
+        // draft_photos table must exist and be empty (migration only creates the schema).
+        db.query("SELECT COUNT(*) FROM draft_photos").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getInt(0)).isEqualTo(0)
+        }
+        // Verify index was created.
+        db.query(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='index_draft_photos_draftId'",
+        ).use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+        }
+        // Verify draft_photos columns: id, draftId, photoPath, takenAtMs.
+        db.execSQL(
+            "INSERT INTO draft_photos (id, draftId, photoPath, takenAtMs) VALUES ('p1', 'd5', '/photo/1.jpg', 5001)",
+        )
+        db.query("SELECT id, draftId, photoPath, takenAtMs FROM draft_photos WHERE id='p1'").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getString(0)).isEqualTo("p1")
+            assertThat(c.getString(1)).isEqualTo("d5")
+            assertThat(c.getString(2)).isEqualTo("/photo/1.jpg")
+            assertThat(c.getLong(3)).isEqualTo(5001L)
+        }
+        // Pre-existing drafts row must still be there.
+        db.query("SELECT COUNT(*) FROM drafts WHERE id='d5'").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getInt(0)).isEqualTo(1)
+        }
+    }
+
+    @Test
     fun `migrate 6 to 7 drops inatObservationId and inatObservationUrl from drafts`() {
         helper.createDatabase(dbName, 6).use { db ->
             db.execSQL(
