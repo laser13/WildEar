@@ -109,4 +109,122 @@ class RecorderTest {
         }
         recorder.stop()
     }
+
+    // ── Ring-buffer RMS history tests ────────────────────────────────────────
+
+    /**
+     * Helper: builds a [ScriptedAudioSource] where each "block" is a constant
+     * amplitude short array of [frameSize] samples. Each block produces a
+     * distinct, predictable RMS value via [amplitudes].
+     */
+    private fun scriptedSource(amplitudes: List<Float>, frameSize: Int = 64): ScriptedAudioSource {
+        val blocks = amplitudes.map { amp ->
+            val value = (amp * Short.MAX_VALUE).toInt().toShort()
+            ShortArray(frameSize) { value }
+        }
+        return ScriptedAudioSource(blocks)
+    }
+
+    @Test
+    fun `rmsHistory is empty immediately after start`() = runTest {
+        val testDispatcher = UnconfinedTestDispatcher(testScheduler)
+        val source = ScriptedAudioSource(blocks = emptyList())
+        val recorder = DefaultRecorder(
+            source,
+            clock = TestClock(),
+            ioDispatcher = testDispatcher,
+            externalScope = this,
+        )
+        val target = tmp.newFile("rec.wav")
+        recorder.start(target)
+        // Before pump processes any blocks: history must be empty
+        assertThat(recorder.rmsHistory.value).isEmpty()
+        testScheduler.advanceUntilIdle()
+        recorder.stop()
+    }
+
+    @Test
+    fun `rmsHistory grows from 0 up to HISTORY_SIZE`() = runTest {
+        val testDispatcher = UnconfinedTestDispatcher(testScheduler)
+        val blockCount = 50
+        val amplitudes = List(blockCount) { idx -> (idx + 1) / 100f }
+        val source = scriptedSource(amplitudes)
+        val recorder = DefaultRecorder(
+            source,
+            clock = TestClock(),
+            ioDispatcher = testDispatcher,
+            externalScope = this,
+        )
+        val target = tmp.newFile("rec.wav")
+
+        val snapshots = mutableListOf<FloatArray>()
+        val collectorJob = launch { recorder.rmsHistory.collect { snapshots += it.copyOf() } }
+
+        recorder.start(target)
+        testScheduler.advanceUntilIdle()
+        recorder.stop()
+        collectorJob.cancel()
+
+        // First snapshot is the empty reset from start()
+        assertThat(snapshots.first()).isEmpty()
+        // After all blocks: size == blockCount (< HISTORY_SIZE)
+        assertThat(snapshots.last().size).isEqualTo(blockCount)
+        // Size must never exceed HISTORY_SIZE
+        assertThat(snapshots.map { it.size }.max()).isAtMost(Recorder.HISTORY_SIZE)
+        // Each consecutive snapshot grows by exactly 1
+        val nonEmpty = snapshots.filter { it.isNotEmpty() }
+        for (i in 1 until nonEmpty.size) {
+            assertThat(nonEmpty[i].size).isEqualTo(nonEmpty[i - 1].size + 1)
+        }
+        // Verify the last value is the real RMS of the last block, not a stale zero.
+        // Last block: idx=49, amplitude=50/100f=0.5f, all samples constant.
+        // RMS = round(0.5 * Short.MAX_VALUE) / Short.MAX_VALUE ≈ 0.5f (allow 1 LSB drift).
+        val lastAmp = blockCount / 100f // 0.5f
+        val lastSampleValue = (lastAmp * Short.MAX_VALUE).toInt().toShort()
+        val expectedLastRms = lastSampleValue / Short.MAX_VALUE.toFloat()
+        assertThat(snapshots.last().last()).isWithin(1e-5f).of(expectedLastRms)
+    }
+
+    @Test
+    fun `rmsHistory keeps last HISTORY_SIZE values in oldest-first order after overflow`() = runTest {
+        val testDispatcher = UnconfinedTestDispatcher(testScheduler)
+        val cap = Recorder.HISTORY_SIZE // 200
+        val totalBlocks = cap + 50 // 250 — 50 blocks wrap around
+        // Each block i gets a unique amplitude i+1 (in range 0.001..0.250 so still ≤1)
+        val amplitudes = List(totalBlocks) { idx -> (idx + 1) / 1000f }
+        val source = scriptedSource(amplitudes)
+        val recorder = DefaultRecorder(
+            source,
+            clock = TestClock(),
+            ioDispatcher = testDispatcher,
+            externalScope = this,
+        )
+        val target = tmp.newFile("rec.wav")
+        recorder.start(target)
+        testScheduler.advanceUntilIdle()
+        recorder.stop()
+
+        val history = recorder.rmsHistory.value
+        assertThat(history.size).isEqualTo(cap)
+
+        // The last cap blocks are [totalBlocks-cap .. totalBlocks-1] (0-indexed),
+        // i.e. amplitudes (totalBlocks-cap+1)/1000 .. totalBlocks/1000.
+        // Because each short array is constant (all samples = amplitude*MAX_VALUE),
+        // RMS == amplitude, so we can verify the last few values directly.
+        //
+        // Block index (0-based) b → amplitude = (b+1)/1000f → RMS ≈ (b+1)/1000f
+        // First block kept: b = totalBlocks - cap = 50 → amp = 51/1000 = 0.051
+        // Last  block kept: b = totalBlocks - 1 = 249 → amp = 250/1000 = 0.25
+        val firstKeptAmp = (totalBlocks - cap + 1) / 1000f
+        val lastKeptAmp = totalBlocks / 1000f
+
+        // Allow ±1 LSB tolerance because computeRms is float arithmetic
+        assertThat(history.first()).isWithin(2e-4f).of(firstKeptAmp)
+        assertThat(history.last()).isWithin(2e-4f).of(lastKeptAmp)
+
+        // Verify monotonically increasing (amplitudes strictly increase)
+        for (i in 1 until history.size) {
+            assertThat(history[i]).isGreaterThan(history[i - 1])
+        }
+    }
 }
