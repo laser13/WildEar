@@ -362,7 +362,7 @@ class MigrationTest {
     }
 
     @Test
-    fun `migrate all versions 1 through 10 preserves seed data`() {
+    fun `migrate all versions 1 through 11 preserves seed data`() {
         helper.createDatabase(dbName, 1).use { db ->
             db.execSQL(
                 """INSERT INTO drafts (id, audioPath, recordedAtUtcMs, durationMs,
@@ -381,7 +381,7 @@ class MigrationTest {
         }
 
         val db = helper.runMigrationsAndValidate(
-            dbName, 10, true,
+            dbName, 11, true,
             Sound2iNatDb.MIGRATION_1_2,
             Sound2iNatDb.MIGRATION_2_3,
             Sound2iNatDb.MIGRATION_3_4,
@@ -391,6 +391,7 @@ class MigrationTest {
             Sound2iNatDb.MIGRATION_7_8,
             Sound2iNatDb.MIGRATION_8_9,
             Sound2iNatDb.MIGRATION_9_10,
+            Sound2iNatDb.MIGRATION_10_11,
         )
 
         db.query("SELECT COUNT(*) FROM drafts WHERE id='d5'").use { c ->
@@ -413,6 +414,15 @@ class MigrationTest {
         db.query("SELECT COUNT(*) FROM photo_drafts").use { c ->
             assertThat(c.moveToFirst()).isTrue()
             assertThat(c.getInt(0)).isEqualTo(0)
+        }
+        db.query(
+            "SELECT displayRangeName, paletteName, spectrogramGainDb, sceneTagsJson FROM drafts WHERE id='d5'",
+        ).use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.isNull(0)).isTrue()
+            assertThat(c.isNull(1)).isTrue()
+            assertThat(c.isNull(2)).isTrue()
+            assertThat(c.isNull(3)).isTrue()
         }
     }
 }
