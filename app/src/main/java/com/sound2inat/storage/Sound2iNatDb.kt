@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PhotoDraftEntity::class,
         PhotoDraftImageEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -213,6 +213,17 @@ abstract class Sound2iNatDb : RoomDatabase() {
                 db.execSQL(
                     "UPDATE photo_draft_images SET originalPhotoPath = photoPath WHERE originalPhotoPath = ''",
                 )
+            }
+        }
+
+        // v11: per-draft spectrogram visual settings + cached YamNet scene tags.
+        //      All four columns nullable; null = follow live-recording defaults.
+        val MIGRATION_10_11: Migration = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE drafts ADD COLUMN displayRangeName TEXT")
+                db.execSQL("ALTER TABLE drafts ADD COLUMN paletteName TEXT")
+                db.execSQL("ALTER TABLE drafts ADD COLUMN spectrogramGainDb REAL")
+                db.execSQL("ALTER TABLE drafts ADD COLUMN sceneTagsJson TEXT")
             }
         }
     }

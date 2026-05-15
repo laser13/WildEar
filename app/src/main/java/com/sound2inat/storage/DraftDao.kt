@@ -32,4 +32,22 @@ interface DraftDao {
             "WHERE id = :id AND status = :expectedStatus",
     )
     fun updateStatusConditional(id: String, newStatus: DraftStatus, expectedStatus: DraftStatus): Int
+
+    @Query("UPDATE drafts SET displayRangeName = :name, updatedAtUtcMs = :ts WHERE id = :id")
+    fun updateDisplayRange(id: String, name: String?, ts: Long): Int
+
+    @Query("UPDATE drafts SET paletteName = :name, updatedAtUtcMs = :ts WHERE id = :id")
+    fun updatePalette(id: String, name: String?, ts: Long): Int
+
+    @Query("UPDATE drafts SET spectrogramGainDb = :gain, updatedAtUtcMs = :ts WHERE id = :id")
+    fun updateSpectrogramGain(id: String, gain: Float?, ts: Long): Int
+
+    @Query("UPDATE drafts SET sceneTagsJson = :json, updatedAtUtcMs = :ts WHERE id = :id")
+    fun updateSceneTags(id: String, json: String?, ts: Long): Int
+
+    @Query("SELECT sceneTagsJson FROM drafts WHERE id = :id LIMIT 1")
+    fun getSceneTagsJson(id: String): String?
+
+    @Query("SELECT displayRangeName FROM drafts WHERE id = :id LIMIT 1")
+    fun getDisplayRangeName(id: String): String?
 }

@@ -326,6 +326,42 @@ class MigrationTest {
     }
 
     @Test
+    fun `migrate 10 to 11 adds nullable spectrogram columns and preserves rows`() {
+        helper.createDatabase(dbName, 10).use { db ->
+            db.execSQL(
+                """INSERT INTO drafts (id, audioPath, recordedAtUtcMs, durationMs,
+                    latitude, longitude, locationAccuracyMeters,
+                    status, modelId, modelVersion, createdAtUtcMs, updatedAtUtcMs,
+                    inatLastError)
+                   VALUES ('d11', '/audio/d.wav', 1000, 3000,
+                    NULL, NULL, NULL,
+                    'PENDING_REVIEW', 'birdnet', '2.4', 1000, 1000, NULL)""",
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            dbName,
+            11,
+            true,
+            Sound2iNatDb.MIGRATION_10_11,
+        )
+
+        db.query(
+            "SELECT displayRangeName, paletteName, spectrogramGainDb, sceneTagsJson FROM drafts WHERE id='d11'",
+        ).use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.isNull(0)).isTrue()
+            assertThat(c.isNull(1)).isTrue()
+            assertThat(c.isNull(2)).isTrue()
+            assertThat(c.isNull(3)).isTrue()
+        }
+        db.query("SELECT COUNT(*) FROM drafts").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getInt(0)).isEqualTo(1)
+        }
+    }
+
+    @Test
     fun `migrate all versions 1 through 10 preserves seed data`() {
         helper.createDatabase(dbName, 1).use { db ->
             db.execSQL(

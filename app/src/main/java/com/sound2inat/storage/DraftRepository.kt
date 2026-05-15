@@ -223,6 +223,24 @@ class DraftRepository(
         }
     }
 
+    suspend fun updateDisplayRange(id: String, name: String?) =
+        withContext(ioDispatcher) { drafts.updateDisplayRange(id, name, nowMs()) }
+
+    suspend fun updatePalette(id: String, name: String?) =
+        withContext(ioDispatcher) { drafts.updatePalette(id, name, nowMs()) }
+
+    suspend fun updateSpectrogramGain(id: String, gain: Float?) =
+        withContext(ioDispatcher) { drafts.updateSpectrogramGain(id, gain, nowMs()) }
+
+    suspend fun updateSceneTags(id: String, json: String?) =
+        withContext(ioDispatcher) { drafts.updateSceneTags(id, json, nowMs()) }
+
+    suspend fun getSceneTagsJson(id: String): String? =
+        withContext(ioDispatcher) { drafts.getSceneTagsJson(id) }
+
+    suspend fun getDisplayRangeName(id: String): String? =
+        withContext(ioDispatcher) { drafts.getDisplayRangeName(id) }
+
     private fun DetectionEntity.toAggregated(): AggregatedDetection {
         val fullStats = SourceStats.decode(sources)
         return AggregatedDetection(

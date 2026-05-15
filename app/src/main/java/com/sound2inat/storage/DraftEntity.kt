@@ -20,4 +20,8 @@ data class DraftEntity(
     val createdAtUtcMs: Long,
     val updatedAtUtcMs: Long,
     val inatLastError: String? = null,
+    val displayRangeName: String? = null,
+    val paletteName: String? = null,
+    val spectrogramGainDb: Float? = null,
+    val sceneTagsJson: String? = null,
 )

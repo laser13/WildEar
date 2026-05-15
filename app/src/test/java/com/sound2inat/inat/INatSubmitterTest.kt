@@ -698,6 +698,13 @@ private class FakeDraftDao : DraftDao {
         inserted[i] = inserted[i].copy(status = newStatus)
         return 1
     }
+
+    override fun updateDisplayRange(id: String, name: String?, ts: Long): Int = 0
+    override fun updatePalette(id: String, name: String?, ts: Long): Int = 0
+    override fun updateSpectrogramGain(id: String, gain: Float?, ts: Long): Int = 0
+    override fun updateSceneTags(id: String, json: String?, ts: Long): Int = 0
+    override fun getSceneTagsJson(id: String): String? = null
+    override fun getDisplayRangeName(id: String): String? = null
 }
 
 private class FakeInatDao : InatObservationDao {
