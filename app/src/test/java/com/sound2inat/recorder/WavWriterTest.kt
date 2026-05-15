@@ -51,6 +51,38 @@ class WavWriterTest {
             0x7F.toByte(),
         ).inOrder()
     }
+
+    @Test
+    fun `WAV file is readable end-to-end after close including fsync path`() {
+        val file = tmp.newFile("test.wav")
+        val writer = WavWriter(file, 48_000, 1, 16)
+        writer.open()
+        val samples = ShortArray(48_000) { (it * 100).toShort() }
+        writer.writeShorts(samples, 0, samples.size)
+        writer.close()
+
+        val bytes = file.readBytes()
+        // Verify WAV header integrity
+        assertThat(String(bytes, 0, 4)).isEqualTo("RIFF")
+        assertThat(String(bytes, 8, 4)).isEqualTo("WAVE")
+        assertThat(String(bytes, 12, 4)).isEqualTo("fmt ")
+        assertThat(String(bytes, 36, 4)).isEqualTo("data")
+        val expectedDataBytes = samples.size * 2
+        assertThat(readLeUint32(bytes, 40)).isEqualTo(expectedDataBytes)
+        assertThat(readLeUint32(bytes, 4)).isEqualTo(expectedDataBytes + 36)
+        // Verify total file size: header + PCM data
+        assertThat(file.length()).isEqualTo(44L + expectedDataBytes)
+        // Verify PCM data round-trips correctly for a few spot-checked samples
+        val data = bytes.copyOfRange(44, bytes.size)
+        val decoded = ShortArray(samples.size) { i ->
+            val lo = data[i * 2].toInt() and 0xFF
+            val hi = data[i * 2 + 1].toInt() and 0xFF
+            ((hi shl 8) or lo).toShort()
+        }
+        assertThat(decoded[0]).isEqualTo(samples[0])
+        assertThat(decoded[100]).isEqualTo(samples[100])
+        assertThat(decoded[samples.size - 1]).isEqualTo(samples[samples.size - 1])
+    }
 }
 
 private fun readLeUint32(buf: ByteArray, offset: Int): Int =

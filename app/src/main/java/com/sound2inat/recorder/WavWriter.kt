@@ -12,6 +12,7 @@ class WavWriter(
     private val bitsPerSample: Int,
 ) {
     private var out: BufferedOutputStream? = null
+    private var rawOut: FileOutputStream? = null
     private var dataBytesWritten: Long = 0L
     private var bytesSinceLastPatch: Long = 0L
 
@@ -19,6 +20,7 @@ class WavWriter(
         require(channels == 1) { "Only mono supported in Spec 1" }
         require(bitsPerSample == 16) { "Only 16-bit PCM supported in Spec 1" }
         val raw = FileOutputStream(file).also { writeHeaderPlaceholder(it) }
+        rawOut = raw
         out = BufferedOutputStream(raw)
         dataBytesWritten = 0L
         bytesSinceLastPatch = 0L
@@ -48,8 +50,13 @@ class WavWriter(
 
     fun close() {
         out?.flush()
+        // Force PCM data to stable storage. patchHeader() syncs the header on a
+        // separate fd, so without this sync the PCM payload can stay in page
+        // cache while the header on disk advertises bytes that aren't durable.
+        rawOut?.fd?.sync()
         out?.close()
         out = null
+        rawOut = null
         require(dataBytesWritten <= 0xFFFF_FFFFL - 36L) {
             "WAV data exceeds 4 GiB RIFF limit (dataBytesWritten=$dataBytesWritten)"
         }
@@ -78,6 +85,9 @@ class WavWriter(
             raf.writeShortLe(bitsPerSample.toShort())
             raf.write("data".toByteArray(Charsets.US_ASCII))
             raf.writeIntLe(dataBytesWritten.toInt())
+            // Force header to stable storage. Without this, on a sudden kill the
+            // last patch can stay in page cache and the WAV becomes unreadable.
+            raf.fd.sync()
         }
     }
 
