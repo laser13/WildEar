@@ -51,6 +51,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -250,22 +251,22 @@ class ReviewViewModel(
     private val scope: CoroutineScope = externalScope ?: viewModelScope
 
     private val _state = MutableStateFlow(ReviewUiState(draftId = draftId))
-    val state: StateFlow<ReviewUiState> = _state
+    val state: StateFlow<ReviewUiState> = _state.asStateFlow()
 
     private val _processingProfile = MutableStateFlow(ReviewProcessingProfile.Default)
-    val processingProfile: StateFlow<ReviewProcessingProfile> = _processingProfile
+    val processingProfile: StateFlow<ReviewProcessingProfile> = _processingProfile.asStateFlow()
 
     private val _displayPlane = MutableStateFlow<ReviewSpectrogramDisplayPlane?>(null)
-    val spectrogramDisplayPlane: StateFlow<ReviewSpectrogramDisplayPlane?> = _displayPlane
+    val spectrogramDisplayPlane: StateFlow<ReviewSpectrogramDisplayPlane?> = _displayPlane.asStateFlow()
 
     private val _spectrogramPreview = MutableStateFlow<ReviewSpectrogramPreview?>(null)
-    val spectrogramPreview: StateFlow<ReviewSpectrogramPreview?> = _spectrogramPreview
+    val spectrogramPreview: StateFlow<ReviewSpectrogramPreview?> = _spectrogramPreview.asStateFlow()
 
     private val _spectrogramConfig = MutableStateFlow(ReviewProcessingProfile.Default.spectrogramConfig)
-    val spectrogramConfig: StateFlow<ReviewSpectrogramConfig> = _spectrogramConfig
+    val spectrogramConfig: StateFlow<ReviewSpectrogramConfig> = _spectrogramConfig.asStateFlow()
 
     private val _displayRange = MutableStateFlow(SpectrogramDisplayRange.BIRDNET_BIRD)
-    val displayRange: StateFlow<SpectrogramDisplayRange> = _displayRange
+    val displayRange: StateFlow<SpectrogramDisplayRange> = _displayRange.asStateFlow()
 
     val visualsLoading: StateFlow<Boolean> = _state
         .map { it.visualsLoading }
@@ -279,21 +280,21 @@ class ReviewViewModel(
     private var cachedFilesDir: File? = null
 
     private val _waveformPeaks = MutableStateFlow<FloatArray?>(null)
-    val waveformPeaks: StateFlow<FloatArray?> = _waveformPeaks
+    val waveformPeaks: StateFlow<FloatArray?> = _waveformPeaks.asStateFlow()
 
     /**
      * Raw per-window predictions surfaced from the latest inference run, kept in
      * memory only for the lifetime of the screen — see [InferenceOutcome.Success.windows].
      */
     private val _windowPreds = MutableStateFlow<List<WindowPrediction>>(emptyList())
-    val windowPreds: StateFlow<List<WindowPrediction>> = _windowPreds
+    val windowPreds: StateFlow<List<WindowPrediction>> = _windowPreds.asStateFlow()
 
     /**
      * Currently flashing/selected detection id, or `null` when no row is
      * highlighted. Auto-clears [HighlightDurationMs] ms after being set.
      */
     private val _highlight = MutableStateFlow<Long?>(null)
-    val highlight: StateFlow<Long?> = _highlight
+    val highlight: StateFlow<Long?> = _highlight.asStateFlow()
 
     private var highlightJob: Job? = null
 
@@ -318,7 +319,7 @@ class ReviewViewModel(
      * every 50 ms position tick during playback.
      */
     private val _playback = MutableStateFlow<PlaybackState>(PlaybackState.Idle)
-    val playback: StateFlow<PlaybackState> = _playback
+    val playback: StateFlow<PlaybackState> = _playback.asStateFlow()
 
     private var inferenceStarted = false
     private var visualsStarted = false

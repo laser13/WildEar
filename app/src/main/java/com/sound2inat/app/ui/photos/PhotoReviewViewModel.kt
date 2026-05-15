@@ -20,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.update
@@ -71,7 +72,7 @@ class PhotoReviewViewModel(
     private val scope = externalScope ?: viewModelScope
     private var lastAutoSyncObservationId: Long? = null
     private val _state = MutableStateFlow(PhotoReviewUiState(draftId = draftId))
-    val state: StateFlow<PhotoReviewUiState> = _state
+    val state: StateFlow<PhotoReviewUiState> = _state.asStateFlow()
 
     init {
         scope.launch {

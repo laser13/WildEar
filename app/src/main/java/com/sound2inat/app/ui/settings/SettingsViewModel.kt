@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -103,7 +104,7 @@ class SettingsViewModel(
             },
         ),
     )
-    val state: StateFlow<SettingsUiState> = _state
+    val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
     init {
         for (d in descriptors) {

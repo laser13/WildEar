@@ -7,6 +7,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -20,7 +21,7 @@ class PhotosViewModel(
     @Inject constructor(repo: PhotoDraftRepository) : this(repo, null)
 
     private val _state = MutableStateFlow(PhotosUiState())
-    val state: StateFlow<PhotosUiState> = _state
+    val state: StateFlow<PhotosUiState> = _state.asStateFlow()
     private val scope = externalScope ?: viewModelScope
 
     init {

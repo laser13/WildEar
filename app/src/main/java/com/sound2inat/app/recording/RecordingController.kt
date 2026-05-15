@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
@@ -105,7 +106,7 @@ class DefaultRecordingController(
     @Volatile private var pendingStopJob: Job? = null
 
     private val _state = MutableStateFlow<RecordingSessionState>(RecordingSessionState.Idle)
-    override val state: StateFlow<RecordingSessionState> = _state
+    override val state: StateFlow<RecordingSessionState> = _state.asStateFlow()
 
     override val rmsHistory: StateFlow<FloatArray> = recorder.rmsHistory
     override val audioBlocks: SharedFlow<FloatArray> = recorder.audioBlocks

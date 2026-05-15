@@ -89,7 +89,7 @@ fun PhotoReviewScreen(
 
     LaunchedEffect(state.images) {
         val firstId = state.images.firstOrNull()?.id
-        if (firstId != null && heroImageId !in state.images.map { it.id }) {
+        if (firstId != null && state.images.none { it.id == heroImageId }) {
             heroImageId = firstId
         }
     }

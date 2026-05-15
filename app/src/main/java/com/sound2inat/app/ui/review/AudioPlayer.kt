@@ -8,6 +8,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -53,16 +54,16 @@ class MediaPlayerAudioPlayer(
 ) : AudioPlayer {
 
     private val _position = MutableStateFlow(0L)
-    override val position: StateFlow<Long> = _position
+    override val position: StateFlow<Long> = _position.asStateFlow()
 
     private val _isPlaying = MutableStateFlow(false)
-    override val isPlaying: StateFlow<Boolean> = _isPlaying
+    override val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
     private val _durationMs = MutableStateFlow(0L)
-    override val durationMs: StateFlow<Long> = _durationMs
+    override val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
 
     private val _lastError = MutableStateFlow<String?>(null)
-    override val lastError: StateFlow<String?> = _lastError
+    override val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
     private var player: MediaPlayer? = null
     private var loadedPath: String? = null
