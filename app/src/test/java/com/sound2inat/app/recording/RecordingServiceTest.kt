@@ -78,6 +78,20 @@ class RecordingServiceTest {
         assertThat(fakeController.cancelCalled).isTrue()
     }
 
+    @Test
+    fun `null intent does not call any controller method and returns START_NOT_STICKY`() {
+        val service = Robolectric.buildService(RecordingService::class.java, null)
+            .create()
+            .get()
+        val result = service.onStartCommand(null, 0, 1)
+
+        assertThat(result).isEqualTo(android.app.Service.START_NOT_STICKY)
+        assertThat(Shadows.shadowOf(service).isStoppedBySelf).isTrue()
+        assertThat(fakeController.startCalled).isFalse()
+        assertThat(fakeController.stopCalled).isFalse()
+        assertThat(fakeController.cancelCalled).isFalse()
+    }
+
     private fun waitUntilStopCalled(timeoutMs: Long = 2_000) {
         val deadline = System.nanoTime() + timeoutMs * 1_000_000
         while (!fakeController.stopCalled && System.nanoTime() < deadline) {
