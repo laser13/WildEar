@@ -15,9 +15,16 @@ import java.util.concurrent.atomic.AtomicInteger
  * Slices a mono 16-bit WAV into fixed windows hopped by [hopSeconds], optionally
  * applies a YAMNet biological gate, and calls each model per window that passes the gate.
  *
- * Sequential path ([models].size == 1): existing per-window loop, unchanged behaviour.
- * Parallel path ([models].size > 1): windows split evenly across models and processed
- * in parallel coroutines; results merged and sorted by windowStartMs.
+ * Sequential path ([models].size == 1): one [WavWindowReader] streams windows on demand.
+ * Parallel path ([models].size > 1): each model opens its OWN [WavWindowReader] (separate
+ * fd, identical file) and processes its assigned frame range; results merged and sorted
+ * by windowStartMs.
+ *
+ * Memory note (Task B1): the previous implementation called [WavReader.readMono16]
+ * which materialised the whole WAV as `ByteArray + ShortArray + FloatArray`, peaking at
+ * roughly 4 × dataSize bytes. For a one-hour 48 kHz/16-bit/mono recording this is ~1.3 GB
+ * and OOMs on Android (heap 256–512 MB on low/mid-tier devices). The streaming path keeps
+ * one window worth of audio in memory (≈ 288 KB for a 3 s window at 48 kHz).
  *
  * [run] closes every model it receives (sequential: try/finally on models[0];
  * parallel: async finally blocks per model). TFLite implementations are safe to
@@ -48,28 +55,19 @@ class InferenceRunner(
     ): List<WindowPrediction> {
         _progress.value = 0f
         val model = models.first()
-        val t0 = System.currentTimeMillis()
-        val (rawSamples, nativeRate) = WavReader.readMono16(wavFile)
         val targetRate = model.expectedSampleRateHz
-        val resampled = if (nativeRate == targetRate) {
-            rawSamples
-        } else {
-            Resampler.resample(rawSamples, nativeRate, targetRate)
+
+        val plan = WavWindowReader.open(wavFile).use { reader ->
+            buildPlan(reader, targetRate, model.windowMs)
         }
         Log.d(
             "InferenceTiming",
-            "${model.modelId}: WAV read+resample ${System.currentTimeMillis() - t0}ms " +
-                "(${rawSamples.size}→${resampled.size} samples, $nativeRate→${targetRate}Hz)",
+            "${model.modelId}: streaming plan — nativeRate=${plan.nativeRate} " +
+                "totalNative=${plan.totalNativeSamples} resampledLen=${plan.resampledLen} " +
+                "frames=${plan.frames} win=${plan.win} hop=${plan.hop} targetRate=$targetRate",
         )
 
-        val normalized = FloatArray(resampled.size) { i -> resampled[i] / Short.MAX_VALUE.toFloat() }
-
-        val windowSeconds = model.windowMs / MS_PER_SECOND
-        val win = (windowSeconds * targetRate).toInt()
-        val hop = (hopSeconds * targetRate).toInt()
-        require(win > 0 && hop > 0) { "Invalid window/hop: win=$win hop=$hop" }
-        val frames = if (normalized.size < win) 0 else 1 + (normalized.size - win) / hop
-        if (frames == 0) {
+        if (plan.frames == 0) {
             models.forEach { runCatching { it.close() } }
             runCatching { yamNetGate?.close() }
             _progress.value = 1f
@@ -77,55 +75,63 @@ class InferenceRunner(
         }
 
         return if (models.size == 1) {
-            runSequential(normalized, targetRate, frames, win, hop, model, latitude, longitude, observedAtMillis)
+            runSequential(wavFile, plan, targetRate, model, latitude, longitude, observedAtMillis)
         } else {
-            runParallel(normalized, targetRate, frames, win, hop, latitude, longitude, observedAtMillis)
+            runParallel(wavFile, plan, targetRate, latitude, longitude, observedAtMillis)
         }
     }
 
-    private suspend fun runSequential(
-        normalized: FloatArray,
+    /**
+     * Builds slicing parameters consistent with the legacy full-file path: the
+     * resampled-domain length is computed via the same formula [Resampler.resample]
+     * would have produced for the entire native buffer, then `win`/`hop` and
+     * `frames` are derived on top.
+     */
+    private fun buildPlan(
+        reader: WavWindowReader,
         targetRate: Int,
-        frames: Int,
-        win: Int,
-        hop: Int,
+        modelWindowMs: Long,
+    ): SlicePlan {
+        val windowSeconds = modelWindowMs / MS_PER_SECOND
+        val win = (windowSeconds * targetRate).toInt()
+        val hop = (hopSeconds * targetRate).toInt()
+        require(win > 0 && hop > 0) { "Invalid window/hop: win=$win hop=$hop" }
+
+        val nativeRate = reader.sampleRate
+        val totalNative = reader.totalSamples
+        val resampledLen = if (nativeRate == targetRate || totalNative < 2) {
+            totalNative
+        } else {
+            // Mirror Resampler.resample's outLen formula exactly:
+            // outLen = floor((input.size - 1) / ratio) + 1, ratio = inRate / outRate
+            val ratio = nativeRate.toDouble() / targetRate.toDouble()
+            ((totalNative - 1).toDouble() / ratio).toInt() + 1
+        }
+        val frames = if (resampledLen < win) 0 else 1 + (resampledLen - win) / hop
+        return SlicePlan(
+            nativeRate = nativeRate,
+            totalNativeSamples = totalNative,
+            resampledLen = resampledLen,
+            win = win,
+            hop = hop,
+            frames = frames,
+        )
+    }
+
+    private suspend fun runSequential(
+        wavFile: File,
+        plan: SlicePlan,
+        targetRate: Int,
         model: BioacousticModel,
         latitude: Double?,
         longitude: Double?,
         observedAtMillis: Long,
     ): List<WindowPrediction> {
-        val out = ArrayList<WindowPrediction>(frames * 5)
+        val out = ArrayList<WindowPrediction>(plan.frames * EXPECTED_PREDICTIONS_PER_FRAME)
         val loopStart = System.currentTimeMillis()
-        var batchStart = loopStart
         try {
-            for (f in 0 until frames) {
-                val s = f * hop
-                val window = normalized.copyOfRange(s, s + win)
-                _progress.value = (f + 1).toFloat() / frames
-                val gateResult = yamNetGate?.classify(window, targetRate)
-                if (hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) continue
-                val startMs = (s.toLong() * MS_PER_SECOND_LONG) / targetRate
-                val endMs = ((s + win).toLong() * MS_PER_SECOND_LONG) / targetRate
-                val predictions = model.predict(
-                    pcmFloat32 = window,
-                    sampleRateHz = targetRate,
-                    latitude = latitude,
-                    longitude = longitude,
-                    observedAtMillis = observedAtMillis,
-                    windowStartMs = startMs,
-                    windowEndMs = endMs,
-                )
-                if (f == 0 || (f + 1) % 50 == 0 || f == frames - 1) {
-                    val now = System.currentTimeMillis()
-                    Log.d(
-                        "InferenceTiming",
-                        "${model.modelId}: window ${f + 1}/$frames " +
-                            "${now - batchStart}ms batch / ${now - loopStart}ms total",
-                    )
-                    batchStart = now
-                }
-                if (!hardGate && gateResult.suppressesPredictions(predictions)) continue
-                out += predictions
+            WavWindowReader.open(wavFile).use { reader ->
+                processSequentialFrames(reader, plan, targetRate, model, latitude, longitude, observedAtMillis, out, loopStart)
             }
         } finally {
             model.close()
@@ -134,17 +140,67 @@ class InferenceRunner(
             .onFailure { Log.w("InferenceRunner", "yamNetGate.close() threw", it) }
         Log.d(
             "InferenceTiming",
-            "${model.modelId}: loop done — $frames windows in ${System.currentTimeMillis() - loopStart}ms",
+            "${model.modelId}: loop done — ${plan.frames} windows in " +
+                "${System.currentTimeMillis() - loopStart}ms",
         )
         return out
     }
 
-    private suspend fun runParallel(
-        normalized: FloatArray,
+    @Suppress("LongParameterList")
+    private suspend fun processSequentialFrames(
+        reader: WavWindowReader,
+        plan: SlicePlan,
         targetRate: Int,
-        frames: Int,
-        win: Int,
-        hop: Int,
+        model: BioacousticModel,
+        latitude: Double?,
+        longitude: Double?,
+        observedAtMillis: Long,
+        out: ArrayList<WindowPrediction>,
+        loopStart: Long,
+    ) {
+        val ratio = ratioFor(plan, targetRate)
+        var batchStart = loopStart
+        for (f in 0 until plan.frames) {
+            val s = f * plan.hop
+            val window = readResampledWindow(reader, ratio, s, plan.win)
+            val gateResult = yamNetGate?.classify(window, targetRate)
+            if (hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) {
+                _progress.value = (f + 1).toFloat() / plan.frames
+                continue
+            }
+            val startMs = (s.toLong() * MS_PER_SECOND_LONG) / targetRate
+            val endMs = ((s + plan.win).toLong() * MS_PER_SECOND_LONG) / targetRate
+            val predictions = model.predict(
+                pcmFloat32 = window,
+                sampleRateHz = targetRate,
+                latitude = latitude,
+                longitude = longitude,
+                observedAtMillis = observedAtMillis,
+                windowStartMs = startMs,
+                windowEndMs = endMs,
+            )
+            _progress.value = (f + 1).toFloat() / plan.frames
+            if (f == 0 || (f + 1) % BATCH_LOG_INTERVAL == 0 || f == plan.frames - 1) {
+                val now = System.currentTimeMillis()
+                Log.d(
+                    "InferenceTiming",
+                    "${model.modelId}: window ${f + 1}/${plan.frames} " +
+                        "${now - batchStart}ms batch / ${now - loopStart}ms total",
+                )
+                batchStart = now
+            }
+            if (!hardGate && gateResult.suppressesPredictions(predictions)) continue
+            out += predictions
+        }
+    }
+
+    private fun ratioFor(plan: SlicePlan, targetRate: Int): Double =
+        if (plan.nativeRate == targetRate) 1.0 else plan.nativeRate.toDouble() / targetRate.toDouble()
+
+    private suspend fun runParallel(
+        wavFile: File,
+        plan: SlicePlan,
+        targetRate: Int,
         latitude: Double?,
         longitude: Double?,
         observedAtMillis: Long,
@@ -152,40 +208,19 @@ class InferenceRunner(
         val counter = AtomicInteger(0)
         val results = coroutineScope {
             models.indices.map { i ->
-                val chunkStart = i * frames / models.size
-                val chunkEnd = if (i == models.size - 1) frames else (i + 1) * frames / models.size
+                val chunkStart = i * plan.frames / models.size
+                val chunkEnd = if (i == models.size - 1) {
+                    plan.frames
+                } else {
+                    (i + 1) * plan.frames / models.size
+                }
                 async {
-                    val chunkOut = ArrayList<WindowPrediction>()
-                    try {
-                        for (f in chunkStart until chunkEnd) {
-                            val s = f * hop
-                            val window = normalized.copyOfRange(s, s + win)
-                            val gateResult = yamNetGate?.classify(window, targetRate)
-                            if (hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) {
-                                val newProgress = counter.incrementAndGet().toFloat() / frames
-                                _progress.update { maxOf(it, newProgress) }
-                                continue
-                            }
-                            val startMs = (s.toLong() * MS_PER_SECOND_LONG) / targetRate
-                            val endMs = ((s + win).toLong() * MS_PER_SECOND_LONG) / targetRate
-                            val predictions = models[i].predict(
-                                pcmFloat32 = window,
-                                sampleRateHz = targetRate,
-                                latitude = latitude,
-                                longitude = longitude,
-                                observedAtMillis = observedAtMillis,
-                                windowStartMs = startMs,
-                                windowEndMs = endMs,
-                            )
-                            val newProgress = counter.incrementAndGet().toFloat() / frames
-                            _progress.update { maxOf(it, newProgress) }
-                            if (!hardGate && gateResult.suppressesPredictions(predictions)) continue
-                            chunkOut += predictions
-                        }
-                    } finally {
-                        models[i].close()
-                    }
-                    chunkOut
+                    processParallelChunk(
+                        wavFile, plan, targetRate, modelIndex = i,
+                        chunkStart = chunkStart, chunkEnd = chunkEnd,
+                        latitude = latitude, longitude = longitude,
+                        observedAtMillis = observedAtMillis, counter = counter,
+                    )
                 }
             }.awaitAll()
         }
@@ -195,9 +230,99 @@ class InferenceRunner(
         return results.flatten().sortedBy { it.startMs }
     }
 
+    @Suppress("LongParameterList")
+    private suspend fun processParallelChunk(
+        wavFile: File,
+        plan: SlicePlan,
+        targetRate: Int,
+        modelIndex: Int,
+        chunkStart: Int,
+        chunkEnd: Int,
+        latitude: Double?,
+        longitude: Double?,
+        observedAtMillis: Long,
+        counter: AtomicInteger,
+    ): List<WindowPrediction> {
+        val chunkOut = ArrayList<WindowPrediction>()
+        val model = models[modelIndex]
+        try {
+            WavWindowReader.open(wavFile).use { reader ->
+                processParallelFrames(
+                    reader, plan, targetRate, model,
+                    chunkStart, chunkEnd,
+                    latitude, longitude, observedAtMillis,
+                    counter, chunkOut,
+                )
+            }
+        } finally {
+            model.close()
+        }
+        return chunkOut
+    }
+
+    @Suppress("LongParameterList")
+    private suspend fun processParallelFrames(
+        reader: WavWindowReader,
+        plan: SlicePlan,
+        targetRate: Int,
+        model: BioacousticModel,
+        chunkStart: Int,
+        chunkEnd: Int,
+        latitude: Double?,
+        longitude: Double?,
+        observedAtMillis: Long,
+        counter: AtomicInteger,
+        chunkOut: ArrayList<WindowPrediction>,
+    ) {
+        val ratio = ratioFor(plan, targetRate)
+        for (f in chunkStart until chunkEnd) {
+            val s = f * plan.hop
+            val window = readResampledWindow(reader, ratio, s, plan.win)
+            val gateResult = yamNetGate?.classify(window, targetRate)
+            if (hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) {
+                val newProgress = counter.incrementAndGet().toFloat() / plan.frames
+                _progress.update { maxOf(it, newProgress) }
+                continue
+            }
+            val startMs = (s.toLong() * MS_PER_SECOND_LONG) / targetRate
+            val endMs = ((s + plan.win).toLong() * MS_PER_SECOND_LONG) / targetRate
+            val predictions = model.predict(
+                pcmFloat32 = window,
+                sampleRateHz = targetRate,
+                latitude = latitude,
+                longitude = longitude,
+                observedAtMillis = observedAtMillis,
+                windowStartMs = startMs,
+                windowEndMs = endMs,
+            )
+            val newProgress = counter.incrementAndGet().toFloat() / plan.frames
+            _progress.update { maxOf(it, newProgress) }
+            if (!hardGate && gateResult.suppressesPredictions(predictions)) continue
+            chunkOut += predictions
+        }
+    }
+
+    private fun readResampledWindow(
+        reader: WavWindowReader,
+        ratio: Double,
+        resampledStart: Int,
+        win: Int,
+    ): FloatArray = StreamingResampler.readResampledWindow(reader, ratio, resampledStart, win)
+
+    private data class SlicePlan(
+        val nativeRate: Int,
+        val totalNativeSamples: Int,
+        val resampledLen: Int,
+        val win: Int,
+        val hop: Int,
+        val frames: Int,
+    )
+
     private companion object {
         const val MS_PER_SECOND = 1_000f
         const val MS_PER_SECOND_LONG = 1_000L
+        const val BATCH_LOG_INTERVAL = 50
+        const val EXPECTED_PREDICTIONS_PER_FRAME = 5
     }
 }
 
@@ -213,14 +338,14 @@ internal object WavReader {
             require(String(header, 0, 4) == "RIFF" && String(header, 8, 4) == "WAVE") {
                 "Not a WAV file"
             }
-            val ch = readLeUint16(header, 22)
-            val sr = readLeUint32(header, 24).toInt()
-            val bits = readLeUint16(header, 34)
+            val ch = WavHeaderParser.readLeUint16(header, 22)
+            val sr = WavHeaderParser.readLeUint32(header, 24).toInt()
+            val bits = WavHeaderParser.readLeUint16(header, 34)
             require(ch == 1 && bits == 16) { "Mono 16-bit PCM only (got ch=$ch bits=$bits)" }
             require(String(header, 36, 4) == "data") {
                 "WAV 'data' chunk not at offset 36 — unsupported chunk layout"
             }
-            val dataSize: Long = readLeUint32(header, 40)
+            val dataSize: Long = WavHeaderParser.readLeUint32(header, 40)
             require(dataSize in 0L..Int.MAX_VALUE.toLong()) {
                 "WAV dataSize out of safe range: $dataSize bytes"
             }
@@ -238,13 +363,4 @@ internal object WavReader {
             return samples to sr
         }
     }
-
-    private fun readLeUint16(buf: ByteArray, o: Int): Int =
-        (buf[o].toInt() and 0xFF) or ((buf[o + 1].toInt() and 0xFF) shl 8)
-
-    private fun readLeUint32(buf: ByteArray, o: Int): Long =
-        (buf[o].toLong() and 0xFF) or
-            ((buf[o + 1].toLong() and 0xFF) shl 8) or
-            ((buf[o + 2].toLong() and 0xFF) shl 16) or
-            ((buf[o + 3].toLong() and 0xFF) shl 24)
 }
