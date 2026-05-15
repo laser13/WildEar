@@ -2,6 +2,8 @@ package com.sound2inat.modelmanager
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -9,6 +11,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 
 open class ModelManager(
     private val filesDir: File,
@@ -17,6 +20,9 @@ open class ModelManager(
     private val hiddenDescriptors: List<ModelDescriptor> = emptyList(),
 ) {
     private val dir: File = File(filesDir, "models").apply { mkdirs() }
+    private val installMutexes = ConcurrentHashMap<String, Mutex>()
+
+    private fun mutexFor(id: String): Mutex = installMutexes.computeIfAbsent(id) { Mutex() }
 
     /**
      * Reports whether the model is on disk and SHA-256-verified. SHA-256 over the
@@ -39,46 +45,62 @@ open class ModelManager(
         descriptor: ModelDescriptor,
         emit: (ModelInstallState) -> Unit,
     ): Unit = withContext(ioDispatcher) {
-        try {
-            emit(ModelInstallState.Downloading(0f))
-            val modelTmp = downloadTo(
-                descriptor.modelUrl,
-                partialFor(descriptor.id, "tflite"),
-            ) { p ->
-                emit(ModelInstallState.Downloading(p * HALF))
+        var installedNow = false
+        mutexFor(descriptor.id).withLock {
+            // Re-check: another caller may have completed install while we waited.
+            val existing = stateFor(descriptor)
+            if (existing is ModelInstallState.Ready) {
+                emit(existing)
+                return@withLock
             }
-            val labelsTmp = downloadTo(
-                descriptor.labelsUrl,
-                partialFor(descriptor.id, "labels.txt"),
-            ) { p ->
-                emit(ModelInstallState.Downloading(HALF + p * HALF))
+            try {
+                emit(ModelInstallState.Downloading(0f))
+                val modelTmp = downloadTo(
+                    descriptor.modelUrl,
+                    partialFor(descriptor.id, "tflite"),
+                ) { p ->
+                    emit(ModelInstallState.Downloading(p * HALF))
+                }
+                val labelsTmp = downloadTo(
+                    descriptor.labelsUrl,
+                    partialFor(descriptor.id, "labels.txt"),
+                ) { p ->
+                    emit(ModelInstallState.Downloading(HALF + p * HALF))
+                }
+                emit(ModelInstallState.Verifying)
+                require(sha256(modelTmp) == descriptor.modelSha256) { "Model SHA-256 mismatch" }
+                require(sha256(labelsTmp) == descriptor.labelsSha256) { "Labels SHA-256 mismatch" }
+                val mFinal = modelFile(descriptor)
+                val lFinal = labelsFile(descriptor)
+                check(modelTmp.renameTo(mFinal)) {
+                    "Failed to rename model file: ${modelTmp.name} → ${mFinal.name}"
+                }
+                check(labelsTmp.renameTo(lFinal)) {
+                    "Failed to rename labels file: ${labelsTmp.name} → ${lFinal.name}"
+                }
+                emit(ModelInstallState.Ready(mFinal, lFinal))
+                installedNow = true
+            } catch (t: Throwable) {
+                partialFor(descriptor.id, "tflite").delete()
+                partialFor(descriptor.id, "labels.txt").delete()
+                // Only delete final files if install actually failed — never wipe a valid file
+                // installed by a concurrent caller (per-id mutex prevents this, but defence-in-depth).
+                if (stateFor(descriptor) !is ModelInstallState.Ready) {
+                    modelFile(descriptor).delete()
+                    labelsFile(descriptor).delete()
+                }
+                emit(ModelInstallState.Failed(t.message ?: t::class.simpleName.orEmpty()))
             }
-            emit(ModelInstallState.Verifying)
-            require(sha256(modelTmp) == descriptor.modelSha256) { "Model SHA-256 mismatch" }
-            require(sha256(labelsTmp) == descriptor.labelsSha256) { "Labels SHA-256 mismatch" }
-            val mFinal = modelFile(descriptor)
-            val lFinal = labelsFile(descriptor)
-            check(modelTmp.renameTo(mFinal)) {
-                "Failed to rename model file: ${modelTmp.name} → ${mFinal.name}"
-            }
-            check(labelsTmp.renameTo(lFinal)) {
-                "Failed to rename labels file: ${labelsTmp.name} → ${lFinal.name}"
-            }
-            emit(ModelInstallState.Ready(mFinal, lFinal))
-            // Auto-install hidden companion models (e.g. YAMNet) once a visible model lands.
-            if (!descriptor.hidden) {
-                for (hidden in hiddenDescriptors) {
-                    if (stateFor(hidden) !is ModelInstallState.Ready) {
-                        install(hidden) { /* progress silently ignored */ }
-                    }
+        }
+        // Auto-install hidden companion models (e.g. YAMNet) AFTER releasing the outer mutex.
+        // Each companion uses its own per-id mutex (different id), so we don't hold the
+        // descriptor's lock during ~7-10 s companion downloads — UX stays responsive.
+        if (installedNow && !descriptor.hidden) {
+            for (hidden in hiddenDescriptors) {
+                if (stateFor(hidden) !is ModelInstallState.Ready) {
+                    install(hidden) { /* progress silently ignored */ }
                 }
             }
-        } catch (t: Throwable) {
-            partialFor(descriptor.id, "tflite").delete()
-            partialFor(descriptor.id, "labels.txt").delete()
-            modelFile(descriptor).delete()
-            labelsFile(descriptor).delete()
-            emit(ModelInstallState.Failed(t.message ?: t::class.simpleName.orEmpty()))
         }
     }
 

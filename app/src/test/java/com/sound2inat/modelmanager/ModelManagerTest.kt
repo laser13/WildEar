@@ -1,6 +1,9 @@
 package com.sound2inat.modelmanager
 
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -80,5 +83,46 @@ class ModelManagerTest {
         mm.install(descriptor) { /* ignore */ }
         val state = mm.stateFor(descriptor)
         assertThat(state).isInstanceOf(ModelInstallState.Ready::class.java)
+    }
+
+    /**
+     * Two parallel install() calls for the same descriptor must not corrupt state:
+     * - Final state is Ready.
+     * - Exactly one download happened (server received 2 requests: model + labels),
+     *   proving the mutex caused the second caller to skip the download via re-check.
+     */
+    @Test fun `parallel install for same descriptor downloads only once`() = runBlocking {
+        val modelBytes = ByteArray(1024) { (it and 0x7F).toByte() }
+        val labelBytes = "A_a\nB_b\n".toByteArray()
+        // Only enqueue one pair — if the mutex works, only one caller downloads.
+        // The 200 ms delay ensures the first download is still in-flight when the
+        // second coroutine starts, so the test would fail (requestCount > 2) without
+        // the mutex re-check.
+        server.enqueue(
+            MockResponse()
+                .setBodyDelay(200, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .setBody(Buffer().write(modelBytes))
+        )
+        server.enqueue(MockResponse().setBody(Buffer().write(labelBytes)))
+
+        val descriptor = BirdNetV24.descriptor.copy(
+            modelUrl = server.url("/m.tflite").toString(),
+            labelsUrl = server.url("/labels.txt").toString(),
+            modelSha256 = sha256(modelBytes),
+            labelsSha256 = sha256(labelBytes),
+        )
+        val mm = ModelManager(filesDir = tmp.root, http = OkHttpClient())
+
+        coroutineScope {
+            val a = async { mm.install(descriptor) {} }
+            val b = async { mm.install(descriptor) {} }
+            a.await()
+            b.await()
+        }
+
+        val finalState = mm.stateFor(descriptor)
+        assertThat(finalState).isInstanceOf(ModelInstallState.Ready::class.java)
+        // Exactly one download: model + labels = 2 HTTP requests
+        assertThat(server.requestCount).isEqualTo(2)
     }
 }
