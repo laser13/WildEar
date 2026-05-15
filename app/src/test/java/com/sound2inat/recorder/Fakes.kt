@@ -1,5 +1,7 @@
 package com.sound2inat.recorder
 
+import java.io.File
+import java.io.IOException
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -77,4 +79,14 @@ class TestClock(start: Long = 0L) : Clock {
         t += 1
         return t
     }
+}
+
+/**
+ * A [WavWriter] subclass whose [close] always throws [IOException].
+ * Used to verify that [DefaultRecorder.stop] still returns a [RecordingResult]
+ * even when the underlying writer fails to close (e.g. disk full).
+ */
+class ThrowingOnCloseWavWriter(file: File) : WavWriter(file, 48_000, 1, 16) {
+    override fun open() { /* no-op — avoid real filesystem I/O */ }
+    override fun close() { throw IOException("Simulated disk-full error") }
 }

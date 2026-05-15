@@ -5,7 +5,13 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
 
-class WavWriter(
+/**
+ * Open for testing — subclasses (e.g. fakes in unit tests) may override [open] and
+ * [close] to inject failure modes. Subclasses overriding [open] as a no-op MUST NOT
+ * then call [writeBytes] / [writeShorts]; the underlying streams are null and will
+ * NPE.
+ */
+open class WavWriter(
     private val file: File,
     private val sampleRate: Int,
     private val channels: Int,
@@ -16,7 +22,7 @@ class WavWriter(
     private var dataBytesWritten: Long = 0L
     private var bytesSinceLastPatch: Long = 0L
 
-    fun open() {
+    open fun open() {
         require(channels == 1) { "Only mono supported in Spec 1" }
         require(bitsPerSample == 16) { "Only 16-bit PCM supported in Spec 1" }
         val raw = FileOutputStream(file).also { writeHeaderPlaceholder(it) }
@@ -48,7 +54,7 @@ class WavWriter(
         writeBytes(bytes, 0, bytes.size)
     }
 
-    fun close() {
+    open fun close() {
         out?.flush()
         // Force PCM data to stable storage. patchHeader() syncs the header on a
         // separate fd, so without this sync the PCM payload can stay in page

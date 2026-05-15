@@ -74,6 +74,26 @@ class RecorderTest {
     }
 
     @Test
+    fun `stop returns RecordingResult even when writer close throws IOException`() = runTest {
+        val testDispatcher = UnconfinedTestDispatcher(testScheduler)
+        val source = FakeAudioSource(emitFrames = 0)
+        val target = tmp.newFile("rec.wav")
+        val recorder = DefaultRecorder(
+            source,
+            clock = TestClock(start = 1000L),
+            ioDispatcher = testDispatcher,
+            externalScope = this,
+            wavWriterFactory = { ThrowingOnCloseWavWriter(it) },
+        )
+        recorder.start(target)
+        testScheduler.advanceUntilIdle()
+        // Must not throw, must return a valid RecordingResult
+        val result = recorder.stop()
+        assertThat(result.audioPath).isEqualTo(target.absolutePath)
+        assertThat(result.durationMs).isAtLeast(0L)
+    }
+
+    @Test
     fun `rmsLevel emits non-negative bounded values`() = runTest {
         val testDispatcher = UnconfinedTestDispatcher(testScheduler)
         val source = FakeAudioSource(emitFrames = 48_000, amplitude = 0.5f)

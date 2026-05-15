@@ -1,5 +1,6 @@
 package com.sound2inat.recorder
 
+import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +73,9 @@ class DefaultRecorder(
     private val clock: Clock = SystemClock(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val externalScope: CoroutineScope? = null,
+    private val wavWriterFactory: (File) -> WavWriter = { file ->
+        WavWriter(file, source.sampleRate, source.channels, source.bitsPerSample)
+    },
 ) : Recorder {
     private val _rms = MutableStateFlow(0f)
     override val rmsLevel: StateFlow<Float> = _rms
@@ -96,7 +100,7 @@ class DefaultRecorder(
 
     override suspend fun start(target: File) {
         this.target = target
-        writer = WavWriter(target, source.sampleRate, source.channels, source.bitsPerSample).also { it.open() }
+        writer = wavWriterFactory(target).also { it.open() }
         startMs = clock.nowMs()
         _rmsHistory.value = FloatArray(0)
         source.start()
@@ -149,7 +153,8 @@ class DefaultRecorder(
         source.stop()
         job?.cancelAndJoin()
         job = null
-        writer?.close()
+        runCatching { writer?.close() }
+            .onFailure { Log.w(TAG, "writer.close() failed; WAV may have stale header", it) }
         writer = null
         val durationMs = clock.nowMs() - startMs
         RecordingResult(target!!.absolutePath, durationMs, source.sampleRate, source.channels)
@@ -166,5 +171,6 @@ class DefaultRecorder(
 
     companion object {
         const val BUFFER_FRAMES = 4096
+        private const val TAG = "DefaultRecorder"
     }
 }
