@@ -435,11 +435,14 @@ class INatSubmitter(
     }
 
     /**
-     * Retries [block] up to [maxAttempts] times on transient failures ([java.io.IOException]
-     * or [INatException] with HTTP 5xx). Uses exponential back-off: 1 s, 2 s, 4 s, …
+     * Retries [block] up to [maxAttempts] times on transient failures:
+     *   - [java.io.IOException]: exponential back-off 1 s, 2 s, 4 s, …
+     *   - [INatException] with HTTP 5xx: same 1/2/4 s back-off.
+     *   - [INatException] with HTTP 429 (rate-limited): longer back-off
+     *     5 s, 10 s, 20 s — iNat heavily throttles `/observation_sounds`.
      */
     @Suppress("TooGenericExceptionCaught")
-    private suspend fun <T> withRetry(
+    internal suspend fun <T> withRetry(
         maxAttempts: Int = 3,
         block: suspend () -> T,
     ): T {
@@ -454,10 +457,16 @@ class INatSubmitter(
                     delay(delayMs)
                 }
             } catch (e: INatException) {
-                if (e.code >= 500) {
+                val retriable = e.code >= 500 || e.code == 429
+                if (retriable) {
                     lastException = e
                     if (attempt < maxAttempts - 1) {
-                        val delayMs = 1_000L shl attempt
+                        val delayMs = if (e.code == 429) {
+                            // Rate-limited: back off longer than 5xx
+                            5_000L * (1L shl attempt) // 5s, 10s, 20s
+                        } else {
+                            1_000L shl attempt
+                        }
                         delay(delayMs)
                     }
                 } else {

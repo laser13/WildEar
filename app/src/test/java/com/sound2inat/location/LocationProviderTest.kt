@@ -41,3 +41,43 @@ class LocationProviderTest {
         assertThat(result).isNull()
     }
 }
+
+/**
+ * Unit tests for the staleness guard introduced in [FusedLocationProvider].
+ *
+ * [FusedLocationProvider] wraps Google Play Services and cannot be
+ * instantiated in a JVM test without Robolectric + shadow Play Services.
+ * Instead we extract the staleness decision into a testable function and
+ * verify it directly. The production code uses the same `nowMs` injection
+ * seam, so these tests cover the exact branch.
+ *
+ * Note: the end-to-end path (live fix timeout → lastLocation → staleness
+ * gate) is covered by an instrumented / integration test if needed; the
+ * staleness formula itself is fully verified here.
+ */
+class FusedLocationStalenessGuardTest {
+
+    @Test fun `fix sampled 4 minutes ago is fresh`() {
+        val now = 1_000_000L
+        val fix = Fix(0.0, 0.0, null, timestampMs = now - 4 * 60_000L)
+        assertThat(FusedLocationProvider.isFresh(fix, now)).isTrue()
+    }
+
+    @Test fun `fix exactly at 5 minutes boundary is fresh`() {
+        val now = 1_000_000L
+        val fix = Fix(0.0, 0.0, null, timestampMs = now - 5 * 60_000L)
+        assertThat(FusedLocationProvider.isFresh(fix, now)).isTrue()
+    }
+
+    @Test fun `fix older than 5 minutes is stale`() {
+        val now = 1_000_000L
+        val fix = Fix(0.0, 0.0, null, timestampMs = now - 6 * 60_000L)
+        assertThat(FusedLocationProvider.isFresh(fix, now)).isFalse()
+    }
+
+    @Test fun `fix from 3 days ago is stale`() {
+        val now = System.currentTimeMillis()
+        val fix = Fix(0.0, 0.0, null, timestampMs = now - 3 * 24 * 60 * 60_000L)
+        assertThat(FusedLocationProvider.isFresh(fix, now)).isFalse()
+    }
+}

@@ -8,7 +8,10 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
-class FusedLocationProvider(context: Context) : LocationProvider {
+class FusedLocationProvider(
+    context: Context,
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
+) : LocationProvider {
 
     private val client = LocationServices.getFusedLocationProviderClient(context)
 
@@ -33,7 +36,7 @@ class FusedLocationProvider(context: Context) : LocationProvider {
             }
         }
         if (live != null) return live
-        return withTimeoutOrNull(LOCATION_TIMEOUT_MS) {
+        val stale = withTimeoutOrNull(LOCATION_TIMEOUT_MS) {
             suspendCancellableCoroutine<Fix?> { cont ->
                 client.lastLocation
                     .addOnSuccessListener { loc ->
@@ -51,9 +54,22 @@ class FusedLocationProvider(context: Context) : LocationProvider {
                     .addOnFailureListener { cont.resume(null) }
             }
         }
+        // Reject lastLocation older than MAX_LAST_LOCATION_AGE_MS: a coordinate
+        // from hours/days ago is worse than null for a wildlife observation —
+        // it silently geo-tags the sighting at the wrong place.
+        return stale?.takeIf { isFresh(it, nowMs()) }
     }
 
-    private companion object {
+    companion object {
         const val LOCATION_TIMEOUT_MS = 5_000L
+        const val MAX_LAST_LOCATION_AGE_MS = 5 * 60 * 1_000L // 5 minutes
+
+        /**
+         * True if [fix] was sampled no more than [MAX_LAST_LOCATION_AGE_MS] ago
+         * relative to [nowMs]. Used by `getCurrent()` to reject stale lastLocation
+         * fallback values (e.g. device was in airplane mode for hours).
+         */
+        internal fun isFresh(fix: Fix, nowMs: Long): Boolean =
+            nowMs - fix.timestampMs <= MAX_LAST_LOCATION_AGE_MS
     }
 }

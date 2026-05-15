@@ -16,6 +16,7 @@ import com.sound2inat.storage.Sound2iNatDb
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -558,6 +559,95 @@ class INatSubmitterTest {
         assertThat(remaining.map { it.taxonScientificName }).containsExactly("Old A", "Old B")
 
         db.close()
+    }
+
+    /**
+     * Verifies that withRetry retries HTTP 429 (rate-limited) and succeeds on
+     * the second attempt. The sound upload is the most fragile step — if it
+     * gets 429 once but succeeds on retry, the overall submission must succeed.
+     *
+     * Sequence: resolveGenus → createObservation → uploadSound(429) →
+     *   uploadSound(200) → tag + 2 annotations + addIdentification = 8 requests.
+     *
+     * Note: withRetry calls delay() on 429; we create a local submitter that
+     * shares testScheduler with runTest so virtual time advances correctly.
+     */
+    @Test fun `withRetry retries 429 on uploadSound and succeeds on second attempt`() = runTest {
+        // Build a submitter that shares this test's scheduler so that
+        // delay() in withRetry advances virtual time instead of conflicting.
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val localSubmitter = INatSubmitter(
+            client = client,
+            drafts = dao,
+            inatObservations = inatDao,
+            tmpRoot = tmp.root,
+            ioDispatcher = dispatcher,
+            nowMs = { 0L },
+        )
+
+        // resolveGenus
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":12345,"iconic_taxon_name":"Aves"}]}"""))
+        // createObservation
+        server.enqueue(MockResponse().setBody("""{"id":900,"uuid":"u-1"}"""))
+        // uploadSound — first attempt: 429 rate-limited
+        server.enqueue(MockResponse().setResponseCode(429).setBody("""{"error":"Rate limited"}"""))
+        // uploadSound — second attempt: success
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":1}]}"""))
+        // updateObservationTags
+        server.enqueue(MockResponse().setBody("""{"id":9}"""))
+        // Two annotations (Alive + Organism)
+        server.enqueue(MockResponse().setBody("""{"id":11}"""))
+        server.enqueue(MockResponse().setBody("""{"id":12}"""))
+        // addIdentification
+        server.enqueue(MockResponse().setBody("""{"id":21}"""))
+
+        val result = localSubmitter.submit("jwt", draftWith(listOf("Parus major")))
+        advanceUntilIdle()
+        assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
+        val ok = result as INatSubmitter.Result.Ok
+        assertThat(ok.primaryUrl).isEqualTo("https://www.inaturalist.org/observations/900")
+        assertThat(inatDao.rows).hasSize(1)
+        // resolve + create + uploadSound×2 + tag + 2 annotations + identification = 8
+        assertThat(server.requestCount).isEqualTo(8)
+        // Confirm both sound upload requests hit the correct endpoint.
+        repeat(2) { server.takeRequest() } // resolve + create
+        val firstSound = server.takeRequest()
+        assertThat(firstSound.path).isEqualTo("/v2/observation_sounds")
+        val secondSound = server.takeRequest()
+        assertThat(secondSound.path).isEqualTo("/v2/observation_sounds")
+    }
+
+    /**
+     * Verifies that withRetry exhausts all attempts on persistent 429 and
+     * the overall submission returns Failure (draft stays REVIEWED).
+     */
+    @Test fun `withRetry exhausts all attempts on persistent 429 and returns Failure`() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val localSubmitter = INatSubmitter(
+            client = client,
+            drafts = dao,
+            inatObservations = inatDao,
+            tmpRoot = tmp.root,
+            ioDispatcher = dispatcher,
+            nowMs = { 0L },
+        )
+
+        // resolveGenus
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":12345,"iconic_taxon_name":"Aves"}]}"""))
+        // createObservation
+        server.enqueue(MockResponse().setBody("""{"id":900,"uuid":"u-1"}"""))
+        // uploadSound — all 3 attempts: 429
+        server.enqueue(MockResponse().setResponseCode(429).setBody("""{"error":"Rate limited"}"""))
+        server.enqueue(MockResponse().setResponseCode(429).setBody("""{"error":"Rate limited"}"""))
+        server.enqueue(MockResponse().setResponseCode(429).setBody("""{"error":"Rate limited"}"""))
+        // deleteObservation (cleanup after sound upload failure)
+        server.enqueue(MockResponse().setBody("""{"id":900}"""))
+
+        val result = localSubmitter.submit("jwt", draftWith(listOf("Parus major")))
+        advanceUntilIdle()
+        assertThat(result).isInstanceOf(INatSubmitter.Result.Failure::class.java)
+        assertThat(dao.inserted.first().status).isEqualTo(DraftStatus.REVIEWED)
+        assertThat(inatDao.rows).isEmpty()
     }
 
     private fun createConstantWav(
