@@ -5,6 +5,7 @@ import com.sound2inat.inference.InferenceOutcome
 import com.sound2inat.inference.InferenceUseCase
 import com.sound2inat.inference.ModelIds
 import com.sound2inat.inference.PerchAnalysisOutcome
+import com.sound2inat.inference.SceneTags
 import com.sound2inat.storage.DraftRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -139,13 +140,18 @@ class InferenceQueue @Inject constructor(
                 _runningStatus.value = JobStatus.Running(birdnetProgress = p, perchProgress = null)
             }
             when (outcome) {
-                is InferenceOutcome.Success -> repo.mergeAndPersist(
-                    draftId = job.draftId,
-                    newModelId = outcome.modelId,
-                    newModelVersion = outcome.modelVersion,
-                    freshDetections = outcome.detections,
-                    promoteToReviewed = true,
-                )
+                is InferenceOutcome.Success -> {
+                    repo.mergeAndPersist(
+                        draftId = job.draftId,
+                        newModelId = outcome.modelId,
+                        newModelVersion = outcome.modelVersion,
+                        freshDetections = outcome.detections,
+                        promoteToReviewed = true,
+                    )
+                    if (outcome.sceneTags != SceneTags.EMPTY) {
+                        repo.updateSceneTags(job.draftId, outcome.sceneTags.toJson())
+                    }
+                }
                 is InferenceOutcome.Failure ->
                     _failedJobs.update { it + (job.draftId to JobStatus.Failed(outcome.message)) }
             }
