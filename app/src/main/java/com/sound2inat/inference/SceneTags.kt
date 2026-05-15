@@ -46,6 +46,7 @@ data class SceneTags(
         }
 
         private fun parseInternal(input: String): SceneTags? {
+            // Intentionally narrow: only output of toJson() is guaranteed to round-trip (no scientific notation, comments, or trailing commas).
             val trimmed = input.trim()
             if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null
             val body = trimmed.substring(1, trimmed.length - 1)

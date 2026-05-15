@@ -50,4 +50,14 @@ class SceneTagsTest {
         val parsed = SceneTags.fromJson(original.toJson())
         assertThat(parsed).isEqualTo(original)
     }
+
+    @Test
+    fun `toJson emits valid JSON for all-zero SceneTags`() {
+        val json = SceneTags.EMPTY.toJson()
+        // Guard against the trimEnd('0').trimEnd('.') reducing 0f to an empty value,
+        // which would produce malformed JSON like {"bird":,"owl":0,...}.
+        assertThat(json).doesNotContain(":,")
+        assertThat(json).doesNotContain(":}")
+        assertThat(SceneTags.fromJson(json)).isEqualTo(SceneTags.EMPTY)
+    }
 }
