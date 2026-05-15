@@ -2,6 +2,11 @@ package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -106,6 +111,71 @@ class ReviewSpectrogramDisplayPlaneCacheTest {
         assertThat(first).isNotNull()
         assertThat(second).isNotNull()
         assertThat(calls.get()).isEqualTo(2)
+    }
+
+    private fun fakePlane(width: Int = 4, height: Int = 2): ReviewSpectrogramDisplayPlane =
+        ReviewSpectrogramDisplayPlane(
+            width = width,
+            height = height,
+            values = Array(height) { FloatArray(width) { 0f } },
+        )
+
+    @Test
+    fun `parallel getOrCreate for different keys runs builds concurrently`() {
+        // If mutex were held during build, A would wait for B to start but B
+        // couldn't start until A released the lock → deadlock.
+        val cache = ReviewSpectrogramDisplayPlaneCache()
+        val startA = CompletableDeferred<Unit>()
+        val startB = CompletableDeferred<Unit>()
+        runSuspend {
+            coroutineScope {
+                val a = async {
+                    cache.getOrCreate("a", "d", "f") {
+                        startA.complete(Unit)
+                        startB.await()
+                        fakePlane(width = 1, height = 1)
+                    }
+                }
+                val b = async {
+                    cache.getOrCreate("b", "d", "f") {
+                        startB.complete(Unit)
+                        startA.await()
+                        fakePlane(width = 2, height = 2)
+                    }
+                }
+                a.await()
+                b.await()
+            }
+        }
+        // Reaching here without deadlock/timeout means builds ran concurrently.
+    }
+
+    @Test
+    fun `parallel getOrCreate for same key keeps the first inserted value`() {
+        val cache = ReviewSpectrogramDisplayPlaneCache()
+        val planeA = fakePlane(width = 3, height = 3)
+        val planeB = fakePlane(width = 5, height = 5)
+        runSuspend {
+            coroutineScope {
+                // B finishes build faster (delay 10ms) but A also races.
+                val a = async {
+                    cache.getOrCreate("k", "d", "f") {
+                        delay(50)
+                        planeA
+                    }
+                }
+                val b = async {
+                    cache.getOrCreate("k", "d", "f") {
+                        delay(10)
+                        planeB
+                    }
+                }
+                val ra = a.await()
+                val rb = b.await()
+                // Both callers must see the same cached plane (whichever won the getOrPut race).
+                assertThat(ra).isEqualTo(rb)
+            }
+        }
     }
 
     private fun <T> runSuspend(block: suspend () -> T): T = kotlinx.coroutines.runBlocking { block() }

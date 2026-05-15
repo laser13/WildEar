@@ -30,23 +30,35 @@ class ReviewSpectrogramDisplayPlaneCache {
         audioName: String,
         build: suspend () -> ReviewSpectrogramDisplayPlane,
     ): ReviewSpectrogramDisplayPlane {
-        return mutex.withLock {
+        // Fast path: cache hit under lock (cheap).
+        mutex.withLock {
             memoryCache[key]?.let {
                 Log.d(
                     "ReviewVisuals",
                     "display-plane-cache-hit draft=$draftId file=$audioName rows=${it.height} cols=${it.width}",
                 )
-                return@withLock it
+                return it
             }
-            Log.d("ReviewVisuals", "display-plane-cache-miss draft=$draftId file=$audioName")
-            val startedAt = android.os.SystemClock.elapsedRealtime()
-            val plane = build()
-            Log.i(
-                "ReviewVisuals",
-                "display-plane-build draft=$draftId elapsed=${android.os.SystemClock.elapsedRealtime() - startedAt}ms rows=${plane.height} cols=${plane.width}",
-            )
-            memoryCache[key] = plane
-            plane
+        }
+        // Slow path: build outside the lock so concurrent requests for OTHER
+        // keys do not block on us.
+        Log.d("ReviewVisuals", "display-plane-cache-miss draft=$draftId file=$audioName")
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        val plane = build()
+        Log.i(
+            "ReviewVisuals",
+            "display-plane-build draft=$draftId elapsed=${android.os.SystemClock.elapsedRealtime() - startedAt}ms rows=${plane.height} cols=${plane.width}",
+        )
+        // Insert; if a parallel caller for the same key already won, keep theirs.
+        return mutex.withLock {
+            val stored = memoryCache.getOrPut(key) { plane }
+            if (stored !== plane) {
+                Log.d(
+                    "ReviewVisuals",
+                    "display-plane-build-wasted draft=$draftId file=$audioName (lost race)",
+                )
+            }
+            stored
         }
     }
 
