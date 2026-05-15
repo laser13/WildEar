@@ -47,7 +47,8 @@ class SpectrogramDisplayRangeTest {
     @Test
     fun `all ranges have non-empty labels`() {
         SpectrogramDisplayRange.entries.forEach { range ->
-            assertThat(range.label).isNotEmpty()
+            assertThat(range.displayName).isNotEmpty()
+            assertThat(range.rangeLabel).isNotEmpty()
         }
     }
 }

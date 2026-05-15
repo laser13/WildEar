@@ -232,9 +232,9 @@ private fun FrequencyAxis(
     val ticks = remember(range) {
         listOf(
             range.fMaxHz,
-            lerpFrequency(range.fMinHz, range.fMaxHz, 0.75f),
-            lerpFrequency(range.fMinHz, range.fMaxHz, 0.5f),
             lerpFrequency(range.fMinHz, range.fMaxHz, 0.25f),
+            lerpFrequency(range.fMinHz, range.fMaxHz, 0.5f),
+            lerpFrequency(range.fMinHz, range.fMaxHz, 0.75f),
             range.fMinHz,
         ).distinctBy { it }
     }

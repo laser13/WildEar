@@ -241,7 +241,19 @@ private fun VisualSettingsTab(
                 FilterChip(
                     selected = config.displayRange == range,
                     onClick = { onConfigChange(config.copy(displayRange = range)) },
-                    label = { Text(range.label) },
+                    label = {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                range.displayName,
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                            Text(
+                                range.rangeLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
                 )
             }
         }
