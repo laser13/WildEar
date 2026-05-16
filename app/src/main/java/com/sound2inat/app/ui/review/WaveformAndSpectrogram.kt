@@ -3,12 +3,13 @@ package com.sound2inat.app.ui.review
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -80,139 +81,143 @@ internal fun WaveformAndSpectrogram(
         with(density) { contentWidthPx.toDp() }
     }
     val scrollState = rememberScrollState()
+    val axisBackdrop = MaterialTheme.colorScheme.surface.copy(alpha = AXIS_BACKDROP_ALPHA)
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Row(
+        // Spectrogram scrolls under a translucent frequency-axis overlay
+        // (Merlin / BirdNET-style), so the chart uses the full content width
+        // and the kHz labels float on top of the leftmost edge.
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(SPECTROGRAM_HEIGHT.dp),
+                .height(SPECTROGRAM_HEIGHT.dp)
+                // Tap-to-seek anywhere on the spectrogram. Detection-overlay
+                // taps are handled inside DetectionOverlays and don't reach
+                // here, so this fires for the bare-spectrogram regions only.
+                .pointerInput(durationMs) {
+                    detectTapGestures { offset ->
+                        if (durationMs > 0L) {
+                            onSeek(
+                                ReviewSpectrogramTimeline.seekMsFromTap(
+                                    tapX = offset.x,
+                                    horizontalScrollPx = scrollState.value.toFloat(),
+                                    contentWidthPx = contentWidthPx,
+                                    durationMs = durationMs,
+                                ),
+                            )
+                        }
+                    }
+                },
         ) {
-            FrequencyAxis(
-                rangeSpec = spectrogramConfig.effectiveRangeSpec,
-                modifier = Modifier
-                    .width(AXIS_WIDTH.dp)
-                    .height(SPECTROGRAM_HEIGHT.dp),
-            )
             Box(
                 modifier = Modifier
-                    .weight(1f)
-                    .height(SPECTROGRAM_HEIGHT.dp)
-                    // Tap-to-seek anywhere on the spectrogram. Detection-overlay
-                    // taps are handled inside DetectionOverlays and don't reach
-                    // here, so this fires for the bare-spectrogram regions only.
-                    .pointerInput(durationMs) {
-                        detectTapGestures { offset ->
-                            if (durationMs > 0L) {
-                                onSeek(
-                                    ReviewSpectrogramTimeline.seekMsFromTap(
-                                        tapX = offset.x,
-                                        horizontalScrollPx = scrollState.value.toFloat(),
-                                        contentWidthPx = contentWidthPx,
-                                        durationMs = durationMs,
-                                    ),
-                                )
-                            }
-                        }
-                    },
+                    .fillMaxSize()
+                    .horizontalScroll(scrollState),
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .horizontalScroll(scrollState),
+                        .width(contentWidthDp)
+                        .height(SPECTROGRAM_HEIGHT.dp),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .width(contentWidthDp)
-                            .height(SPECTROGRAM_HEIGHT.dp),
+                    // Build the Bitmap off the Main thread to avoid jank.
+                    // produceState cancels and restarts whenever displayPlane
+                    // or spectrogramConfig change.
+                    val bitmap: ImageBitmap? by produceState<ImageBitmap?>(
+                        initialValue = null,
+                        key1 = displayPlane,
+                        key2 = spectrogramConfig,
                     ) {
-                        // Build the Bitmap off the Main thread to avoid jank.
-                        // produceState cancels and restarts whenever displayPlane
-                        // or spectrogramConfig change.
-                        val bitmap: ImageBitmap? by produceState<ImageBitmap?>(
-                            initialValue = null,
-                            key1 = displayPlane,
-                            key2 = spectrogramConfig,
-                        ) {
-                            value = withContext(Dispatchers.Default) {
-                                displayPlane
-                                    ?.takeIf { it.width > 0 && it.height > 0 }
-                                    ?.let { plane ->
-                                        ReviewSpectrogramPreview.fromDisplayPlane(plane, spectrogramConfig)
-                                    }
-                                    ?.takeIf { it.width > 0 && it.height > 0 }
-                                    ?.let { preview ->
-                                        Bitmap.createBitmap(
-                                            preview.argb,
-                                            preview.width,
-                                            preview.height,
-                                            Bitmap.Config.ARGB_8888,
-                                        ).asImageBitmap()
-                                    }
-                            }
+                        value = withContext(Dispatchers.Default) {
+                            displayPlane
+                                ?.takeIf { it.width > 0 && it.height > 0 }
+                                ?.let { plane ->
+                                    ReviewSpectrogramPreview.fromDisplayPlane(plane, spectrogramConfig)
+                                }
+                                ?.takeIf { it.width > 0 && it.height > 0 }
+                                ?.let { preview ->
+                                    Bitmap.createBitmap(
+                                        preview.argb,
+                                        preview.width,
+                                        preview.height,
+                                        Bitmap.Config.ARGB_8888,
+                                    ).asImageBitmap()
+                                }
                         }
-                        bitmap?.let { bmp ->
-                            Image(
-                                bitmap = bmp,
-                                contentDescription = "Mel spectrogram",
-                                contentScale = ContentScale.FillBounds,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-                        DetectionOverlays(
-                            windowPreds = windowPreds,
-                            species = species,
-                            highlight = highlight,
-                            durationMs = durationMs,
-                            onTap = onWindowTap,
+                    }
+                    bitmap?.let { bmp ->
+                        Image(
+                            bitmap = bmp,
+                            contentDescription = "Mel spectrogram",
+                            contentScale = ContentScale.FillBounds,
                             modifier = Modifier.fillMaxSize(),
                         )
-                        val cursorColor = MaterialTheme.colorScheme.error
-                        val selectionColor = MaterialTheme.colorScheme.primary
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            if (selectedStartMs != null && selectedEndMs != null && durationMs > 0L) {
-                                val left = (selectedStartMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) * size.width
-                                val right = (selectedEndMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) * size.width
-                                drawRect(
-                                    color = selectionColor.copy(alpha = 0.12f),
-                                    topLeft = Offset(left, 0f),
-                                    size = Size((right - left).coerceAtLeast(1f), size.height),
-                                )
-                                drawLine(
-                                    color = selectionColor,
-                                    start = Offset(left, 0f),
-                                    end = Offset(left, size.height),
-                                    strokeWidth = SELECTION_STROKE_PX,
-                                )
-                                drawLine(
-                                    color = selectionColor,
-                                    start = Offset(right, 0f),
-                                    end = Offset(right, size.height),
-                                    strokeWidth = SELECTION_STROKE_PX,
-                                )
-                            }
-                            val cx = cursor * size.width
+                    }
+                    DetectionOverlays(
+                        windowPreds = windowPreds,
+                        species = species,
+                        highlight = highlight,
+                        durationMs = durationMs,
+                        onTap = onWindowTap,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    val cursorColor = MaterialTheme.colorScheme.error
+                    val selectionColor = MaterialTheme.colorScheme.primary
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        if (selectedStartMs != null && selectedEndMs != null && durationMs > 0L) {
+                            val left = (selectedStartMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) * size.width
+                            val right = (selectedEndMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) * size.width
+                            drawRect(
+                                color = selectionColor.copy(alpha = 0.12f),
+                                topLeft = Offset(left, 0f),
+                                size = Size((right - left).coerceAtLeast(1f), size.height),
+                            )
                             drawLine(
-                                color = cursorColor,
-                                start = Offset(cx, 0f),
-                                end = Offset(cx, size.height),
-                                strokeWidth = CURSOR_STROKE_PX,
+                                color = selectionColor,
+                                start = Offset(left, 0f),
+                                end = Offset(left, size.height),
+                                strokeWidth = SELECTION_STROKE_PX,
+                            )
+                            drawLine(
+                                color = selectionColor,
+                                start = Offset(right, 0f),
+                                end = Offset(right, size.height),
+                                strokeWidth = SELECTION_STROKE_PX,
                             )
                         }
-                    }
-                }
-                if (visualsLoading) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(34.dp),
-                            strokeWidth = 3.dp,
+                        val cx = cursor * size.width
+                        drawLine(
+                            color = cursorColor,
+                            start = Offset(cx, 0f),
+                            end = Offset(cx, size.height),
+                            strokeWidth = CURSOR_STROKE_PX,
                         )
                     }
+                }
+            }
+            // Floating frequency axis: positioned over the leftmost edge of the
+            // scrolling spectrogram, with a translucent surface backdrop so the
+            // kHz labels stay legible against any palette. The axis itself does
+            // not consume pointer events, so tap-to-seek still works through it.
+            FrequencyAxis(
+                rangeSpec = spectrogramConfig.effectiveRangeSpec,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .width(AXIS_WIDTH.dp)
+                    .fillMaxHeight()
+                    .background(axisBackdrop),
+            )
+            if (visualsLoading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(34.dp),
+                        strokeWidth = 3.dp,
+                    )
                 }
             }
         }
@@ -221,6 +226,7 @@ internal fun WaveformAndSpectrogram(
 
 private const val SPECTROGRAM_HEIGHT = 220
 private const val AXIS_WIDTH = 56
+private const val AXIS_BACKDROP_ALPHA = 0.72f
 private const val CURSOR_STROKE_PX = 2f
 private const val SELECTION_STROKE_PX = 3f
 
