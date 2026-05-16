@@ -5,7 +5,3 @@ internal fun ReviewSettingsTab.appliesImmediately(): Boolean =
 
 internal fun ReviewSettingsTab.showsConfirmationButtons(): Boolean =
     this == ReviewSettingsTab.Audio
-
-internal fun ReviewProcessingProfile.withSpectrogramConfig(
-    config: ReviewSpectrogramConfig,
-): ReviewProcessingProfile = copy(spectrogramConfig = config)
