@@ -232,9 +232,9 @@ private fun FrequencyAxis(
     val ticks = remember(rangeSpec) {
         listOf(
             rangeSpec.fMaxHz,
-            lerpFrequency(rangeSpec.fMinHz, rangeSpec.fMaxHz, 0.25f),
-            lerpFrequency(rangeSpec.fMinHz, rangeSpec.fMaxHz, 0.5f),
-            lerpFrequency(rangeSpec.fMinHz, rangeSpec.fMaxHz, 0.75f),
+            axisTickFromMax(rangeSpec.fMinHz, rangeSpec.fMaxHz, 0.25f),
+            axisTickFromMax(rangeSpec.fMinHz, rangeSpec.fMaxHz, 0.5f),
+            axisTickFromMax(rangeSpec.fMinHz, rangeSpec.fMaxHz, 0.75f),
             rangeSpec.fMinHz,
         ).distinctBy { it }
     }
@@ -253,7 +253,13 @@ private fun FrequencyAxis(
     }
 }
 
-private fun lerpFrequency(minHz: Int, maxHz: Int, fraction: Float): Int {
+/**
+ * Returns an intermediate axis-tick frequency measured as [fraction] of the way
+ * **downward from `maxHz` to `minHz`**. The axis is rendered with `fMaxHz` on top
+ * and `fMinHz` at the bottom, so callers pass fractions 0.25/0.5/0.75 to produce
+ * ticks that descend monotonically from top to bottom.
+ */
+private fun axisTickFromMax(minHz: Int, maxHz: Int, fraction: Float): Int {
     val clamped = fraction.coerceIn(0f, 1f)
     return (maxHz - ((maxHz - minHz) * clamped)).toInt()
 }
