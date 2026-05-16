@@ -1017,7 +1017,9 @@ class ReviewViewModel(
             val snapshot = _processingProfile.value.spectrogramConfig.displayRange
             val json = runCatching { repo.getSceneTagsJson(draftId) }.getOrNull() ?: return@launch
             val tags = com.sound2inat.inference.SceneTags.fromJson(json) ?: return@launch
-            val picked = AutoDisplayRangePicker.pickDisplayRange(tags)
+            // No-op when no scene category is confident enough. Writing null
+            // here would silently wipe whatever the user had selected.
+            val picked = AutoDisplayRangePicker.pickDisplayRange(tags) ?: return@launch
             // Cancel if the user changed the displayRange while we were
             // reading scene tags off disk.
             if (_processingProfile.value.spectrogramConfig.displayRange != snapshot) return@launch

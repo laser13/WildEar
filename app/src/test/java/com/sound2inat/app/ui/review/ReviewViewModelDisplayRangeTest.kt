@@ -192,6 +192,28 @@ class ReviewViewModelDisplayRangeTest {
     }
 
     @Test
+    fun `pressAuto with all scores below threshold preserves the user's prior pick`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "auto-low-confidence"
+            // Every category sits just under the 0.3 threshold — the picker returns null.
+            val tagsJson = """{"bird":0.25,"owl":0.28,"frog":0.1,"insect":0.2,"mammal":0.05}"""
+            val repo = stubRepo(
+                draft(id = draftId, displayRangeName = "OWL_LOW_VOICE", sceneTagsJson = tagsJson),
+                sceneTagsJson = tagsJson,
+            )
+            val vm = buildVm(repo, draftId, backgroundScope, testScheduler)
+            advanceUntilIdle()
+
+            vm.pressAuto()
+            advanceUntilIdle()
+
+            // The picker returned null — pressAuto must NOT clobber the saved OWL_LOW_VOICE pick.
+            coVerify(exactly = 0) { repo.updateDisplayRange(draftId, any()) }
+            assertThat(vm.spectrogramConfig.value.displayRange)
+                .isEqualTo(SpectrogramDisplayRange.OWL_LOW_VOICE)
+        }
+
+    @Test
     fun `pressAuto cancels when user picks a chip during scene-tag read`() =
         runTest(UnconfinedTestDispatcher()) {
             val draftId = "auto-race"
