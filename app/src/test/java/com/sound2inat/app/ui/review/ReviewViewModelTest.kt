@@ -2195,12 +2195,36 @@ private class FakeDraftDao : DraftDao {
         return 1
     }
 
-    override fun updateDisplayRange(id: String, name: String?, ts: Long): Int = 0
-    override fun updatePalette(id: String, name: String?, ts: Long): Int = 0
-    override fun updateSpectrogramGain(id: String, gain: Float?, ts: Long): Int = 0
-    override fun updateSceneTags(id: String, json: String?, ts: Long): Int = 0
-    override fun getSceneTagsJson(id: String): String? = null
-    override fun getDisplayRangeName(id: String): String? = null
+    override fun updateDisplayRange(id: String, name: String?, ts: Long): Int {
+        val current = rows[id] ?: return 0
+        rows[id] = current.copy(displayRangeName = name, updatedAtUtcMs = ts)
+        emitter.value = rows.values.toList()
+        return 1
+    }
+
+    override fun updatePalette(id: String, name: String?, ts: Long): Int {
+        val current = rows[id] ?: return 0
+        rows[id] = current.copy(paletteName = name, updatedAtUtcMs = ts)
+        emitter.value = rows.values.toList()
+        return 1
+    }
+
+    override fun updateSpectrogramGain(id: String, gain: Float?, ts: Long): Int {
+        val current = rows[id] ?: return 0
+        rows[id] = current.copy(spectrogramGainDb = gain, updatedAtUtcMs = ts)
+        emitter.value = rows.values.toList()
+        return 1
+    }
+
+    override fun updateSceneTags(id: String, json: String?, ts: Long): Int {
+        val current = rows[id] ?: return 0
+        rows[id] = current.copy(sceneTagsJson = json, updatedAtUtcMs = ts)
+        emitter.value = rows.values.toList()
+        return 1
+    }
+
+    override fun getSceneTagsJson(id: String): String? = rows[id]?.sceneTagsJson
+    override fun getDisplayRangeName(id: String): String? = rows[id]?.displayRangeName
 
     fun byId(id: String): DraftEntity? = rows[id]
 }

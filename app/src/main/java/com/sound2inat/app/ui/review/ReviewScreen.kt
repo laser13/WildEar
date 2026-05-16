@@ -170,7 +170,6 @@ private fun ReviewPage(
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val displayPlane by vm.spectrogramDisplayPlane.collectAsStateWithLifecycle()
-    val displayRange by vm.displayRange.collectAsStateWithLifecycle()
     val spectrogramConfig by vm.spectrogramConfig.collectAsStateWithLifecycle()
     val waveformPeaks by vm.waveformPeaks.collectAsStateWithLifecycle()
     val windowPreds by vm.windowPreds.collectAsStateWithLifecycle()
@@ -308,7 +307,6 @@ private fun ReviewPage(
                         positionFlow = vm.playerPosition,
                         onSeek = vm::seekTo,
                         visualsLoading = state.visualsLoading,
-                        displayRange = displayRange,
                         windowPreds = windowPreds,
                         species = state.species,
                         highlight = highlight,

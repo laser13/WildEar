@@ -1,20 +1,27 @@
 package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.app.ui.spectrogram.LiveDefaults
+import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
 import org.junit.Test
 
 class ReviewProcessingProfileTest {
 
     @Test
-    fun `default review processing profile uses BirdNET review defaults and Original audio`() {
+    fun `default review processing profile follows live recording defaults`() {
         val profile = ReviewProcessingProfile.Default
 
         assertThat(profile.isDefault).isTrue()
         assertThat(profile.audioProcessingConfig).isEqualTo(ReviewAudioProcessingConfig.Original)
         assertThat(profile.spectrogramConfig).isEqualTo(ReviewSpectrogramConfig.BirdDefault)
-        assertThat(profile.spectrogramConfig.displayRange.fMinHz).isEqualTo(1_000)
-        assertThat(profile.spectrogramConfig.displayRange.fMaxHz).isEqualTo(12_000)
-        assertThat(profile.spectrogramConfig.gainDb).isEqualTo(0f)
+        // Null means "follow live defaults" — the resolved value lives behind the
+        // effective* accessors.
+        assertThat(profile.spectrogramConfig.displayRange).isNull()
+        assertThat(profile.spectrogramConfig.palette).isNull()
+        assertThat(profile.spectrogramConfig.gainDb).isNull()
+        assertThat(profile.spectrogramConfig.effectiveRangeSpec).isEqualTo(LiveDefaults.displayRange())
+        assertThat(profile.spectrogramConfig.effectivePalette).isEqualTo(SpectrogramPalette.INK)
+        assertThat(profile.spectrogramConfig.effectiveGainDb).isEqualTo(0f)
         assertThat(profile.spectrogramConfig.lowPercentile).isEqualTo(5f)
         assertThat(profile.spectrogramConfig.highPercentile).isEqualTo(99f)
     }

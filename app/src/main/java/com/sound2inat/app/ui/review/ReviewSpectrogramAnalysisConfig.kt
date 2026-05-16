@@ -18,7 +18,7 @@ data class ReviewSpectrogramAnalysisConfig(
 
         @Suppress("UNUSED_PARAMETER")
         fun from(
-            displayRange: SpectrogramDisplayRange,
+            displayRange: SpectrogramDisplayRange?,
             sampleRateHz: Int,
         ): ReviewSpectrogramAnalysisConfig = ReviewSpectrogramAnalysisConfig(
             minFrequencyHz = 0,

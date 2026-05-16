@@ -265,8 +265,11 @@ class ReviewViewModel(
     private val _spectrogramConfig = MutableStateFlow(ReviewProcessingProfile.Default.spectrogramConfig)
     val spectrogramConfig: StateFlow<ReviewSpectrogramConfig> = _spectrogramConfig.asStateFlow()
 
-    private val _displayRange = MutableStateFlow(SpectrogramDisplayRange.BIRDNET_BIRD)
-    val displayRange: StateFlow<SpectrogramDisplayRange> = _displayRange.asStateFlow()
+    private val _displayRange = MutableStateFlow<SpectrogramDisplayRange?>(null)
+    val displayRange: StateFlow<SpectrogramDisplayRange?> = _displayRange.asStateFlow()
+
+    private val _sceneTagsAvailable = MutableStateFlow(false)
+    val sceneTagsAvailable: StateFlow<Boolean> = _sceneTagsAvailable.asStateFlow()
 
     val visualsLoading: StateFlow<Boolean> = _state
         .map { it.visualsLoading }
@@ -404,6 +407,11 @@ class ReviewViewModel(
         scope.launch {
             repo.observeWithDetections(draftId).collect { dwd ->
                 val draft = dwd.draft
+                // Reflect persisted spectrogram preferences before any rendering
+                // is requested. Defensive about malformed enum names so a bad
+                // row never crashes the screen.
+                seedSpectrogramFromDraft(draft)
+                _sceneTagsAvailable.value = draft.sceneTagsJson != null
                 // Preserve already-fetched taxonPhotoUrl across DB re-emissions.
                 // Reads from the long-lived [photoUrlCache] rather than
                 // _state.value.species — DraftRepository.attachDetections
@@ -927,32 +935,85 @@ class ReviewViewModel(
         append(snapshot.audioProcessingConfig.cacheSuffix())
     }
 
-    /** Switches the spectrogram display range and re-renders. No-op if already on [range]. */
-    fun setDisplayRange(range: SpectrogramDisplayRange) {
-        if (_displayRange.value == range && _spectrogramConfig.value.displayRange == range) return
+    /**
+     * Mirrors persisted per-draft spectrogram settings into the in-memory
+     * processing profile. Defensive: malformed enum names degrade to null
+     * ("follow live defaults") rather than crashing.
+     */
+    private fun seedSpectrogramFromDraft(draft: com.sound2inat.storage.DraftEntity) {
+        val storedRange = draft.displayRangeName?.let {
+            runCatching { SpectrogramDisplayRange.valueOf(it) }.getOrNull()
+        }
+        val storedPalette = draft.paletteName?.let {
+            runCatching { SpectrogramPalette.valueOf(it) }.getOrNull()
+        }
+        val storedGain = draft.spectrogramGainDb
+        val currentConfig = _processingProfile.value.spectrogramConfig
+        val unchanged = currentConfig.displayRange == storedRange &&
+            currentConfig.palette == storedPalette &&
+            currentConfig.gainDb == storedGain
+        if (unchanged) return
+        val updatedConfig = currentConfig.copy(
+            displayRange = storedRange,
+            palette = storedPalette,
+            gainDb = storedGain,
+        )
+        updateProcessingProfile(
+            _processingProfile.value.copy(spectrogramConfig = updatedConfig)
+        )
+    }
+
+    /**
+     * Switches the spectrogram display range and re-renders. Pass `null` to fall
+     * back to the live-recording defaults. Persists the choice on the draft row.
+     */
+    fun setDisplayRange(range: SpectrogramDisplayRange?) {
+        if (_displayRange.value == range && _spectrogramConfig.value.displayRange == range) {
+            return
+        }
         updateProcessingProfile(
             _processingProfile.value.copy(
                 spectrogramConfig = _processingProfile.value.spectrogramConfig.copy(displayRange = range),
             )
         )
+        scope.launch { repo.updateDisplayRange(draftId, range?.name) }
     }
 
-    fun setSpectrogramPalette(palette: SpectrogramPalette) {
+    fun setSpectrogramPalette(palette: SpectrogramPalette?) {
+        if (_spectrogramConfig.value.palette == palette) return
         updateProcessingProfile(
             _processingProfile.value.copy(
                 spectrogramConfig = _processingProfile.value.spectrogramConfig.copy(palette = palette)
             )
         )
+        scope.launch { repo.updatePalette(draftId, palette?.name) }
     }
 
-    fun setSpectrogramGain(gainDb: Float) {
+    fun setSpectrogramGain(gainDb: Float?) {
+        val clamped = gainDb?.coerceIn(-20f, 20f)
+        if (_spectrogramConfig.value.gainDb == clamped) return
         updateProcessingProfile(
             _processingProfile.value.copy(
                 spectrogramConfig = _processingProfile.value.spectrogramConfig.copy(
-                    gainDb = gainDb.coerceIn(-20f, 20f),
+                    gainDb = clamped,
                 )
             )
         )
+        scope.launch { repo.updateSpectrogramGain(draftId, clamped) }
+    }
+
+    /**
+     * Picks a display range from the YamNet scene tags cached on the draft and
+     * applies it. No-op when no scene tags are stored or when the picker
+     * returns null. Always writes the result through to the repository.
+     */
+    fun pressAuto() {
+        scope.launch {
+            val json = runCatching { repo.getSceneTagsJson(draftId) }.getOrNull() ?: return@launch
+            val tags = com.sound2inat.inference.SceneTags.fromJson(json) ?: return@launch
+            val picked = AutoDisplayRangePicker.pickDisplayRange(tags)
+            setDisplayRange(picked)
+        }
     }
 
     fun setAudioProcessingConfig(config: ReviewAudioProcessingConfig) {

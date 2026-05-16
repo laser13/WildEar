@@ -60,7 +60,7 @@ class SpectrogramRenderer(
     }
     private val inkLut: IntArray by lazy { SpectrogramColorMap.ink(backgroundArgb, renderConfig.maxInkArgb) }
     private val colorLut: IntArray by lazy {
-        when (renderConfig.palette) {
+        when (renderConfig.effectivePalette) {
             SpectrogramPalette.INK -> inkLut
             SpectrogramPalette.VIRIDIS -> SpectrogramColorMap.viridis()
             SpectrogramPalette.MAGMA -> SpectrogramColorMap.magma()
@@ -109,7 +109,7 @@ class SpectrogramRenderer(
                 frequencyRadius = renderConfig.smoothingFrequencyRadius,
             )
         }
-        if (renderConfig.noiseFloorMode == SpectrogramNoiseFloorMode.NONE && renderConfig.gainDb != 0f) {
+        if (renderConfig.noiseFloorMode == SpectrogramNoiseFloorMode.NONE && renderConfig.effectiveGainDb != 0f) {
             traceStep(trace, "gain-scale") { applyGainScaleInPlace(smoothed) }
         }
         return ReviewSpectrogramDisplayPlane(
@@ -162,8 +162,9 @@ class SpectrogramRenderer(
     private fun cropRowsForDisplay(matrix: ReviewSpectrogramMatrix): Array<FloatArray> {
         val rows = matrix.values.size
         if (rows == 0) return emptyArray()
-        val startRow = frequencyToRowIndex(renderConfig.displayRange.fMinHz, matrix.config, rows)
-        val endRow = frequencyToRowIndex(renderConfig.displayRange.fMaxHz, matrix.config, rows)
+        val rangeSpec = renderConfig.effectiveRangeSpec
+        val startRow = frequencyToRowIndex(rangeSpec.fMinHz, matrix.config, rows)
+        val endRow = frequencyToRowIndex(rangeSpec.fMaxHz, matrix.config, rows)
             .coerceAtLeast(startRow)
         return Array(endRow - startRow + 1) { offset ->
             matrix.values[startRow + offset].copyOf()
@@ -194,18 +195,20 @@ class SpectrogramRenderer(
     }
 
     private fun addGainInPlace(matrix: Array<FloatArray>) {
-        if (renderConfig.gainDb == 0f) return
+        val gainDb = renderConfig.effectiveGainDb
+        if (gainDb == 0f) return
         for (row in matrix.indices) {
             val data = matrix[row]
             for (i in data.indices) {
-                data[i] += renderConfig.gainDb
+                data[i] += gainDb
             }
         }
     }
 
     private fun applyGainScaleInPlace(matrix: Array<FloatArray>) {
-        if (renderConfig.gainDb == 0f) return
-        val gainScale = 10f.pow(renderConfig.gainDb / 20f)
+        val gainDb = renderConfig.effectiveGainDb
+        if (gainDb == 0f) return
+        val gainScale = 10f.pow(gainDb / 20f)
         for (row in matrix.indices) {
             val data = matrix[row]
             for (i in data.indices) {

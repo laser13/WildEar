@@ -34,6 +34,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sound2inat.app.ui.spectrogram.DisplayRangeSpec
 import com.sound2inat.inference.WindowPrediction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
@@ -56,7 +57,6 @@ internal fun WaveformAndSpectrogram(
     positionFlow: StateFlow<Long>,
     onSeek: (Long) -> Unit,
     visualsLoading: Boolean = false,
-    displayRange: SpectrogramDisplayRange = SpectrogramDisplayRange.BIRD_FOCUSED,
     windowPreds: List<WindowPrediction> = emptyList(),
     species: List<SpeciesRow> = emptyList(),
     highlight: Long? = null,
@@ -91,7 +91,7 @@ internal fun WaveformAndSpectrogram(
                 .height(SPECTROGRAM_HEIGHT.dp),
         ) {
             FrequencyAxis(
-                range = displayRange,
+                rangeSpec = spectrogramConfig.effectiveRangeSpec,
                 modifier = Modifier
                     .width(AXIS_WIDTH.dp)
                     .height(SPECTROGRAM_HEIGHT.dp),
@@ -226,16 +226,16 @@ private const val SELECTION_STROKE_PX = 3f
 
 @Composable
 private fun FrequencyAxis(
-    range: SpectrogramDisplayRange,
+    rangeSpec: DisplayRangeSpec,
     modifier: Modifier = Modifier,
 ) {
-    val ticks = remember(range) {
+    val ticks = remember(rangeSpec) {
         listOf(
-            range.fMaxHz,
-            lerpFrequency(range.fMinHz, range.fMaxHz, 0.25f),
-            lerpFrequency(range.fMinHz, range.fMaxHz, 0.5f),
-            lerpFrequency(range.fMinHz, range.fMaxHz, 0.75f),
-            range.fMinHz,
+            rangeSpec.fMaxHz,
+            lerpFrequency(rangeSpec.fMinHz, rangeSpec.fMaxHz, 0.25f),
+            lerpFrequency(rangeSpec.fMinHz, rangeSpec.fMaxHz, 0.5f),
+            lerpFrequency(rangeSpec.fMinHz, rangeSpec.fMaxHz, 0.75f),
+            rangeSpec.fMinHz,
         ).distinctBy { it }
     }
     Column(
