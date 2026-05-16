@@ -1005,13 +1005,22 @@ class ReviewViewModel(
     /**
      * Picks a display range from the YamNet scene tags cached on the draft and
      * applies it. No-op when no scene tags are stored or when the picker
-     * returns null. Always writes the result through to the repository.
+     * returns null.
+     *
+     * Compare-and-set guard: the displayRange visible to the user is captured
+     * before the suspending JSON read, and the auto-pick is dropped if the
+     * user picked a chip while we were waiting. This avoids clobbering an
+     * explicit user choice with a stale auto-pick.
      */
     fun pressAuto() {
         scope.launch {
+            val snapshot = _processingProfile.value.spectrogramConfig.displayRange
             val json = runCatching { repo.getSceneTagsJson(draftId) }.getOrNull() ?: return@launch
             val tags = com.sound2inat.inference.SceneTags.fromJson(json) ?: return@launch
             val picked = AutoDisplayRangePicker.pickDisplayRange(tags)
+            // Cancel if the user changed the displayRange while we were
+            // reading scene tags off disk.
+            if (_processingProfile.value.spectrogramConfig.displayRange != snapshot) return@launch
             setDisplayRange(picked)
         }
     }
@@ -1638,10 +1647,7 @@ internal class ProductionVisualsProvider(
         } else {
             config
         }
-        val analysisConfig = ReviewSpectrogramAnalysisConfig.from(
-            displayRange = rendererConfig.displayRange,
-            sampleRateHz = wavInfo.sampleRateHz,
-        )
+        val analysisConfig = ReviewSpectrogramAnalysisConfig.from(sampleRateHz = wavInfo.sampleRateHz)
         val matrixStarted = SystemClock.elapsedRealtime()
         val matrix = matrixCache.getOrCreate(
             audioFile = input,

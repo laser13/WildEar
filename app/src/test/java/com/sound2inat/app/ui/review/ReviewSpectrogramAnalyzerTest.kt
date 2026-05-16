@@ -17,7 +17,7 @@ class ReviewSpectrogramAnalyzerTest {
     @Test
     fun `short audio returns empty matrix`() {
         val analyzer = ReviewSpectrogramAnalyzer()
-        val config = ReviewSpectrogramAnalysisConfig.from(SpectrogramDisplayRange.BIRDNET_BIRD, sampleRateHz = 48_000)
+        val config = ReviewSpectrogramAnalysisConfig.from(sampleRateHz = 48_000)
 
         val matrix = analyzer.analyze(FloatArray(2_047), config)
 
@@ -29,7 +29,7 @@ class ReviewSpectrogramAnalyzerTest {
     @Test
     fun `same input and config are deterministic`() {
         val analyzer = ReviewSpectrogramAnalyzer()
-        val config = ReviewSpectrogramAnalysisConfig.from(SpectrogramDisplayRange.BIRDNET_BIRD, sampleRateHz = 48_000)
+        val config = ReviewSpectrogramAnalysisConfig.from(sampleRateHz = 48_000)
         val samples = sineWave(1_000.0, config.sampleRateHz, config.sampleRateHz * 3)
 
         val first = analyzer.analyze(samples, config)
@@ -42,25 +42,12 @@ class ReviewSpectrogramAnalyzerTest {
     @Test
     fun `matrix dimensions match display bins by frames`() {
         val analyzer = ReviewSpectrogramAnalyzer()
-        val config = ReviewSpectrogramAnalysisConfig.from(SpectrogramDisplayRange.BIRDNET_BIRD, sampleRateHz = 48_000)
+        val config = ReviewSpectrogramAnalysisConfig.from(sampleRateHz = 48_000)
         val samples = sineWave(1_000.0, config.sampleRateHz, config.sampleRateHz * 3)
 
         val matrix = analyzer.analyze(samples, config)
 
         assertThat(matrix.values).hasLength(config.displayHeightBins)
         assertThat(matrix.values.all { it.size == matrix.frames }).isTrue()
-    }
-
-    @Test
-    fun `display range does not change the reusable matrix content`() {
-        val analyzer = ReviewSpectrogramAnalyzer()
-        val samples = sineWave(1_000.0, 48_000, 48_000 * 3)
-        val full = ReviewSpectrogramAnalysisConfig.from(SpectrogramDisplayRange.FULL, sampleRateHz = 48_000)
-        val bird = ReviewSpectrogramAnalysisConfig.from(SpectrogramDisplayRange.BIRDNET_BIRD, sampleRateHz = 48_000)
-
-        val fullMatrix = analyzer.analyze(samples, full)
-        val birdMatrix = analyzer.analyze(samples, bird)
-
-        assertThat(fullMatrix).isEqualTo(birdMatrix)
     }
 }

@@ -100,8 +100,8 @@ class ReviewSpectrogramMatrixCacheTest {
         val audioFile = createAudioFile("visuals.wav")
         val full = ReviewSpectrogramConfig.BirdDefault.copy(displayRange = SpectrogramDisplayRange.FULL)
         val bird = ReviewSpectrogramConfig.BirdDefault.copy(displayRange = SpectrogramDisplayRange.BIRDNET_BIRD)
-        val fullConfig = ReviewSpectrogramAnalysisConfig.from(full.displayRange, sampleRateHz = 48_000)
-        val birdConfig = ReviewSpectrogramAnalysisConfig.from(bird.displayRange, sampleRateHz = 48_000)
+        val fullConfig = ReviewSpectrogramAnalysisConfig.from(sampleRateHz = 48_000)
+        val birdConfig = ReviewSpectrogramAnalysisConfig.from(sampleRateHz = 48_000)
 
         runSuspend {
             cache.getOrCreate(audioFile, "draft-1", tmp.root, fullConfig) {
@@ -122,7 +122,7 @@ class ReviewSpectrogramMatrixCacheTest {
     }
 
     private fun analysisConfig(): ReviewSpectrogramAnalysisConfig =
-        ReviewSpectrogramAnalysisConfig.from(SpectrogramDisplayRange.BIRDNET_BIRD, sampleRateHz = 48_000)
+        ReviewSpectrogramAnalysisConfig.from(sampleRateHz = 48_000)
 
     private fun sampleSamples(): FloatArray = FloatArray(48_000) { i -> (i % 128).toFloat() / 128f }
 

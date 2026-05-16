@@ -16,14 +16,11 @@ data class ReviewSpectrogramAnalysisConfig(
     companion object {
         const val CACHE_FORMAT_VERSION: Int = 2
 
-        @Suppress("UNUSED_PARAMETER")
-        fun from(
-            displayRange: SpectrogramDisplayRange?,
-            sampleRateHz: Int,
-        ): ReviewSpectrogramAnalysisConfig = ReviewSpectrogramAnalysisConfig(
-            minFrequencyHz = 0,
-            maxFrequencyHz = sampleRateHz / 2,
-            sampleRateHz = sampleRateHz,
-        )
+        fun from(sampleRateHz: Int): ReviewSpectrogramAnalysisConfig =
+            ReviewSpectrogramAnalysisConfig(
+                minFrequencyHz = 0,
+                maxFrequencyHz = sampleRateHz / 2,
+                sampleRateHz = sampleRateHz,
+            )
     }
 }

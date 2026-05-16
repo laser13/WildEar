@@ -15,11 +15,13 @@ import com.sound2inat.storage.DraftWithDetections
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
@@ -188,6 +190,43 @@ class ReviewViewModelDisplayRangeTest {
         // count the call otherwise).
         coVerify(exactly = 0) { repo.updateDisplayRange(draftId, any()) }
     }
+
+    @Test
+    fun `pressAuto cancels when user picks a chip during scene-tag read`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "auto-race"
+            val tagsJson = """{"bird":0.85,"owl":0,"frog":0,"insect":0,"mammal":0}"""
+            val repo = mockk<DraftRepository>(relaxed = true)
+            coEvery { repo.observeWithDetections(draftId) } returns MutableStateFlow(
+                DraftWithDetections(draft(id = draftId, sceneTagsJson = tagsJson), emptyList())
+            )
+            // Suspend the JSON read until the test releases the gate. This is
+            // the window during which the user "picks a chip".
+            val gate = CompletableDeferred<Unit>()
+            coEvery { repo.getSceneTagsJson(draftId) } coAnswers {
+                gate.await()
+                tagsJson
+            }
+            val vm = buildVm(repo, draftId, backgroundScope, testScheduler)
+            advanceUntilIdle()
+
+            vm.pressAuto()
+            runCurrent()
+            // User picks a chip while pressAuto is parked on the gate.
+            vm.setDisplayRange(SpectrogramDisplayRange.OWL_LOW_VOICE)
+            runCurrent()
+            // Release the JSON read; pressAuto should now observe the changed
+            // displayRange and bail out without writing.
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            // Exactly one write — the user's explicit pick. The auto-picked
+            // value (BIRDNET_BIRD) must NOT clobber it.
+            coVerify(exactly = 1) { repo.updateDisplayRange(draftId, "OWL_LOW_VOICE") }
+            coVerify(exactly = 0) { repo.updateDisplayRange(draftId, "BIRDNET_BIRD") }
+            assertThat(vm.spectrogramConfig.value.displayRange)
+                .isEqualTo(SpectrogramDisplayRange.OWL_LOW_VOICE)
+        }
 
     @Test
     fun `sceneTagsAvailable reflects draft sceneTagsJson presence`() = runTest(UnconfinedTestDispatcher()) {

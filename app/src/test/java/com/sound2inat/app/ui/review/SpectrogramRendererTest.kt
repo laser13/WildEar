@@ -16,16 +16,14 @@ class SpectrogramRendererTest {
         return out
     }
 
-    private fun sampleMatrix(
-        displayRange: SpectrogramDisplayRange = SpectrogramDisplayRange.FULL,
-    ): ReviewSpectrogramMatrix {
-        val config = ReviewSpectrogramAnalysisConfig.from(displayRange, sampleRateHz = 48_000)
+    private fun sampleMatrix(): ReviewSpectrogramMatrix {
+        val config = ReviewSpectrogramAnalysisConfig.from(sampleRateHz = 48_000)
         val samples = sineWave(1_000.0, config.sampleRateHz, config.sampleRateHz * 3)
         return ReviewSpectrogramAnalyzer().analyze(samples, config)
     }
 
     private fun midToneMatrix(): ReviewSpectrogramMatrix {
-        val config = ReviewSpectrogramAnalysisConfig.from(SpectrogramDisplayRange.FULL, sampleRateHz = 48_000)
+        val config = ReviewSpectrogramAnalysisConfig.from(sampleRateHz = 48_000)
         val values = Array(config.displayHeightBins) { row ->
             FloatArray(32) { frame ->
                 row.toFloat() / config.displayHeightBins.toFloat() + frame.toFloat() / 64f
@@ -36,7 +34,7 @@ class SpectrogramRendererTest {
 
     @Test
     fun `rendering an empty matrix returns empty pixels`() {
-        val config = ReviewSpectrogramAnalysisConfig.from(SpectrogramDisplayRange.BIRDNET_BIRD, sampleRateHz = 48_000)
+        val config = ReviewSpectrogramAnalysisConfig.from(sampleRateHz = 48_000)
         val emptyMatrix = ReviewSpectrogramMatrix(
             config = config,
             frames = 0,

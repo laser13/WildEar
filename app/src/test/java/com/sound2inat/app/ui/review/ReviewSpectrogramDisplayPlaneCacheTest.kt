@@ -11,10 +11,8 @@ import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 
 class ReviewSpectrogramDisplayPlaneCacheTest {
-    private fun sampleMatrix(
-        displayRange: SpectrogramDisplayRange = SpectrogramDisplayRange.FULL,
-    ): ReviewSpectrogramMatrix {
-        val config = ReviewSpectrogramAnalysisConfig.from(displayRange, sampleRateHz = 48_000)
+    private fun sampleMatrix(): ReviewSpectrogramMatrix {
+        val config = ReviewSpectrogramAnalysisConfig.from(sampleRateHz = 48_000)
         val values = Array(config.displayHeightBins) { row ->
             FloatArray(32) { frame ->
                 row.toFloat() / config.displayHeightBins.toFloat() + frame.toFloat() / 64f

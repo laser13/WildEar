@@ -15,10 +15,8 @@ class ReviewSpectrogramDisplayPlaneTest {
         return out
     }
 
-    private fun sampleMatrix(
-        displayRange: SpectrogramDisplayRange = SpectrogramDisplayRange.FULL,
-    ): ReviewSpectrogramMatrix {
-        val config = ReviewSpectrogramAnalysisConfig.from(displayRange, sampleRateHz = 48_000)
+    private fun sampleMatrix(): ReviewSpectrogramMatrix {
+        val config = ReviewSpectrogramAnalysisConfig.from(sampleRateHz = 48_000)
         val samples = sineWave(1_000.0, config.sampleRateHz, config.sampleRateHz * 3)
         return ReviewSpectrogramAnalyzer().analyze(samples, config)
     }
