@@ -9,10 +9,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -42,6 +47,11 @@ internal fun ReviewSettingsBottomSheet(
     onSelectedTabChange: (ReviewSettingsTab) -> Unit,
     onApply: (ReviewProcessingProfile) -> Unit,
     onDismiss: () -> Unit,
+    sceneTagsAvailable: Boolean,
+    onPressAuto: () -> Unit,
+    onDisplayRangeChange: (SpectrogramDisplayRange?) -> Unit,
+    onPaletteChange: (SpectrogramPalette?) -> Unit,
+    onGainChange: (Float?) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     var audioDraftConfig by remember { mutableStateOf(profile.audioProcessingConfig) }
@@ -90,9 +100,11 @@ internal fun ReviewSettingsBottomSheet(
                 )
                 ReviewSettingsTab.Visual -> VisualSettingsTab(
                     config = profile.spectrogramConfig,
-                    onConfigChange = {
-                        onApply(profile.withSpectrogramConfig(it))
-                    },
+                    sceneTagsAvailable = sceneTagsAvailable,
+                    onPressAuto = onPressAuto,
+                    onDisplayRangeChange = onDisplayRangeChange,
+                    onPaletteChange = onPaletteChange,
+                    onGainChange = onGainChange,
                 )
             }
             when {
@@ -214,22 +226,25 @@ private fun AudioSettingsTab(
 @Composable
 private fun VisualSettingsTab(
     config: ReviewSpectrogramConfig,
-    onConfigChange: (ReviewSpectrogramConfig) -> Unit,
+    sceneTagsAvailable: Boolean,
+    onPressAuto: () -> Unit,
+    onDisplayRangeChange: (SpectrogramDisplayRange?) -> Unit,
+    onPaletteChange: (SpectrogramPalette?) -> Unit,
+    onGainChange: (Float?) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Palette", style = MaterialTheme.typography.labelMedium)
-        FlowRow(
+        OutlinedButton(
+            onClick = onPressAuto,
+            enabled = sceneTagsAvailable,
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            SpectrogramPalette.entries.filter { it != SpectrogramPalette.INK }.forEach { palette ->
-                FilterChip(
-                    selected = config.palette == palette,
-                    onClick = { onConfigChange(config.copy(palette = palette)) },
-                    label = { Text(paletteLabel(palette)) },
-                )
-            }
+            Icon(
+                imageVector = Icons.Filled.AutoAwesome,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(if (sceneTagsAvailable) "Auto" else "Auto (no scene data)")
         }
         Text("Range", style = MaterialTheme.typography.labelMedium)
         FlowRow(
@@ -237,10 +252,15 @@ private fun VisualSettingsTab(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            FilterChip(
+                selected = config.displayRange == null,
+                onClick = { onDisplayRangeChange(null) },
+                label = { Text("Default") },
+            )
             SpectrogramDisplayRange.entries.forEach { range ->
                 FilterChip(
                     selected = config.displayRange == range,
-                    onClick = { onConfigChange(config.copy(displayRange = range)) },
+                    onClick = { onDisplayRangeChange(range) },
                     label = {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
@@ -257,16 +277,40 @@ private fun VisualSettingsTab(
                 )
             }
         }
+        Text("Palette", style = MaterialTheme.typography.labelMedium)
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            FilterChip(
+                selected = config.palette == null,
+                onClick = { onPaletteChange(null) },
+                label = { Text("Default") },
+            )
+            SpectrogramPalette.entries.filter { it != SpectrogramPalette.INK }.forEach { palette ->
+                FilterChip(
+                    selected = config.palette == palette,
+                    onClick = { onPaletteChange(palette) },
+                    label = { Text(paletteLabel(palette)) },
+                )
+            }
+        }
         Text("Visual gain", style = MaterialTheme.typography.labelMedium)
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            FilterChip(
+                selected = config.gainDb == null,
+                onClick = { onGainChange(null) },
+                label = { Text("Default") },
+            )
             reviewVisualGainOptions().forEach { gain ->
                 FilterChip(
                     selected = config.gainDb == gain,
-                    onClick = { onConfigChange(config.copy(gainDb = gain)) },
+                    onClick = { onGainChange(gain) },
                     label = { Text(formatGainLabel(gain)) },
                 )
             }
