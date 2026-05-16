@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.util.Log
 
 class AndroidAudioRecordSource(
     private val preferRaw: suspend () -> Boolean = { true },
@@ -73,9 +74,15 @@ class AndroidAudioRecordSource(
                         sampleRate,
                         bufferSize,
                     )
-                    if (ar.state == AudioRecord.STATE_INITIALIZED) return ar
+                    if (ar.state == AudioRecord.STATE_INITIALIZED) {
+                        Log.i(TAG, "audio source: UNPROCESSED (no AGC/NS/AEC) sr=$sampleRate buf=$bufferSize")
+                        return ar
+                    }
                     ar.release()
                 }
+                Log.w(TAG, "audio source: UNPROCESSED unavailable on this device, falling back to MIC (AGC may engage)")
+            } else {
+                Log.i(TAG, "audio source: MIC (useRaw=false) sr=$sampleRate buf=$bufferSize")
             }
             val fallback = audioRecordFactory(
                 MediaRecorder.AudioSource.MIC,
@@ -87,5 +94,7 @@ class AndroidAudioRecordSource(
             }
             return fallback
         }
+
+        private const val TAG = "RecorderSource"
     }
 }
