@@ -63,6 +63,9 @@ class ReviewSpectrogramDisplayPlaneCache {
     }
 
     private companion object {
-        private const val MAX_CACHED_PLANES = 4
+        // Each plane holds W*H floats (often 2000x200 → ~1.6 MB) plus its derived
+        // bitmap downstream. Keeping more than two recent variants alive when the
+        // user is tweaking palette/range chips bloats the heap fast.
+        private const val MAX_CACHED_PLANES = 2
     }
 }

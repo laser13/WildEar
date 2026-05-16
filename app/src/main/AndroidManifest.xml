@@ -18,6 +18,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.Sound2iNat"
         android:allowBackup="false"
+        android:largeHeap="true"
         android:supportsRtl="true">
         <activity
             android:name=".MainActivity"
