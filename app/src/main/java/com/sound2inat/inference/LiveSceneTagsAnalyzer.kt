@@ -4,6 +4,8 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Runs YamNet over a finished live-recording WAV in the background and returns
@@ -15,7 +17,8 @@ import java.io.File
  * Fail-open: any error (model not installed, decode failure, etc.) returns
  * null and the caller proceeds without scene tags.
  */
-class LiveSceneTagsAnalyzer(
+@Singleton
+class LiveSceneTagsAnalyzer @Inject constructor(
     private val yamNetGate: YamNetGate?,
 ) {
 

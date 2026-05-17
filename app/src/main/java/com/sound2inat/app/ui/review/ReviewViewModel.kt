@@ -241,6 +241,11 @@ class ReviewViewModel(
     /** Optional bootstrap cache root for review visuals. */
     private val defaultFilesDir: File? = null,
     private val queue: InferenceQueue,
+    /**
+     * Lazy YamNet backfill for drafts that pre-date the live-recording
+     * SceneTags path. Null in tests; production passes a real analyzer.
+     */
+    private val sceneTagsAnalyzer: com.sound2inat.inference.LiveSceneTagsAnalyzer? = null,
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -330,6 +335,7 @@ class ReviewViewModel(
     private var inferenceStarted = false
     private var visualsStarted = false
     private var visualsJob: Job? = null
+    private var sceneTagsBackfillStarted = false
 
     /** Last result of [perchInstalledProbe]; folded into [ReviewUiState.canAnalyzeWithPerch]. */
     private var perchInstalled: Boolean = false
@@ -415,6 +421,7 @@ class ReviewViewModel(
                 // row never crashes the screen.
                 seedSpectrogramFromDraft(draft)
                 _sceneTagsAvailable.value = draft.sceneTagsJson != null
+                maybeBackfillSceneTags(draft)
                 // Preserve already-fetched taxonPhotoUrl across DB re-emissions.
                 // Reads from the long-lived [photoUrlCache] rather than
                 // _state.value.species — DraftRepository.attachDetections
@@ -964,6 +971,26 @@ class ReviewViewModel(
         updateProcessingProfile(
             _processingProfile.value.copy(spectrogramConfig = updatedConfig)
         )
+    }
+
+    /**
+     * Lazy backfill for drafts that pre-date the live-recording SceneTags path
+     * (sceneTagsJson is NULL). Runs YamNet over the saved WAV once per VM
+     * lifetime when both prerequisites hold: scene tags are missing AND we have
+     * an audio file to analyse. Manual displayRange picks are preserved by
+     * SceneTagsPersister.
+     */
+    private fun maybeBackfillSceneTags(draft: com.sound2inat.storage.DraftEntity) {
+        if (sceneTagsBackfillStarted) return
+        if (draft.sceneTagsJson != null) return
+        val analyzer = sceneTagsAnalyzer ?: return
+        val audioPath = draft.audioPath
+        if (audioPath.isBlank()) return
+        sceneTagsBackfillStarted = true
+        scope.launch {
+            val tags = analyzer.analyze(audioPath) ?: return@launch
+            SceneTagsPersister.persistAndApplyAuto(repo, draftId, tags)
+        }
     }
 
     /**
@@ -1540,6 +1567,7 @@ class ReviewViewModelFactory @Inject constructor(
     private val queue: InferenceQueue,
     private val audioExport: AudioExportManager,
     private val visualsCoordinator: ReviewVisualsCoordinator,
+    private val sceneTagsAnalyzer: com.sound2inat.inference.LiveSceneTagsAnalyzer,
 ) {
     /** Cache root used to bootstrap review visuals and submission artifacts. */
     val filesDir: File get() = context.filesDir
@@ -1593,6 +1621,7 @@ class ReviewViewModelFactory @Inject constructor(
         defaultFilesDir = filesDir,
         visualsCoordinator = visualsCoordinator,
         queue = queue,
+        sceneTagsAnalyzer = sceneTagsAnalyzer,
         externalScope = externalScope,
     )
 }

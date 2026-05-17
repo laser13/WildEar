@@ -7,7 +7,6 @@ import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inference.LiveInferenceEngineFactory
 import com.sound2inat.inference.LiveSceneTagsAnalyzer
 import com.sound2inat.inference.PostRecordingProcessor
-import com.sound2inat.inference.YamNetGate
 import com.sound2inat.location.LocationProvider
 import com.sound2inat.recorder.Recorder
 import com.sound2inat.storage.DraftRepository
@@ -25,10 +24,6 @@ object RecordingModule {
     @Provides @Singleton
     fun providePostRecordingProcessor(settings: Settings): PostRecordingProcessor =
         PostRecordingProcessor(settings)
-
-    @Provides @Singleton
-    fun provideLiveSceneTagsAnalyzer(yamNetGate: YamNetGate?): LiveSceneTagsAnalyzer =
-        LiveSceneTagsAnalyzer(yamNetGate)
 
     @Provides @Singleton
     @Suppress("LongParameterList")
