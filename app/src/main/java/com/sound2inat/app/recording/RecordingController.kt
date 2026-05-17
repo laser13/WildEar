@@ -2,11 +2,13 @@ package com.sound2inat.app.recording
 
 import com.sound2inat.app.ui.recording.GpsStatus
 import com.sound2inat.app.ui.recording.LiveCard
+import com.sound2inat.app.ui.review.SceneTagsPersister
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.DetectionAggregator
 import com.sound2inat.inference.LiveInferenceEngine
 import com.sound2inat.inference.LiveInferenceEngineFactory
+import com.sound2inat.inference.LiveSceneTagsAnalyzer
 import com.sound2inat.inference.ModelIds
 import com.sound2inat.inference.PostRecordingProcessor
 import com.sound2inat.inference.RegionalStatus
@@ -91,6 +93,7 @@ class DefaultRecordingController(
     private val softLimitMs: Long = SOFT_LIMIT_MS,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val processor: PostRecordingProcessor? = null,
+    private val sceneTagsAnalyzer: LiveSceneTagsAnalyzer? = null,
 ) : RecordingController {
 
     private val scope: CoroutineScope = applicationScope
@@ -264,6 +267,15 @@ class DefaultRecordingController(
                 longitude = fix?.longitude,
                 accuracyMeters = fix?.accuracyMeters,
             )
+        }
+        // Fire-and-forget YamNet analysis so the review screen's Auto button
+        // gets data even for live-recorded drafts (the live path bypasses
+        // InferenceQueue and would otherwise leave sceneTagsJson NULL).
+        sceneTagsAnalyzer?.let { analyzer ->
+            applicationScope.launch {
+                val tags = analyzer.analyze(result.audioPath) ?: return@launch
+                SceneTagsPersister.persistAndApplyAuto(drafts, id, tags)
+            }
         }
         activeEngine = null
         activeAggregator = null

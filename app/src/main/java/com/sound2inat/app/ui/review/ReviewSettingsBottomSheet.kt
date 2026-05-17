@@ -263,7 +263,7 @@ private fun VisualSettingsTab(
                     )
                 }
                 Spacer(Modifier.width(8.dp))
-                Text(if (sceneTagsAvailable) "Auto" else "Auto (no scene data)")
+                Text("Auto")
             }
             OutlinedButton(
                 onClick = onReset,

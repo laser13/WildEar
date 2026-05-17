@@ -1,12 +1,11 @@
 package com.sound2inat.app.inference
 
 import android.util.Log
-import com.sound2inat.app.ui.review.AutoDisplayRangePicker
+import com.sound2inat.app.ui.review.SceneTagsPersister
 import com.sound2inat.inference.InferenceOutcome
 import com.sound2inat.inference.InferenceUseCase
 import com.sound2inat.inference.ModelIds
 import com.sound2inat.inference.PerchAnalysisOutcome
-import com.sound2inat.inference.SceneTags
 import com.sound2inat.storage.DraftRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -149,7 +148,7 @@ class InferenceQueue @Inject constructor(
                         freshDetections = outcome.detections,
                         promoteToReviewed = true,
                     )
-                    persistSceneTagsAndAutoPreset(job.draftId, outcome.sceneTags)
+                    SceneTagsPersister.persistAndApplyAuto(repo, job.draftId, outcome.sceneTags)
                 }
                 is InferenceOutcome.Failure ->
                     _failedJobs.update { it + (job.draftId to JobStatus.Failed(outcome.message)) }
@@ -181,19 +180,6 @@ class InferenceQueue @Inject constructor(
                     _failedJobs.update { it + (job.draftId to JobStatus.Failed("Perch not installed")) }
             }
         }
-    }
-
-    /**
-     * Persists the per-recording SceneTags and applies Auto on the user's behalf
-     * when the draft has no prior explicit displayRange choice. Manual picks are
-     * preserved: a non-null displayRangeName never gets overwritten here.
-     */
-    private suspend fun persistSceneTagsAndAutoPreset(draftId: String, sceneTags: SceneTags) {
-        if (sceneTags == SceneTags.EMPTY) return
-        repo.updateSceneTags(draftId, sceneTags.toJson())
-        if (repo.getDisplayRangeName(draftId) != null) return
-        AutoDisplayRangePicker.pickDisplayRange(sceneTags)
-            ?.let { repo.updateDisplayRange(draftId, it.name) }
     }
 
     /** Adds job to queue. Returns false if the same draftId is already running or pending. */
