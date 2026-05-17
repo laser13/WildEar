@@ -240,13 +240,14 @@ class SpectrogramRenderer(
         val rows = mel.size
         val frames = mel[0].size
         if (frames == 0) return Array(rows) { row -> mel[row].copyOf() }
+        val effectiveDisplayRangeDb = autoContractedDisplayRangeDb(mel)
         val normalized = if (renderConfig.noiseFloorMode == SpectrogramNoiseFloorMode.NONE) {
             val allValues = FloatArray(rows * frames)
             var idx = 0
             for (row in 0 until rows) {
                 for (frame in 0 until frames) allValues[idx++] = mel[row][frame]
             }
-            val clamped = applyTopDbClamp(allValues, renderConfig.displayRangeDb)
+            val clamped = applyTopDbClamp(allValues, effectiveDisplayRangeDb)
             val flat = percentileNormalize(
                 clamped,
                 lowPercentile = renderConfig.lowPercentile,
@@ -260,12 +261,29 @@ class SpectrogramRenderer(
                 SpectrogramPostProcessor.applyDisplayCurve(
                     values = mel[row],
                     gateDb = renderConfig.gateDb,
-                    displayRangeDb = renderConfig.displayRangeDb,
+                    displayRangeDb = effectiveDisplayRangeDb,
                     gamma = renderConfig.gamma,
                 )
             }
         }
         return normalized
+    }
+
+    /**
+     * Returns a possibly-shrunken displayRangeDb so weak recordings light up
+     * instead of mapping mostly to the floor. We only ever shrink the range —
+     * loud recordings stay at the configured value. Computed globally across
+     * the whole [mel] so relative loudness across frequency bins is preserved.
+     */
+    private fun autoContractedDisplayRangeDb(mel: Array<FloatArray>): Float {
+        val configured = renderConfig.displayRangeDb
+        if (configured <= 0f) return configured
+        var maxValue = -Float.MAX_VALUE
+        for (row in mel) for (value in row) if (value > maxValue) maxValue = value
+        val maxAboveGate = maxValue - renderConfig.gateDb
+        if (maxAboveGate <= 0f) return configured
+        val auto = (maxAboveGate * AUTO_CONTRAST_HEADROOM).coerceAtLeast(MIN_DISPLAY_RANGE_DB)
+        return minOf(configured, auto)
     }
 
     private fun frequencyToRowIndex(
@@ -318,6 +336,12 @@ class SpectrogramRenderer(
 
         /** Maximum dynamic range in decibels. Values below (max - TOP_DB) are lifted to the floor. */
         const val TOP_DB = 75f
+
+        /** Multiplier applied to the loudest signal above gate when auto-shrinking the display range. */
+        private const val AUTO_CONTRAST_HEADROOM = 1.2f
+
+        /** Floor for the auto-shrunk display range so output never collapses to a single bucket. */
+        private const val MIN_DISPLAY_RANGE_DB = 6f
 
         private const val WHITE_ARGB = -1 // 0xFFFFFFFF: fully opaque white
 
