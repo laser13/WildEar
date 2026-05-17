@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -48,7 +50,9 @@ internal fun ReviewSettingsBottomSheet(
     onApply: (ReviewProcessingProfile) -> Unit,
     onDismiss: () -> Unit,
     sceneTagsAvailable: Boolean,
+    autoInProgress: Boolean,
     onPressAuto: () -> Unit,
+    onReset: () -> Unit,
     onDisplayRangeChange: (SpectrogramDisplayRange?) -> Unit,
     onPaletteChange: (SpectrogramPalette?) -> Unit,
     onGainChange: (Float?) -> Unit,
@@ -101,7 +105,9 @@ internal fun ReviewSettingsBottomSheet(
                 ReviewSettingsTab.Visual -> VisualSettingsTab(
                     config = profile.spectrogramConfig,
                     sceneTagsAvailable = sceneTagsAvailable,
+                    autoInProgress = autoInProgress,
                     onPressAuto = onPressAuto,
+                    onReset = onReset,
                     onDisplayRangeChange = onDisplayRangeChange,
                     onPaletteChange = onPaletteChange,
                     onGainChange = onGainChange,
@@ -227,24 +233,50 @@ private fun AudioSettingsTab(
 private fun VisualSettingsTab(
     config: ReviewSpectrogramConfig,
     sceneTagsAvailable: Boolean,
+    autoInProgress: Boolean,
     onPressAuto: () -> Unit,
+    onReset: () -> Unit,
     onDisplayRangeChange: (SpectrogramDisplayRange?) -> Unit,
     onPaletteChange: (SpectrogramPalette?) -> Unit,
     onGainChange: (Float?) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(
-            onClick = onPressAuto,
-            enabled = sceneTagsAvailable,
+        Row(
             modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(
-                imageVector = Icons.Filled.AutoAwesome,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(if (sceneTagsAvailable) "Auto" else "Auto (no scene data)")
+            OutlinedButton(
+                onClick = onPressAuto,
+                enabled = sceneTagsAvailable && !autoInProgress,
+                modifier = Modifier.weight(1f),
+            ) {
+                if (autoInProgress) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Filled.AutoAwesome,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(if (sceneTagsAvailable) "Auto" else "Auto (no scene data)")
+            }
+            OutlinedButton(
+                onClick = onReset,
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Reset")
+            }
         }
         Text("Range", style = MaterialTheme.typography.labelMedium)
         FlowRow(
@@ -252,11 +284,6 @@ private fun VisualSettingsTab(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            FilterChip(
-                selected = config.displayRange == null,
-                onClick = { onDisplayRangeChange(null) },
-                label = { Text("Default") },
-            )
             SpectrogramDisplayRange.entries.forEach { range ->
                 FilterChip(
                     selected = config.displayRange == range,
@@ -283,11 +310,6 @@ private fun VisualSettingsTab(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            FilterChip(
-                selected = config.palette == null,
-                onClick = { onPaletteChange(null) },
-                label = { Text("Default") },
-            )
             SpectrogramPalette.entries.filter { it != SpectrogramPalette.INK }.forEach { palette ->
                 FilterChip(
                     selected = config.palette == palette,
@@ -302,11 +324,6 @@ private fun VisualSettingsTab(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            FilterChip(
-                selected = config.gainDb == null,
-                onClick = { onGainChange(null) },
-                label = { Text("Default") },
-            )
             reviewVisualGainOptions().forEach { gain ->
                 FilterChip(
                     selected = config.gainDb == gain,

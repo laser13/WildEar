@@ -271,6 +271,9 @@ class ReviewViewModel(
     private val _sceneTagsAvailable = MutableStateFlow(false)
     val sceneTagsAvailable: StateFlow<Boolean> = _sceneTagsAvailable.asStateFlow()
 
+    private val _autoInProgress = MutableStateFlow(false)
+    val autoInProgress: StateFlow<Boolean> = _autoInProgress.asStateFlow()
+
     val visualsLoading: StateFlow<Boolean> = _state
         .map { it.visualsLoading }
         .stateIn(scope, SharingStarted.Eagerly, false)
@@ -1014,17 +1017,36 @@ class ReviewViewModel(
      */
     fun pressAuto() {
         scope.launch {
-            val snapshot = _processingProfile.value.spectrogramConfig.displayRange
-            val json = runCatching { repo.getSceneTagsJson(draftId) }.getOrNull() ?: return@launch
-            val tags = com.sound2inat.inference.SceneTags.fromJson(json) ?: return@launch
-            // No-op when no scene category is confident enough. Writing null
-            // here would silently wipe whatever the user had selected.
-            val picked = AutoDisplayRangePicker.pickDisplayRange(tags) ?: return@launch
-            // Cancel if the user changed the displayRange while we were
-            // reading scene tags off disk.
-            if (_processingProfile.value.spectrogramConfig.displayRange != snapshot) return@launch
-            setDisplayRange(picked)
+            _autoInProgress.value = true
+            try {
+                val snapshot = _processingProfile.value.spectrogramConfig.displayRange
+                val json = runCatching { repo.getSceneTagsJson(draftId) }.getOrNull()
+                    ?: return@launch
+                val tags = com.sound2inat.inference.SceneTags.fromJson(json) ?: return@launch
+                // No-op when no scene category is confident enough. Writing null
+                // here would silently wipe whatever the user had selected.
+                val picked = AutoDisplayRangePicker.pickDisplayRange(tags) ?: return@launch
+                // Cancel if the user changed the displayRange while we were
+                // reading scene tags off disk.
+                if (_processingProfile.value.spectrogramConfig.displayRange != snapshot) {
+                    return@launch
+                }
+                setDisplayRange(picked)
+            } finally {
+                // Keep the spinner visible long enough for the user to perceive
+                // the click; otherwise the disk read finishes in <50 ms and
+                // the icon would barely flicker.
+                kotlinx.coroutines.delay(AUTO_PROGRESS_MIN_VISIBLE_MS)
+                _autoInProgress.value = false
+            }
         }
+    }
+
+    /** Clears the per-draft visual overrides so the card reverts to live defaults. */
+    fun resetVisuals() {
+        setDisplayRange(null)
+        setSpectrogramPalette(null)
+        setSpectrogramGain(null)
     }
 
     fun setAudioProcessingConfig(config: ReviewAudioProcessingConfig) {
@@ -1486,6 +1508,9 @@ class ReviewViewModel(
         const val HighlightDurationMs = 800L
 
         private const val CLIP_PADDING_MS = 1_000L
+
+        /** Min duration the Auto-button spinner stays visible so the press registers visually. */
+        private const val AUTO_PROGRESS_MIN_VISIBLE_MS = 350L
     }
 }
 
