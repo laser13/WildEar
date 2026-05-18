@@ -40,6 +40,7 @@ import com.sound2inat.inference.WindowPrediction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
+import kotlin.math.ln
 
 /**
  * Cached mel-spectrogram view with the play cursor and (when supplied)
@@ -260,14 +261,23 @@ private fun FrequencyAxis(
 }
 
 /**
- * Returns an intermediate axis-tick frequency measured as [fraction] of the way
- * **downward from `maxHz` to `minHz`**. The axis is rendered with `fMaxHz` on top
- * and `fMinHz` at the bottom, so callers pass fractions 0.25/0.5/0.75 to produce
- * ticks that descend monotonically from top to bottom.
+ * Returns an intermediate axis-tick frequency at [fraction] of the way **downward
+ * from `maxHz` to `minHz`**, mapped on a logarithmic scale so the ticks line up
+ * with the mel-spectrogram's log-frequency rows. Without this, a linear axis
+ * would mislabel where mid frequencies actually sit — e.g. for Full (0–24 kHz)
+ * the centre of the chart is ~500 Hz on log scale, not 12 kHz on a linear one.
+ *
+ * `minHz == 0` is coerced to 1 so `ln` is defined; the resulting near-bottom
+ * label rounds down to "0Hz" anyway via [formatFrequencyLabel].
  */
 private fun axisTickFromMax(minHz: Int, maxHz: Int, fraction: Float): Int {
-    val clamped = fraction.coerceIn(0f, 1f)
-    return (maxHz - ((maxHz - minHz) * clamped)).toInt()
+    val safeMin = minHz.coerceAtLeast(1).toDouble()
+    val safeMax = maxHz.coerceAtLeast((safeMin + 1).toInt()).toDouble()
+    val clamped = fraction.coerceIn(0f, 1f).toDouble()
+    val logMin = ln(safeMin)
+    val logMax = ln(safeMax)
+    val logValue = logMax - clamped * (logMax - logMin)
+    return kotlin.math.exp(logValue).toInt()
 }
 
 private fun formatFrequencyLabel(hz: Int): String =
