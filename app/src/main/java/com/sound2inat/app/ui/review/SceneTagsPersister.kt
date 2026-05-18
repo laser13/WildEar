@@ -12,15 +12,28 @@ import com.sound2inat.storage.DraftRepository
  * and the post-live-recording path ([com.sound2inat.app.recording.DefaultRecordingController]).
  */
 object SceneTagsPersister {
+    /**
+     * Persists [sceneTags] on the draft and, if no manual displayRange is set,
+     * applies an Auto pick. When YamNet was not confident enough,
+     * [taxonNamesHint] (e.g. detection labels already on the draft) is used as
+     * a fallback signal — so even drafts without scene data still land on a
+     * sensible preset.
+     */
     suspend fun persistAndApplyAuto(
         repo: DraftRepository,
         draftId: String,
         sceneTags: SceneTags,
+        taxonNamesHint: Collection<String> = emptyList(),
     ) {
-        if (sceneTags == SceneTags.EMPTY) return
-        repo.updateSceneTags(draftId, sceneTags.toJson())
+        if (sceneTags == SceneTags.EMPTY && taxonNamesHint.isEmpty()) return
+        if (sceneTags != SceneTags.EMPTY) {
+            repo.updateSceneTags(draftId, sceneTags.toJson())
+        }
         if (repo.getDisplayRangeName(draftId) != null) return
-        AutoDisplayRangePicker.pickDisplayRange(sceneTags)
-            ?.let { repo.updateDisplayRange(draftId, it.name) }
+        val picked = AutoDisplayRangePicker.pickDisplayRangeWithFallback(
+            sceneTags = sceneTags.takeIf { it != SceneTags.EMPTY },
+            taxonNames = taxonNamesHint,
+        ) ?: return
+        repo.updateDisplayRange(draftId, picked.name)
     }
 }

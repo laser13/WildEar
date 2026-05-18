@@ -503,6 +503,7 @@ private fun ReviewPage(
     if (settingsSheetVisible) {
         val sceneTagsAvailable by vm.sceneTagsAvailable.collectAsStateWithLifecycle()
         val autoInProgress by vm.autoInProgress.collectAsStateWithLifecycle()
+        val autoMessage by vm.autoMessage.collectAsStateWithLifecycle()
         ReviewSettingsBottomSheet(
             state = state,
             profile = state.processingProfile,
@@ -512,6 +513,7 @@ private fun ReviewPage(
             onDismiss = { settingsSheetVisible = false },
             sceneTagsAvailable = sceneTagsAvailable,
             autoInProgress = autoInProgress,
+            autoMessage = autoMessage,
             onPressAuto = vm::pressAuto,
             onReset = vm::resetVisuals,
             onDisplayRangeChange = vm::setDisplayRange,

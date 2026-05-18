@@ -51,6 +51,7 @@ internal fun ReviewSettingsBottomSheet(
     onDismiss: () -> Unit,
     sceneTagsAvailable: Boolean,
     autoInProgress: Boolean,
+    autoMessage: String?,
     onPressAuto: () -> Unit,
     onReset: () -> Unit,
     onDisplayRangeChange: (SpectrogramDisplayRange?) -> Unit,
@@ -106,6 +107,7 @@ internal fun ReviewSettingsBottomSheet(
                     config = profile.spectrogramConfig,
                     sceneTagsAvailable = sceneTagsAvailable,
                     autoInProgress = autoInProgress,
+                    autoMessage = autoMessage,
                     onPressAuto = onPressAuto,
                     onReset = onReset,
                     onDisplayRangeChange = onDisplayRangeChange,
@@ -234,6 +236,7 @@ private fun VisualSettingsTab(
     config: ReviewSpectrogramConfig,
     sceneTagsAvailable: Boolean,
     autoInProgress: Boolean,
+    autoMessage: String?,
     onPressAuto: () -> Unit,
     onReset: () -> Unit,
     onDisplayRangeChange: (SpectrogramDisplayRange?) -> Unit,
@@ -247,7 +250,7 @@ private fun VisualSettingsTab(
         ) {
             OutlinedButton(
                 onClick = onPressAuto,
-                enabled = sceneTagsAvailable && !autoInProgress,
+                enabled = !autoInProgress,
                 modifier = Modifier.weight(1f),
             ) {
                 if (autoInProgress) {
@@ -277,6 +280,13 @@ private fun VisualSettingsTab(
                 Spacer(Modifier.width(8.dp))
                 Text("Reset")
             }
+        }
+        if (autoMessage != null) {
+            Text(
+                autoMessage,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         Text("Range", style = MaterialTheme.typography.labelMedium)
         FlowRow(

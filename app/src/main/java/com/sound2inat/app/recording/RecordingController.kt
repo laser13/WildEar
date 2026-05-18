@@ -270,11 +270,19 @@ class DefaultRecordingController(
         }
         // Fire-and-forget YamNet analysis so the review screen's Auto button
         // gets data even for live-recorded drafts (the live path bypasses
-        // InferenceQueue and would otherwise leave sceneTagsJson NULL).
-        sceneTagsAnalyzer?.let { analyzer ->
+        // InferenceQueue and would otherwise leave sceneTagsJson NULL). Even
+        // before YamNet finishes, the persister can already apply a preset
+        // based on the live detections we already have on hand.
+        val taxonHints = finalDetections.map { it.taxonScientificName }
+        if (sceneTagsAnalyzer != null || taxonHints.isNotEmpty()) {
             applicationScope.launch {
-                val tags = analyzer.analyze(result.audioPath) ?: return@launch
-                SceneTagsPersister.persistAndApplyAuto(drafts, id, tags)
+                val tags = sceneTagsAnalyzer?.analyze(result.audioPath)
+                SceneTagsPersister.persistAndApplyAuto(
+                    repo = drafts,
+                    draftId = id,
+                    sceneTags = tags ?: com.sound2inat.inference.SceneTags.EMPTY,
+                    taxonNamesHint = taxonHints,
+                )
             }
         }
         activeEngine = null

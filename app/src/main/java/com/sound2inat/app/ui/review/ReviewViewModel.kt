@@ -279,6 +279,10 @@ class ReviewViewModel(
     private val _autoInProgress = MutableStateFlow(false)
     val autoInProgress: StateFlow<Boolean> = _autoInProgress.asStateFlow()
 
+    /** Latest message describing the outcome of [pressAuto]; null when never run. */
+    private val _autoMessage = MutableStateFlow<String?>(null)
+    val autoMessage: StateFlow<String?> = _autoMessage.asStateFlow()
+
     val visualsLoading: StateFlow<Boolean> = _state
         .map { it.visualsLoading }
         .stateIn(scope, SharingStarted.Eagerly, false)
@@ -1048,17 +1052,25 @@ class ReviewViewModel(
             try {
                 val snapshot = _processingProfile.value.spectrogramConfig.displayRange
                 val json = runCatching { repo.getSceneTagsJson(draftId) }.getOrNull()
-                    ?: return@launch
-                val tags = com.sound2inat.inference.SceneTags.fromJson(json) ?: return@launch
-                // No-op when no scene category is confident enough. Writing null
-                // here would silently wipe whatever the user had selected.
-                val picked = AutoDisplayRangePicker.pickDisplayRange(tags) ?: return@launch
+                val tags = json?.let { com.sound2inat.inference.SceneTags.fromJson(it) }
+                val taxonHints = _state.value.species.map { it.taxonScientificName }
+                val picked = AutoDisplayRangePicker.pickDisplayRangeWithFallback(tags, taxonHints)
+                if (picked == null) {
+                    _autoMessage.value = if (tags == null && taxonHints.isEmpty()) {
+                        "No scene data yet — try again in a moment."
+                    } else {
+                        "Couldn't pick a preset — kept your selection."
+                    }
+                    return@launch
+                }
                 // Cancel if the user changed the displayRange while we were
                 // reading scene tags off disk.
                 if (_processingProfile.value.spectrogramConfig.displayRange != snapshot) {
+                    _autoMessage.value = "Kept your manual pick (you changed it just now)."
                     return@launch
                 }
                 setDisplayRange(picked)
+                _autoMessage.value = "Picked ${picked.displayName} (${picked.rangeLabel})."
             } finally {
                 // Keep the spinner visible long enough for the user to perceive
                 // the click; otherwise the disk read finishes in <50 ms and

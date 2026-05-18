@@ -148,7 +148,12 @@ class InferenceQueue @Inject constructor(
                         freshDetections = outcome.detections,
                         promoteToReviewed = true,
                     )
-                    SceneTagsPersister.persistAndApplyAuto(repo, job.draftId, outcome.sceneTags)
+                    SceneTagsPersister.persistAndApplyAuto(
+                        repo = repo,
+                        draftId = job.draftId,
+                        sceneTags = outcome.sceneTags,
+                        taxonNamesHint = outcome.detections.map { it.taxonScientificName },
+                    )
                 }
                 is InferenceOutcome.Failure ->
                     _failedJobs.update { it + (job.draftId to JobStatus.Failed(outcome.message)) }

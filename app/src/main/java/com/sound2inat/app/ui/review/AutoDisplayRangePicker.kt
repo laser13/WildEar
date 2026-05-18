@@ -25,4 +25,21 @@ object AutoDisplayRangePicker {
             .minByOrNull { it.fMaxHz - it.fMinHz }
             ?: SpectrogramDisplayRange.FULL
     }
+
+    /**
+     * Picks a preset from [sceneTags] first; if that yields no confident category
+     * the fallback maps [taxonNames] (BirdNET / live detection labels) to scene
+     * categories via [TaxonCategoryHints] and tries again. Returns null when
+     * both signals are silent.
+     */
+    fun pickDisplayRangeWithFallback(
+        sceneTags: SceneTags?,
+        taxonNames: Collection<String>,
+    ): SpectrogramDisplayRange? {
+        val primary = sceneTags?.let { pickDisplayRange(it) }
+        if (primary != null) return primary
+        if (taxonNames.isEmpty()) return null
+        val hints = TaxonCategoryHints.fromTaxonNames(taxonNames)
+        return pickDisplayRange(hints)
+    }
 }
