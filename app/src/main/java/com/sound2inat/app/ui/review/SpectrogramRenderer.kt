@@ -81,7 +81,13 @@ class SpectrogramRenderer(
 
         val working = traceStep(trace, "project-display-range") { projectDisplayRange(matrix) }
         if (renderConfig.noiseFloorMode == SpectrogramNoiseFloorMode.PER_COLUMN_MEDIAN) {
-            traceStep(trace, "per-column-median") { applyPerColumnMedianInPlace(working) }
+            traceStep(trace, "per-column-median") {
+                // Compute medians from the FULL mel (across all frequency bins),
+                // then subtract them only from the visible cropped rows. Without
+                // this the medians would be skewed by the very signal we want to
+                // emphasise — narrow display ranges would suppress contrast.
+                applyPerColumnMedianFromFullInPlace(working, matrix.values)
+            }
         }
         if (renderConfig.noiseFloorMode != SpectrogramNoiseFloorMode.NONE) {
             traceStep(trace, "gain-offset") { addGainInPlace(working) }
@@ -232,6 +238,33 @@ class SpectrogramRenderer(
             for (row in 0 until rows) {
                 matrix[row][frame] = column[row]
             }
+        }
+    }
+
+    /**
+     * Per-frame median subtraction where the median is taken across the FULL
+     * mel matrix (every frequency bin) and applied only to [visible] (rows that
+     * survived display-range cropping). This keeps the background-floor
+     * estimate stable regardless of which range the user picked, so narrow
+     * presets don't suppress the very signal they are supposed to emphasise.
+     */
+    private fun applyPerColumnMedianFromFullInPlace(
+        visible: Array<FloatArray>,
+        fullMel: Array<FloatArray>,
+    ) {
+        if (visible.isEmpty() || fullMel.isEmpty()) return
+        val frames = visible[0].size
+        if (frames == 0 || fullMel[0].size != frames) return
+        val fullRows = fullMel.size
+        val column = FloatArray(fullRows)
+        val sortBuf = FloatArray(fullRows)
+        val medianIndex = fullRows / 2
+        for (frame in 0 until frames) {
+            for (row in 0 until fullRows) column[row] = fullMel[row][frame]
+            column.copyInto(sortBuf)
+            sortBuf.sort()
+            val median = sortBuf[medianIndex]
+            for (row in visible.indices) visible[row][frame] -= median
         }
     }
 
