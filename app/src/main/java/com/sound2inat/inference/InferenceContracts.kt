@@ -15,13 +15,6 @@ sealed interface InferenceOutcome {
          * and reopens the screen until inference reruns. (See Task 15.)
          */
         val windows: List<WindowPrediction> = emptyList(),
-        /**
-         * Per-recording aggregated YamNet scene scores (element-wise max across
-         * windows). Defaults to [SceneTags.EMPTY] when the gate was disabled
-         * or never observed biological activity; the queue uses this to decide
-         * whether to persist sceneTagsJson on the draft.
-         */
-        val sceneTags: SceneTags = SceneTags.EMPTY,
     ) : InferenceOutcome
 
     data class Failure(val message: String) : InferenceOutcome

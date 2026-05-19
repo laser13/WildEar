@@ -633,33 +633,6 @@ class ReviewViewModelTest {
         }
 
     @Test
-    fun `setDisplayRange updates the current profile immediately`() =
-        runTest(UnconfinedTestDispatcher()) {
-            val draftId = "visual_config_live_apply"
-            val draftDao = FakeDraftDao().apply {
-                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
-            }
-            val repo = repo(draftDao, FakeDetectionDao())
-            val queue = makeQueue(draftRepo = repo)
-            val vm = ReviewViewModel(
-                draftId = draftId,
-                repo = repo,
-                player = FakeAudioPlayer(),
-                inference = noopInference(),
-                queue = queue,
-                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
-                externalScope = backgroundScope,
-            )
-
-            vm.setDisplayRange(SpectrogramDisplayRange.FULL)
-
-            assertThat(vm.displayRange.value).isEqualTo(SpectrogramDisplayRange.FULL)
-            assertThat(
-                vm.state.value.processingProfile.spectrogramConfig.displayRange
-            ).isEqualTo(SpectrogramDisplayRange.FULL)
-        }
-
-    @Test
     fun `reanalyze current profile materializes processed audio without visuals first`() =
         runTest(UnconfinedTestDispatcher()) {
             val draftId = "audio_source_not_ready"
@@ -2150,13 +2123,6 @@ private class FakeDraftDao : DraftDao {
         return 1
     }
 
-    override fun updateDisplayRange(id: String, name: String?, ts: Long): Int {
-        val current = rows[id] ?: return 0
-        rows[id] = current.copy(displayRangeName = name, updatedAtUtcMs = ts)
-        emitter.value = rows.values.toList()
-        return 1
-    }
-
     override fun updatePalette(id: String, name: String?, ts: Long): Int {
         val current = rows[id] ?: return 0
         rows[id] = current.copy(paletteName = name, updatedAtUtcMs = ts)
@@ -2170,16 +2136,6 @@ private class FakeDraftDao : DraftDao {
         emitter.value = rows.values.toList()
         return 1
     }
-
-    override fun updateSceneTags(id: String, json: String?, ts: Long): Int {
-        val current = rows[id] ?: return 0
-        rows[id] = current.copy(sceneTagsJson = json, updatedAtUtcMs = ts)
-        emitter.value = rows.values.toList()
-        return 1
-    }
-
-    override fun getSceneTagsJson(id: String): String? = rows[id]?.sceneTagsJson
-    override fun getDisplayRangeName(id: String): String? = rows[id]?.displayRangeName
 
     fun byId(id: String): DraftEntity? = rows[id]
 }

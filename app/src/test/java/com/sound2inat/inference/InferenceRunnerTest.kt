@@ -129,48 +129,6 @@ class InferenceRunnerTest {
     }
 
     @Test
-    fun `runner aggregates SceneTags from every gate invocation as element-wise max`() = runTest {
-        val wav = writeSilentWav(durationSeconds = 5) // 3 windows at 1s hop / 3s window
-        val model = RecordingFakeModel()
-        // Return a different SceneTags per call so the test proves max-merge,
-        // not just last-write-wins. Each field's max sits on a different window.
-        val perWindowTags = listOf(
-            SceneTags(bird = 0.9f, owl = 0.1f, frog = 0.2f, insect = 0.3f, mammal = 0.0f),
-            SceneTags(bird = 0.2f, owl = 0.8f, frog = 0.4f, insect = 0.1f, mammal = 0.5f),
-            SceneTags(bird = 0.3f, owl = 0.4f, frog = 0.7f, insect = 0.6f, mammal = 0.2f),
-        )
-        var idx = 0
-        val gate = YamNetGate { _, _ ->
-            val tags = perWindowTags[idx]
-            idx += 1
-            YamNetGateResult(
-                biologicalScore = 0.5f,
-                backgroundScore = 0.1f,
-                recommendation = GateRecommendation.PASS,
-                sceneTags = tags,
-            )
-        }
-        val runner = InferenceRunner(listOf(model), hopSeconds = 1f, yamNetGate = gate)
-
-        runner.run(wav, latitude = null, longitude = null, observedAtMillis = 0L)
-
-        assertThat(idx).isEqualTo(3) // gate was actually invoked per window
-        assertThat(runner.consumeSceneTags()).isEqualTo(
-            SceneTags(bird = 0.9f, owl = 0.8f, frog = 0.7f, insect = 0.6f, mammal = 0.5f),
-        )
-    }
-
-    @Test
-    fun `consumeSceneTags returns EMPTY when no gate is configured`() = runTest {
-        val wav = writeSilentWav(durationSeconds = 5)
-        val runner = InferenceRunner(listOf(RecordingFakeModel()), hopSeconds = 1f)
-
-        runner.run(wav, latitude = null, longitude = null, observedAtMillis = 0L)
-
-        assertThat(runner.consumeSceneTags()).isEqualTo(SceneTags.EMPTY)
-    }
-
-    @Test
     fun `gate returning DOWNRANK skips all windows when model confidence is low`() = runTest {
         val wav = writeSilentWav(durationSeconds = 5)
         val model = RecordingFakeModel() // returns confidence 0.5, below 0.7 override threshold

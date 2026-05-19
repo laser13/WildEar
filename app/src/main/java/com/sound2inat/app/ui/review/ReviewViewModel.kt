@@ -240,11 +240,6 @@ class ReviewViewModel(
     /** Optional bootstrap cache root for review visuals. */
     private val defaultFilesDir: File? = null,
     private val queue: InferenceQueue,
-    /**
-     * Lazy YamNet backfill for drafts that pre-date the live-recording
-     * SceneTags path. Null in tests; production passes a real analyzer.
-     */
-    private val sceneTagsAnalyzer: com.sound2inat.inference.LiveSceneTagsAnalyzer? = null,
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -268,19 +263,6 @@ class ReviewViewModel(
 
     private val _spectrogramConfig = MutableStateFlow(ReviewProcessingProfile.Default.spectrogramConfig)
     val spectrogramConfig: StateFlow<ReviewSpectrogramConfig> = _spectrogramConfig.asStateFlow()
-
-    private val _displayRange = MutableStateFlow<SpectrogramDisplayRange?>(null)
-    val displayRange: StateFlow<SpectrogramDisplayRange?> = _displayRange.asStateFlow()
-
-    private val _sceneTagsAvailable = MutableStateFlow(false)
-    val sceneTagsAvailable: StateFlow<Boolean> = _sceneTagsAvailable.asStateFlow()
-
-    private val _autoInProgress = MutableStateFlow(false)
-    val autoInProgress: StateFlow<Boolean> = _autoInProgress.asStateFlow()
-
-    /** Latest message describing the outcome of [pressAuto]; null when never run. */
-    private val _autoMessage = MutableStateFlow<String?>(null)
-    val autoMessage: StateFlow<String?> = _autoMessage.asStateFlow()
 
     val visualsLoading: StateFlow<Boolean> = _state
         .map { it.visualsLoading }
@@ -338,7 +320,6 @@ class ReviewViewModel(
     private var inferenceStarted = false
     private var visualsStarted = false
     private var visualsJob: Job? = null
-    private var sceneTagsBackfillStarted = false
 
     /** Last result of [perchInstalledProbe]; folded into [ReviewUiState.canAnalyzeWithPerch]. */
     private var perchInstalled: Boolean = false
@@ -423,8 +404,6 @@ class ReviewViewModel(
                 // is requested. Defensive about malformed enum names so a bad
                 // row never crashes the screen.
                 seedSpectrogramFromDraft(draft)
-                _sceneTagsAvailable.value = draft.sceneTagsJson != null
-                maybeBackfillSceneTags(draft)
                 // Preserve already-fetched taxonPhotoUrl across DB re-emissions.
                 // Reads from the long-lived [photoUrlCache] rather than
                 // _state.value.species — DraftRepository.attachDetections
@@ -949,67 +928,24 @@ class ReviewViewModel(
     }
 
     /**
-     * Mirrors persisted per-draft spectrogram settings into the in-memory
-     * processing profile. Defensive: malformed enum names degrade to null
-     * ("follow live defaults") rather than crashing.
+     * Mirrors persisted per-draft spectrogram settings (palette + contrast)
+     * into the in-memory processing profile. Defensive: malformed enum names
+     * degrade to null ("follow live defaults") rather than crashing.
      */
     private fun seedSpectrogramFromDraft(draft: com.sound2inat.storage.DraftEntity) {
-        val storedRange = draft.displayRangeName?.let {
-            runCatching { SpectrogramDisplayRange.valueOf(it) }.getOrNull()
-        }
         val storedPalette = draft.paletteName?.let {
             runCatching { SpectrogramPalette.valueOf(it) }.getOrNull()
         }
         val storedGain = draft.spectrogramGainDb
         val currentConfig = _processingProfile.value.spectrogramConfig
-        val unchanged = currentConfig.displayRange == storedRange &&
-            currentConfig.palette == storedPalette &&
-            currentConfig.gainDb == storedGain
-        if (unchanged) return
+        if (currentConfig.palette == storedPalette && currentConfig.gainDb == storedGain) return
         val updatedConfig = currentConfig.copy(
-            displayRange = storedRange,
             palette = storedPalette,
             gainDb = storedGain,
         )
         updateProcessingProfile(
             _processingProfile.value.copy(spectrogramConfig = updatedConfig)
         )
-    }
-
-    /**
-     * Lazy backfill for drafts that pre-date the live-recording SceneTags path
-     * (sceneTagsJson is NULL). Runs YamNet over the saved WAV once per VM
-     * lifetime when both prerequisites hold: scene tags are missing AND we have
-     * an audio file to analyse. Manual displayRange picks are preserved by
-     * SceneTagsPersister.
-     */
-    private fun maybeBackfillSceneTags(draft: com.sound2inat.storage.DraftEntity) {
-        if (sceneTagsBackfillStarted) return
-        if (draft.sceneTagsJson != null) return
-        val analyzer = sceneTagsAnalyzer ?: return
-        val audioPath = draft.audioPath
-        if (audioPath.isBlank()) return
-        sceneTagsBackfillStarted = true
-        scope.launch {
-            val tags = analyzer.analyze(audioPath) ?: return@launch
-            SceneTagsPersister.persistAndApplyAuto(repo, draftId, tags)
-        }
-    }
-
-    /**
-     * Switches the spectrogram display range and re-renders. Pass `null` to fall
-     * back to the live-recording defaults. Persists the choice on the draft row.
-     */
-    fun setDisplayRange(range: SpectrogramDisplayRange?) {
-        if (_displayRange.value == range && _spectrogramConfig.value.displayRange == range) {
-            return
-        }
-        updateProcessingProfile(
-            _processingProfile.value.copy(
-                spectrogramConfig = _processingProfile.value.spectrogramConfig.copy(displayRange = range),
-            )
-        )
-        scope.launch { repo.updateDisplayRange(draftId, range?.name) }
     }
 
     fun setSpectrogramPalette(palette: SpectrogramPalette?) {
@@ -1041,58 +977,6 @@ class ReviewViewModel(
         setSpectrogramGain(current + delta)
     }
 
-    /**
-     * Picks a display range from the YamNet scene tags cached on the draft and
-     * applies it. No-op when no scene tags are stored or when the picker
-     * returns null.
-     *
-     * Compare-and-set guard: the displayRange visible to the user is captured
-     * before the suspending JSON read, and the auto-pick is dropped if the
-     * user picked a chip while we were waiting. This avoids clobbering an
-     * explicit user choice with a stale auto-pick.
-     */
-    fun pressAuto() {
-        scope.launch {
-            _autoInProgress.value = true
-            try {
-                val snapshot = _processingProfile.value.spectrogramConfig.displayRange
-                val json = runCatching { repo.getSceneTagsJson(draftId) }.getOrNull()
-                val tags = json?.let { com.sound2inat.inference.SceneTags.fromJson(it) }
-                val taxonHints = _state.value.species.map { it.taxonScientificName }
-                val picked = AutoDisplayRangePicker.pickDisplayRangeWithFallback(tags, taxonHints)
-                if (picked == null) {
-                    _autoMessage.value = if (tags == null && taxonHints.isEmpty()) {
-                        "No scene data yet — try again in a moment."
-                    } else {
-                        "Couldn't pick a preset — kept your selection."
-                    }
-                    return@launch
-                }
-                // Cancel if the user changed the displayRange while we were
-                // reading scene tags off disk.
-                if (_processingProfile.value.spectrogramConfig.displayRange != snapshot) {
-                    _autoMessage.value = "Kept your manual pick (you changed it just now)."
-                    return@launch
-                }
-                setDisplayRange(picked)
-                _autoMessage.value = "Picked ${picked.displayName} (${picked.rangeLabel})."
-            } finally {
-                // Keep the spinner visible long enough for the user to perceive
-                // the click; otherwise the disk read finishes in <50 ms and
-                // the icon would barely flicker.
-                kotlinx.coroutines.delay(AUTO_PROGRESS_MIN_VISIBLE_MS)
-                _autoInProgress.value = false
-            }
-        }
-    }
-
-    /** Clears the per-draft visual overrides so the card reverts to live defaults. */
-    fun resetVisuals() {
-        setDisplayRange(null)
-        setSpectrogramPalette(null)
-        setSpectrogramGain(null)
-    }
-
     fun setAudioProcessingConfig(config: ReviewAudioProcessingConfig) {
         if (config == ReviewAudioProcessingConfig.Original) {
             updateProcessingProfile(ReviewProcessingProfile.Default)
@@ -1115,7 +999,6 @@ class ReviewViewModel(
             profile.spectrogramConfig.displayPlaneCacheSuffix()
         _processingProfile.value = profile
         _spectrogramConfig.value = profile.spectrogramConfig
-        _displayRange.value = profile.spectrogramConfig.displayRange
         _state.update { s ->
             s.copy(
                 processingProfile = profile,
@@ -1552,9 +1435,6 @@ class ReviewViewModel(
         const val HighlightDurationMs = 800L
 
         private const val CLIP_PADDING_MS = 1_000L
-
-        /** Min duration the Auto-button spinner stays visible so the press registers visually. */
-        private const val AUTO_PROGRESS_MIN_VISIBLE_MS = 350L
     }
 }
 
@@ -1584,7 +1464,6 @@ class ReviewViewModelFactory @Inject constructor(
     private val queue: InferenceQueue,
     private val audioExport: AudioExportManager,
     private val visualsCoordinator: ReviewVisualsCoordinator,
-    private val sceneTagsAnalyzer: com.sound2inat.inference.LiveSceneTagsAnalyzer,
 ) {
     /** Cache root used to bootstrap review visuals and submission artifacts. */
     val filesDir: File get() = context.filesDir
@@ -1638,7 +1517,6 @@ class ReviewViewModelFactory @Inject constructor(
         defaultFilesDir = filesDir,
         visualsCoordinator = visualsCoordinator,
         queue = queue,
-        sceneTagsAnalyzer = sceneTagsAnalyzer,
         externalScope = externalScope,
     )
 }

@@ -130,7 +130,6 @@ internal class ProductionInferenceJob(
         val allPreds = ArrayList<WindowPrediction>()
         val succeeded = ArrayList<BioacousticModel>()
         val perModelErrors = ArrayList<String>()
-        var aggregatedSceneTags: SceneTags = SceneTags.EMPTY
         val total = ready.size
         // Per-model try/catch so a broken model (e.g. wrong output shape)
         // doesn't kill the entire run — the other models still produce
@@ -160,7 +159,6 @@ internal class ProductionInferenceJob(
                     collector.cancel()
                     result
                 }
-                aggregatedSceneTags = SceneTagsAggregator.merge(aggregatedSceneTags, runner.consumeSceneTags())
                 val rescaled = if (model.modelId == BIRDNET_MODEL_ID && birdNetPriors != null) {
                     applyBirdNetPriors(perModel, birdNetPriors)
                 } else {
@@ -214,7 +212,6 @@ internal class ProductionInferenceJob(
             modelVersion = versions,
             detections = rawDetections,
             windows = allPreds,
-            sceneTags = aggregatedSceneTags,
         )
     }
 

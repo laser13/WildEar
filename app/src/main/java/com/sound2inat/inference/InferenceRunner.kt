@@ -7,8 +7,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicInteger
@@ -49,29 +47,6 @@ class InferenceRunner(
     private val _progress = MutableStateFlow(0f)
     val progress: StateFlow<Float> = _progress
 
-    private val sceneTagsMutex = Mutex()
-    private var sceneTagsAccumulator: SceneTags = SceneTags.EMPTY
-
-    /**
-     * Per-recording [SceneTags] aggregate: element-wise max across every window
-     * that passed through the YamNet gate. Read after [run] returns; returns
-     * [SceneTags.EMPTY] when no gate was configured or the gate never observed
-     * biological activity.
-     *
-     * Not safe for concurrent or re-entrant [run] calls on the same instance:
-     * the unsynchronised reset at the start of [run] would race with in-flight
-     * per-window merges. Production wires a fresh [InferenceRunner] per model
-     * inside [ProductionInferenceJob], so this single-caller assumption holds.
-     */
-    fun consumeSceneTags(): SceneTags = sceneTagsAccumulator
-
-    private suspend fun mergeSceneTagsFromGate(result: YamNetGateResult?) {
-        if (result == null) return
-        sceneTagsMutex.withLock {
-            sceneTagsAccumulator = SceneTagsAggregator.merge(sceneTagsAccumulator, result.sceneTags)
-        }
-    }
-
     suspend fun run(
         wavFile: File,
         latitude: Double?,
@@ -79,7 +54,6 @@ class InferenceRunner(
         observedAtMillis: Long,
     ): List<WindowPrediction> {
         _progress.value = 0f
-        sceneTagsAccumulator = SceneTags.EMPTY
         val model = models.first()
         val targetRate = model.expectedSampleRateHz
 
@@ -197,7 +171,6 @@ class InferenceRunner(
             val s = f * plan.hop
             val window = readResampledWindow(reader, ratio, s, plan.win)
             val gateResult = yamNetGate?.classify(window, targetRate)
-            mergeSceneTagsFromGate(gateResult)
             if (hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) {
                 _progress.value = (f + 1).toFloat() / plan.frames
                 continue
@@ -316,7 +289,6 @@ class InferenceRunner(
             val s = f * plan.hop
             val window = readResampledWindow(reader, ratio, s, plan.win)
             val gateResult = yamNetGate?.classify(window, targetRate)
-            mergeSceneTagsFromGate(gateResult)
             if (hardGate && gateResult?.recommendation == GateRecommendation.DOWNRANK) {
                 val newProgress = counter.incrementAndGet().toFloat() / plan.frames
                 _progress.update { maxOf(it, newProgress) }

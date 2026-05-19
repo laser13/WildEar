@@ -1,7 +1,6 @@
 package com.sound2inat.app.inference
 
 import android.util.Log
-import com.sound2inat.app.ui.review.SceneTagsPersister
 import com.sound2inat.inference.InferenceOutcome
 import com.sound2inat.inference.InferenceUseCase
 import com.sound2inat.inference.ModelIds
@@ -147,12 +146,6 @@ class InferenceQueue @Inject constructor(
                         newModelVersion = outcome.modelVersion,
                         freshDetections = outcome.detections,
                         promoteToReviewed = true,
-                    )
-                    SceneTagsPersister.persistAndApplyAuto(
-                        repo = repo,
-                        draftId = job.draftId,
-                        sceneTags = outcome.sceneTags,
-                        taxonNamesHint = outcome.detections.map { it.taxonScientificName },
                     )
                 }
                 is InferenceOutcome.Failure ->

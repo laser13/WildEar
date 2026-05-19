@@ -2,13 +2,11 @@ package com.sound2inat.app.recording
 
 import com.sound2inat.app.ui.recording.GpsStatus
 import com.sound2inat.app.ui.recording.LiveCard
-import com.sound2inat.app.ui.review.SceneTagsPersister
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.DetectionAggregator
 import com.sound2inat.inference.LiveInferenceEngine
 import com.sound2inat.inference.LiveInferenceEngineFactory
-import com.sound2inat.inference.LiveSceneTagsAnalyzer
 import com.sound2inat.inference.ModelIds
 import com.sound2inat.inference.PostRecordingProcessor
 import com.sound2inat.inference.RegionalStatus
@@ -93,7 +91,6 @@ class DefaultRecordingController(
     private val softLimitMs: Long = SOFT_LIMIT_MS,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val processor: PostRecordingProcessor? = null,
-    private val sceneTagsAnalyzer: LiveSceneTagsAnalyzer? = null,
 ) : RecordingController {
 
     private val scope: CoroutineScope = applicationScope
@@ -267,23 +264,6 @@ class DefaultRecordingController(
                 longitude = fix?.longitude,
                 accuracyMeters = fix?.accuracyMeters,
             )
-        }
-        // Fire-and-forget YamNet analysis so the review screen's Auto button
-        // gets data even for live-recorded drafts (the live path bypasses
-        // InferenceQueue and would otherwise leave sceneTagsJson NULL). Even
-        // before YamNet finishes, the persister can already apply a preset
-        // based on the live detections we already have on hand.
-        val taxonHints = finalDetections.map { it.taxonScientificName }
-        if (sceneTagsAnalyzer != null || taxonHints.isNotEmpty()) {
-            applicationScope.launch {
-                val tags = sceneTagsAnalyzer?.analyze(result.audioPath)
-                SceneTagsPersister.persistAndApplyAuto(
-                    repo = drafts,
-                    draftId = id,
-                    sceneTags = tags ?: com.sound2inat.inference.SceneTags.EMPTY,
-                    taxonNamesHint = taxonHints,
-                )
-            }
         }
         activeEngine = null
         activeAggregator = null

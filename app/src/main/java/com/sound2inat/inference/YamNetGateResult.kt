@@ -6,7 +6,6 @@ data class YamNetGateResult(
     val biologicalScore: Float,
     val backgroundScore: Float,
     val recommendation: GateRecommendation,
-    val sceneTags: SceneTags = SceneTags.EMPTY,
 )
 
 /** Threshold above which a high-confidence prediction overrides a DOWNRANK gate decision. */

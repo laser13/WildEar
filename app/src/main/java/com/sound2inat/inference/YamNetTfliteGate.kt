@@ -26,11 +26,6 @@ class YamNetTfliteGate(
     private var interpreter: InterpreterApi? = null
     private var bioIndices: Set<Int> = emptySet()
     private var noiseIndices: Set<Int> = emptySet()
-    private var birdIndices: Set<Int> = emptySet()
-    private var owlIndices: Set<Int> = emptySet()
-    private var frogIndices: Set<Int> = emptySet()
-    private var insectIndices: Set<Int> = emptySet()
-    private var mammalIndices: Set<Int> = emptySet()
 
     override suspend fun classify(pcmFloat32: FloatArray, sampleRateHz: Int): YamNetGateResult? =
         runCatching { classifyInternal(pcmFloat32, sampleRateHz) }.getOrNull()
@@ -44,11 +39,6 @@ class YamNetTfliteGate(
             var maxBioScore = 0f
             var maxNoiseScore = 0f
             var anyNoiseTopWithLowBio = false
-            var maxBird = 0f
-            var maxOwl = 0f
-            var maxFrog = 0f
-            var maxInsect = 0f
-            var maxMammal = 0f
             var frameStart = 0
             while (frameStart < resampled.size) {
                 val frame = FloatArray(YAMNET_FRAME_SIZE)
@@ -64,16 +54,6 @@ class YamNetTfliteGate(
                 if (bioScore > maxBioScore) maxBioScore = bioScore
                 if (noiseScore > maxNoiseScore) maxNoiseScore = noiseScore
                 if (topClass in noiseIndices && bioScore < BIO_THRESHOLD) anyNoiseTopWithLowBio = true
-                val birdScore = birdIndices.maxOfOrNull { probs[it] } ?: 0f
-                val owlScore = owlIndices.maxOfOrNull { probs[it] } ?: 0f
-                val frogScore = frogIndices.maxOfOrNull { probs[it] } ?: 0f
-                val insectScore = insectIndices.maxOfOrNull { probs[it] } ?: 0f
-                val mammalScore = mammalIndices.maxOfOrNull { probs[it] } ?: 0f
-                if (birdScore > maxBird) maxBird = birdScore
-                if (owlScore > maxOwl) maxOwl = owlScore
-                if (frogScore > maxFrog) maxFrog = frogScore
-                if (insectScore > maxInsect) maxInsect = insectScore
-                if (mammalScore > maxMammal) maxMammal = mammalScore
                 frameStart += YAMNET_FRAME_SIZE
             }
             val passes = !(maxBioScore < BIO_THRESHOLD && anyNoiseTopWithLowBio)
@@ -81,7 +61,6 @@ class YamNetTfliteGate(
                 biologicalScore = maxBioScore,
                 backgroundScore = maxNoiseScore,
                 recommendation = if (passes) GateRecommendation.PASS else GateRecommendation.DOWNRANK,
-                sceneTags = SceneTags(maxBird, maxOwl, maxFrog, maxInsect, maxMammal),
             )
         }
     }
@@ -93,11 +72,6 @@ class YamNetTfliteGate(
         val classMap = parseClassMap(state.labelsFile)
         bioIndices = BIOLOGICAL_DISPLAY_NAMES.mapNotNull { classMap[it] }.toSet()
         noiseIndices = NOISE_DISPLAY_NAMES.mapNotNull { classMap[it] }.toSet()
-        birdIndices = BIRD_DISPLAY_NAMES.mapNotNull { classMap[it] }.toSet()
-        owlIndices = OWL_DISPLAY_NAMES.mapNotNull { classMap[it] }.toSet()
-        frogIndices = FROG_DISPLAY_NAMES.mapNotNull { classMap[it] }.toSet()
-        insectIndices = INSECT_DISPLAY_NAMES.mapNotNull { classMap[it] }.toSet()
-        mammalIndices = MAMMAL_DISPLAY_NAMES.mapNotNull { classMap[it] }.toSet()
         interpreter = factory.create(state.modelFile, threads = 1)
     }
 
@@ -142,26 +116,19 @@ class YamNetTfliteGate(
         private const val BIO_THRESHOLD = 0.15f
 
         // Display names from yamnet_class_map.csv — verify against downloaded CSV if gate misfires.
-        private val BIRD_DISPLAY_NAMES = setOf(
+        private val BIOLOGICAL_DISPLAY_NAMES = setOf(
+            "Animal", "Wild animals", "Silence",
             "Bird", "Bird vocalization, bird call, bird song", "Chirp, tweet",
             "Squawk", "Pigeon, dove", "Cooing", "Crow", "Caw",
             "Bird flight, flapping wings",
-        )
-        private val OWL_DISPLAY_NAMES = setOf("Owl", "Hoot")
-        private val FROG_DISPLAY_NAMES = setOf("Frog", "Croak")
-        private val INSECT_DISPLAY_NAMES = setOf("Insect", "Cricket", "Bee, wasp, etc.")
-        private val MAMMAL_DISPLAY_NAMES = setOf(
+            "Owl", "Hoot",
+            "Frog", "Croak",
+            "Insect", "Cricket", "Bee, wasp, etc.",
             "Rodents, rats, mice", "Squeak",
             "Canidae, wild dogs, wolves", "Howl", "Bow-wow", "Bay",
             "Roar", "Caterwaul",
             "Bovine, mooing", "Whale vocalization",
         )
-
-        private val BIOLOGICAL_DISPLAY_NAMES: Set<String> =
-            setOf("Animal", "Wild animals", "Silence") +
-                BIRD_DISPLAY_NAMES + OWL_DISPLAY_NAMES +
-                FROG_DISPLAY_NAMES + INSECT_DISPLAY_NAMES +
-                MAMMAL_DISPLAY_NAMES
 
         private val NOISE_DISPLAY_NAMES = setOf(
             "Speech", "Engine", "Motor vehicle (road)", "Car", "Motorcycle", "Truck",
