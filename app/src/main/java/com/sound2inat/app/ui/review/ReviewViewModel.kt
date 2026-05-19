@@ -1036,6 +1036,12 @@ class ReviewViewModel(
         scope.launch { repo.updateSpectrogramGain(draftId, clamped) }
     }
 
+    /** Adds [delta] dB to the spectrogram contrast (clamped to [-20, 20]). */
+    fun bumpContrast(delta: Float) {
+        val current = _spectrogramConfig.value.gainDb ?: 0f
+        setSpectrogramGain(current + delta)
+    }
+
     /**
      * Picks a display range from the YamNet scene tags cached on the draft and
      * applies it. No-op when no scene tags are stored or when the picker

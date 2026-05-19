@@ -66,7 +66,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -178,7 +177,6 @@ private fun ReviewPage(
     val context = LocalContext.current
 
     var settingsSheetVisible by remember { mutableStateOf(false) }
-    var settingsTab by rememberSaveable { mutableStateOf(ReviewSettingsTab.Audio) }
     ReviewVisualsEffect(
         isActive = isActive,
         audioPath = state.audioPath,
@@ -288,7 +286,6 @@ private fun ReviewPage(
                         state = state,
                         vm = vm,
                         onSettingsClick = {
-                            settingsTab = ReviewSettingsTab.Audio
                             settingsSheetVisible = true
                         },
                     )
@@ -504,11 +501,9 @@ private fun ReviewPage(
         ReviewSettingsBottomSheet(
             state = state,
             profile = state.processingProfile,
-            selectedTab = settingsTab,
-            onSelectedTabChange = { settingsTab = it },
-            onApply = vm::setProcessingProfile,
             onDismiss = { settingsSheetVisible = false },
             onPaletteChange = vm::setSpectrogramPalette,
+            onContrastDelta = vm::bumpContrast,
         )
     }
 
