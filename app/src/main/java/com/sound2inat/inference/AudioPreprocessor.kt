@@ -40,42 +40,6 @@ fun highPassFilter(samples: FloatArray, sampleRateHz: Int, cutoffHz: Int = 250):
 }
 
 /**
- * Denoise a full mono signal in one shot: high-pass filter, then 1-second
- * non-overlapping chunks each fed through a single [SpectralSubtractor]
- * (so its EMA noise profile builds up across the recording).
- *
- * Output length equals input length. Used by the Review screen's denoise
- * preview — separate from [InferenceRunner] which slices on the model's
- * own (overlapping) window cadence.
- */
-fun denoiseFull(samples: FloatArray, sampleRateHz: Int): FloatArray {
-    if (samples.isEmpty()) return samples
-    val filtered = highPassFilter(samples, sampleRateHz)
-    val chunkSize = sampleRateHz // 1-second chunks, regardless of model window length
-    if (filtered.size <= chunkSize) return SpectralSubtractor().process(filtered)
-    val sub = SpectralSubtractor()
-    val out = FloatArray(filtered.size)
-    var off = 0
-    while (off < filtered.size) {
-        val avail = filtered.size - off
-        if (avail >= chunkSize) {
-            val chunk = filtered.copyOfRange(off, off + chunkSize)
-            sub.process(chunk).copyInto(out, off, 0, chunkSize)
-            off += chunkSize
-        } else {
-            // Last partial chunk: pad to full chunkSize with zeros (the subtractor's
-            // FFT-size invariant requires every call to use the same window length),
-            // process, then copy back only the original [avail] samples.
-            val padded = FloatArray(chunkSize)
-            filtered.copyInto(padded, 0, off, off + avail)
-            sub.process(padded).copyInto(out, off, 0, avail)
-            off += avail
-        }
-    }
-    return out
-}
-
-/**
  * Adaptive spectral subtraction noise reducer.
  *
  * Quiet windows (RMS < 0.01) update an EMA noise power profile (α=0.1).

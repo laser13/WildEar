@@ -229,12 +229,6 @@ private fun InferenceSection(state: SettingsUiState, vm: SettingsViewModel) {
         onCheckedChange = { vm.setAudioSourceRaw(it) },
     )
     ToggleRow(
-        label = stringResource(R.string.label_normalize_audio),
-        subtitle = stringResource(R.string.label_normalize_audio_sub),
-        checked = state.normalizeAudio,
-        onCheckedChange = { vm.setNormalizeAudio(it) },
-    )
-    ToggleRow(
         label = stringResource(R.string.label_yamnet_gate),
         checked = state.yamNetGateEnabled,
         onCheckedChange = { vm.setYamNetGateEnabled(it) },

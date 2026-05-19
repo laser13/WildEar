@@ -62,38 +62,6 @@ class AudioPreprocessorTest {
     }
 
     @Test
-    fun `denoiseFull preserves length and applies HPF on a multi-second signal`() {
-        val n = sampleRate * 3 // 3 seconds — exercises the multi-chunk path
-        val signal = FloatArray(n) { k ->
-            val t = k.toDouble() / sampleRate
-            (sin(2 * PI * 100 * t) * 0.5 + sin(2 * PI * 1000 * t) * 0.5).toFloat()
-        }
-        val out = denoiseFull(signal, sampleRate)
-        assertThat(out).hasLength(signal.size)
-        // 100 Hz must be attenuated relative to the original (HPF is unconditional).
-        val origPow100 = powerAtFreq(signal, 100.0)
-        val outPow100 = powerAtFreq(out, 100.0)
-        assertThat(outPow100 / origPow100).isLessThan(0.1)
-    }
-
-    @Test
-    fun `denoiseFull handles signal shorter than one second`() {
-        val short = FloatArray(sampleRate / 2) { 0.1f } // 0.5 s
-        val out = denoiseFull(short, sampleRate)
-        assertThat(out).hasLength(short.size)
-    }
-
-    @Test
-    fun `denoiseFull handles partial last chunk without size mismatch`() {
-        // 2.5 seconds — first two chunks full, last is partial. Must not crash
-        // due to SpectralSubtractor's window-size invariant.
-        val n = (sampleRate * 2.5).toInt()
-        val signal = FloatArray(n) { 0.05f }
-        val out = denoiseFull(signal, sampleRate)
-        assertThat(out).hasLength(signal.size)
-    }
-
-    @Test
     fun `SpectralSubtractor reduces RMS after noise profile is established`() {
         val sub = SpectralSubtractor()
         sub.process(FloatArray(1024) { 0.008f }) // first quiet window — establishes profile

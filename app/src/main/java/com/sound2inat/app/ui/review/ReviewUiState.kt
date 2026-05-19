@@ -48,9 +48,6 @@ data class ReviewUiState(
     val species: List<SpeciesRow> = emptyList(),
     val playback: PlaybackState = PlaybackState.Idle,
     val processingProfile: ReviewProcessingProfile = ReviewProcessingProfile.Default,
-    val audioProcessingConfig: ReviewAudioProcessingConfig = processingProfile.audioProcessingConfig,
-    val processedAudioPath: String? = null,
-    val processingAudio: Boolean = false,
     val visualsLoading: Boolean = false,
     val visualsError: String? = null,
     /** Persisted observations attached to this draft from prior submissions. */
@@ -71,8 +68,6 @@ data class ReviewUiState(
     val perchProgress: Float? = null,
     /** Last failure message from a Perch reanalysis run, cleared on next start. */
     val perchError: String? = null,
-    /** Whether playback uses the denoised audio file instead of the raw recording. */
-    val denoisePlayback: Boolean = false,
     /** Habitat photos attached to this draft, ordered by capture time. */
     val habitatPhotos: List<DraftPhotoEntity> = emptyList(),
     /** Position in the inference queue (0 = next up). Null when not queued. */

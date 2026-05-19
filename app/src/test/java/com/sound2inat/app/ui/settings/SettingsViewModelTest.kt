@@ -90,8 +90,6 @@ class SettingsViewModelTest {
             writeAllowDeleteUploaded = {},
             audioSourceRawFlow = kotlinx.coroutines.flow.flowOf(true),
             writeAudioSourceRaw = {},
-            normalizeAudioFlow = kotlinx.coroutines.flow.flowOf(true),
-            writeNormalizeAudio = {},
             externalScope = backgroundScope,
         )
         val sections = vm.state.value.sections.associateBy { it.modelId }
@@ -229,8 +227,6 @@ class SettingsViewModelTest {
         writeAllowDeleteUploaded = {},
         audioSourceRawFlow = kotlinx.coroutines.flow.flowOf(true),
         writeAudioSourceRaw = {},
-        normalizeAudioFlow = kotlinx.coroutines.flow.flowOf(true),
-        writeNormalizeAudio = {},
         externalScope = scope,
     )
 }

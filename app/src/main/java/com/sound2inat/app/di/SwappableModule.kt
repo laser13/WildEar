@@ -12,7 +12,6 @@ import com.sound2inat.inference.LiveInferenceEngine
 import com.sound2inat.inference.LiveInferenceEngineFactory
 import com.sound2inat.inference.ModelIds
 import com.sound2inat.inference.PerchTfliteModel
-import com.sound2inat.inference.SpectralSubtractor
 import com.sound2inat.inference.YamNetGate
 import com.sound2inat.inference.YamNetTfliteGate
 import com.sound2inat.location.FusedLocationProvider
@@ -146,14 +145,13 @@ object SwappableModule {
             ?: return@LiveInferenceEngineFactory null
         runCatching { birdnet.load(ready.modelFile, ready.labelsFile) }
             .getOrElse { return@LiveInferenceEngineFactory null }
-        val usePreprocessing = settings.spectralSubtractionEnabled.first()
         val gate = if (settings.yamNetGateEnabled.first()) yamGate else null
         LiveInferenceEngine(
             model = birdnet,
             yamNetGate = gate,
-            spectralSubtractor = SpectralSubtractor(),
+            spectralSubtractor = null,
             sampleRateHz = sampleRateHz,
-            usePreprocessing = usePreprocessing,
+            usePreprocessing = false,
         )
     }
 }

@@ -8,7 +8,6 @@ import com.sound2inat.inference.DetectionAggregator
 import com.sound2inat.inference.LiveInferenceEngine
 import com.sound2inat.inference.LiveInferenceEngineFactory
 import com.sound2inat.inference.ModelIds
-import com.sound2inat.inference.PostRecordingProcessor
 import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.location.Fix
 import com.sound2inat.location.LocationProvider
@@ -31,7 +30,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -90,7 +88,6 @@ class DefaultRecordingController(
     private val tickIntervalMs: Long = TICK_INTERVAL_MS,
     private val softLimitMs: Long = SOFT_LIMIT_MS,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val processor: PostRecordingProcessor? = null,
 ) : RecordingController {
 
     private val scope: CoroutineScope = applicationScope
@@ -240,7 +237,6 @@ class DefaultRecordingController(
         }
         val result = recorder.stop()
         cancelJobs()
-        processor?.process(File(result.audioPath))
         if (engine != null && finalDetections.isNotEmpty()) {
             drafts.createWithDetections(
                 id = id,

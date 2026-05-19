@@ -26,7 +26,6 @@ class Settings(private val ctx: Context) {
         val LAST_KNOWN_LON = doublePreferencesKey("last_known_lon")
         val MIN_WINDOWS = intPreferencesKey("min_windows")
 
-        // spectral_subtraction_enabled key intentionally removed — denoising disabled
         val YAMNET_GATE_ENABLED = booleanPreferencesKey("yamnet_gate_enabled")
         val BIRDNET_META_ENABLED = booleanPreferencesKey("birdnet_meta_enabled")
         val RADAR_RADIUS_KM = intPreferencesKey("radar_radius_km")
@@ -34,7 +33,6 @@ class Settings(private val ctx: Context) {
         val RADAR_TAXA = stringPreferencesKey("radar_taxa")
         val ALLOW_DELETE_UPLOADED = booleanPreferencesKey("allow_delete_uploaded")
         val AUDIO_SOURCE_RAW = booleanPreferencesKey("audio_source_raw")
-        val NORMALIZE_AUDIO = booleanPreferencesKey("normalize_audio")
         val THEME_MODE = stringPreferencesKey("theme_mode")
     }
 
@@ -46,9 +44,8 @@ class Settings(private val ctx: Context) {
     val lastKnownLat: Flow<Double?> = ctx.dataStore.data.map { it[K.LAST_KNOWN_LAT] }
     val lastKnownLon: Flow<Double?> = ctx.dataStore.data.map { it[K.LAST_KNOWN_LON] }
     val minWindows: Flow<Int> = ctx.dataStore.data.map { it[K.MIN_WINDOWS] ?: DEFAULT_MIN_WINDOWS }
-    val spectralSubtractionEnabled: Flow<Boolean> = kotlinx.coroutines.flow.flowOf(false)
     val yamNetGateEnabled: Flow<Boolean> =
-        ctx.dataStore.data.map { it[K.YAMNET_GATE_ENABLED] ?: true }
+        ctx.dataStore.data.map { it[K.YAMNET_GATE_ENABLED] ?: false }
     val birdNetMetaEnabled: Flow<Boolean> =
         ctx.dataStore.data.map { it[K.BIRDNET_META_ENABLED] ?: true }
     val radarRadiusKm: Flow<Int> =
@@ -60,9 +57,6 @@ class Settings(private val ctx: Context) {
     val audioSourceRaw: Flow<Boolean> =
         ctx.dataStore.data.map { it[K.AUDIO_SOURCE_RAW] ?: false }
 
-    /** Consumed by PostRecordingProcessor — applied after recording stops. */
-    val normalizeAudio: Flow<Boolean> =
-        ctx.dataStore.data.map { it[K.NORMALIZE_AUDIO] ?: true }
     val themeMode: Flow<ThemeMode> = ctx.dataStore.data.map {
         when (it[K.THEME_MODE]) {
             "light" -> ThemeMode.LIGHT
@@ -105,7 +99,6 @@ class Settings(private val ctx: Context) {
         ctx.dataStore.edit { it[K.ALLOW_DELETE_UPLOADED] = v }
     }
     suspend fun setAudioSourceRaw(v: Boolean) { ctx.dataStore.edit { it[K.AUDIO_SOURCE_RAW] = v } }
-    suspend fun setNormalizeAudio(v: Boolean) { ctx.dataStore.edit { it[K.NORMALIZE_AUDIO] = v } }
     suspend fun setThemeMode(v: ThemeMode) {
         ctx.dataStore.edit { it[K.THEME_MODE] = v.name.lowercase() }
     }
