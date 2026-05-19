@@ -21,9 +21,13 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -82,6 +86,45 @@ internal fun WaveformAndSpectrogram(
         with(density) { contentWidthPx.toDp() }
     }
     val scrollState = rememberScrollState()
+    var autoFollow by remember(durationMs) { mutableStateOf(true) }
+
+    // Disarm auto-follow as soon as the user starts a manual scroll gesture;
+    // PlayheadAutoScroll.decide() takes care of re-arming when the cursor
+    // catches up to the visible window again. durationMs is in the key set
+    // because autoFollow is `remember(durationMs)` — when the draft changes,
+    // a fresh MutableState is created and this watcher must re-bind to it.
+    LaunchedEffect(scrollState, durationMs) {
+        snapshotFlow { scrollState.isScrollInProgress }
+            .collect { inProgress ->
+                if (inProgress) autoFollow = false
+            }
+    }
+
+    // Apply auto-follow decision on every position tick: keep the cursor
+    // centered during playback, but only if auto-follow is currently armed
+    // (or the cursor returned into the visible window after a manual scroll —
+    // see PlayheadAutoScroll). One long-lived coroutine consumes positionMs
+    // through snapshotFlow so we don't restart the effect ~20 times/second.
+    LaunchedEffect(durationMs, contentWidthPx, scrollState) {
+        if (durationMs <= 0L || contentWidthPx <= 0) return@LaunchedEffect
+        snapshotFlow { positionMs }.collect { pos ->
+            val cursorPx = (pos.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) * contentWidthPx
+            val decision = PlayheadAutoScroll.decide(
+                autoFollow = autoFollow,
+                cursorPx = cursorPx,
+                currentScroll = scrollState.value,
+                viewportSize = scrollState.viewportSize,
+                maxScroll = scrollState.maxValue,
+            )
+            if (decision.newAutoFollow != autoFollow) {
+                autoFollow = decision.newAutoFollow
+            }
+            decision.targetScroll?.let { target ->
+                scrollState.scrollTo(target)
+            }
+        }
+    }
+
     val axisBackdrop = MaterialTheme.colorScheme.surface.copy(alpha = AXIS_BACKDROP_ALPHA)
     Column(
         modifier = Modifier
