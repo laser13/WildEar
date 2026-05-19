@@ -21,9 +21,13 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -82,6 +86,33 @@ internal fun WaveformAndSpectrogram(
         with(density) { contentWidthPx.toDp() }
     }
     val scrollState = rememberScrollState()
+    var autoFollow by remember(durationMs) { mutableStateOf(true) }
+
+    LaunchedEffect(scrollState) {
+        snapshotFlow { scrollState.isScrollInProgress }
+            .collect { inProgress ->
+                if (inProgress) autoFollow = false
+            }
+    }
+
+    LaunchedEffect(positionMs, durationMs, contentWidthPx, scrollState) {
+        if (durationMs <= 0L || contentWidthPx <= 0) return@LaunchedEffect
+        val cursorPx = cursor * contentWidthPx
+        val decision = PlayheadAutoScroll.decide(
+            autoFollow = autoFollow,
+            cursorPx = cursorPx,
+            currentScroll = scrollState.value,
+            viewportSize = scrollState.viewportSize,
+            maxScroll = scrollState.maxValue,
+        )
+        if (decision.newAutoFollow != autoFollow) {
+            autoFollow = decision.newAutoFollow
+        }
+        decision.targetScroll?.let { target ->
+            scrollState.scrollTo(target)
+        }
+    }
+
     val axisBackdrop = MaterialTheme.colorScheme.surface.copy(alpha = AXIS_BACKDROP_ALPHA)
     Column(
         modifier = Modifier
