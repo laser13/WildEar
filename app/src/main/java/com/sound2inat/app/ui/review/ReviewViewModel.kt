@@ -922,7 +922,9 @@ class ReviewViewModel(
         append('|')
         append(filesDir.absolutePath)
         append('|')
-        append(snapshot.spectrogramConfig.cacheSuffix())
+        append(snapshot.spectrogramConfig.palette?.name ?: "ink")
+        append('|')
+        append(snapshot.spectrogramConfig.gainDb?.let { (it * 10).toInt().toString() } ?: "0")
         append('|')
         append(snapshot.audioProcessingConfig.cacheSuffix())
     }
@@ -995,8 +997,9 @@ class ReviewViewModel(
         val previousProfile = _processingProfile.value
         if (previousProfile == profile) return
         val audioChanged = previousProfile.audioProcessingConfig != profile.audioProcessingConfig
-        val visualsChanged = previousProfile.spectrogramConfig.displayPlaneCacheSuffix() !=
-            profile.spectrogramConfig.displayPlaneCacheSuffix()
+        // Visuals depend only on gainDb (palette is re-coloured cheaply downstream).
+        val visualsChanged =
+            previousProfile.spectrogramConfig.gainDb != profile.spectrogramConfig.gainDb
         _processingProfile.value = profile
         _spectrogramConfig.value = profile.spectrogramConfig
         _state.update { s ->
@@ -1565,8 +1568,6 @@ internal object NoopVisualsProvider : VisualsProvider {
  * preview plus cached waveform peaks.
  */
 internal class ProductionVisualsProvider(
-    private val matrixCache: ReviewSpectrogramMatrixCache = ReviewSpectrogramMatrixCache(),
-    private val displayPlaneCache: ReviewSpectrogramDisplayPlaneCache = ReviewSpectrogramDisplayPlaneCache(),
     private val waveformPeaksCache: ReviewWaveformPeaksCache = ReviewWaveformPeaksCache(),
 ) : VisualsProvider {
 
@@ -1629,9 +1630,11 @@ private suspend fun currentSpectrogramPng(
     val currentPreview = ReviewSpectrogramPreview.fromDisplayPlane(currentDisplayPlane, profile.spectrogramConfig)
     if (currentPreview.width == 0 || currentPreview.height == 0) return null
     val outDir = File(filesDir, "spectrograms").apply { mkdirs() }
+    val paletteToken = profile.spectrogramConfig.palette?.name?.lowercase() ?: "ink"
+    val gainToken = profile.spectrogramConfig.gainDb?.let { (it * 10).toInt().toString() } ?: "0"
     val outFile = File(
         outDir,
-        "${draftId}_${profile.spectrogramConfig.cacheSuffix()}_${profile.audioProcessingConfig.cacheSuffix()}.png",
+        "${draftId}_${paletteToken}_${gainToken}_${profile.audioProcessingConfig.cacheSuffix()}.png",
     )
     if (outFile.exists() && outFile.length() > 0L) return outFile
     val rows = Array(currentPreview.height) { row ->

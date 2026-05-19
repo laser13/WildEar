@@ -607,7 +607,6 @@ class ReviewViewModelTest {
 
             val customProfile = ReviewProcessingProfile(
                 spectrogramConfig = ReviewSpectrogramConfig(
-                    displayRange = SpectrogramDisplayRange.FULL,
                     palette = SpectrogramPalette.MAGMA,
                     gainDb = 8f,
                 ),

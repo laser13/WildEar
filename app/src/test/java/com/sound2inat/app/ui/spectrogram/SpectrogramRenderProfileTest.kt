@@ -6,14 +6,13 @@ import org.junit.Test
 class SpectrogramRenderProfileTest {
 
     @Test
-    fun `LiveBird keeps a more visible display window than review`() {
+    fun `LiveBird covers the bird-relevant audible window`() {
         val live = SpectrogramRenderProfile.LiveBird
-        val review = SpectrogramRenderProfile.ReviewBird
 
-        assertThat(live.minFrequencyHz).isLessThan(review.minFrequencyHz)
-        assertThat(live.gateDb).isLessThan(review.gateDb)
-        assertThat(live.displayRangeDb).isGreaterThan(review.displayRangeDb)
-        assertThat(live.smoothingTimeRadius).isGreaterThan(review.smoothingTimeRadius)
-        assertThat(live.smoothingFrequencyRadius).isGreaterThan(review.smoothingFrequencyRadius)
+        assertThat(live.minFrequencyHz).isLessThan(live.maxFrequencyHz)
+        assertThat(live.maxFrequencyHz).isAtMost(10_000)
+        assertThat(live.gateDb).isAtLeast(0f)
+        assertThat(live.displayRangeDb).isGreaterThan(0f)
+        assertThat(live.gamma).isGreaterThan(0f)
     }
 }

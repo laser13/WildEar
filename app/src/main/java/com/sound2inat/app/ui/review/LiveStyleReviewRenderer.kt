@@ -77,10 +77,14 @@ internal object LiveStyleReviewRenderer {
         return ReviewSpectrogramDisplayPlane(width = width, height = HEIGHT_BINS, values = values)
     }
 
-    private fun colorize(
+    /**
+     * Re-colorizes an already-normalized [plane] with [palette]. Used by the
+     * Compose layer when only the palette changes — no need to re-run STFT.
+     */
+    fun colorize(
         plane: ReviewSpectrogramDisplayPlane,
         palette: SpectrogramPalette,
-        maxInkArgb: Int,
+        maxInkArgb: Int = SpectrogramRenderProfile.LiveBird.maxInkArgb,
     ): ReviewSpectrogramPreview {
         val lut = paletteLut(palette, maxInkArgb)
         val width = plane.width

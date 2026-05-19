@@ -1,8 +1,8 @@
 package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
-import com.sound2inat.app.ui.spectrogram.LiveDefaults
 import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
+import com.sound2inat.app.ui.spectrogram.SpectrogramRenderProfile
 import org.junit.Test
 
 class ReviewProcessingProfileTest {
@@ -16,14 +16,13 @@ class ReviewProcessingProfileTest {
         assertThat(profile.spectrogramConfig).isEqualTo(ReviewSpectrogramConfig.BirdDefault)
         // Null means "follow live defaults" — the resolved value lives behind the
         // effective* accessors.
-        assertThat(profile.spectrogramConfig.displayRange).isNull()
         assertThat(profile.spectrogramConfig.palette).isNull()
         assertThat(profile.spectrogramConfig.gainDb).isNull()
-        assertThat(profile.spectrogramConfig.effectiveRangeSpec).isEqualTo(LiveDefaults.displayRange())
         assertThat(profile.spectrogramConfig.effectivePalette).isEqualTo(SpectrogramPalette.INK)
         assertThat(profile.spectrogramConfig.effectiveGainDb).isEqualTo(0f)
-        assertThat(profile.spectrogramConfig.lowPercentile).isEqualTo(5f)
-        assertThat(profile.spectrogramConfig.highPercentile).isEqualTo(99f)
+        val live = SpectrogramRenderProfile.LiveBird
+        assertThat(profile.spectrogramConfig.effectiveRangeSpec.fMinHz).isEqualTo(live.minFrequencyHz)
+        assertThat(profile.spectrogramConfig.effectiveRangeSpec.fMaxHz).isEqualTo(live.maxFrequencyHz)
     }
 
     @Test
