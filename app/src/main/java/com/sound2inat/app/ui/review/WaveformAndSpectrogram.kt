@@ -90,8 +90,10 @@ internal fun WaveformAndSpectrogram(
 
     // Disarm auto-follow as soon as the user starts a manual scroll gesture;
     // PlayheadAutoScroll.decide() takes care of re-arming when the cursor
-    // catches up to the visible window again.
-    LaunchedEffect(scrollState) {
+    // catches up to the visible window again. durationMs is in the key set
+    // because autoFollow is `remember(durationMs)` — when the draft changes,
+    // a fresh MutableState is created and this watcher must re-bind to it.
+    LaunchedEffect(scrollState, durationMs) {
         snapshotFlow { scrollState.isScrollInProgress }
             .collect { inProgress ->
                 if (inProgress) autoFollow = false
