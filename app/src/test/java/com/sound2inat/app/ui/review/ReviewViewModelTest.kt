@@ -509,73 +509,28 @@ class ReviewViewModelTest {
         }
 
     @Test
-    fun `production visuals provider reuses matrix cache across visual-only changes`() =
+    fun `production visuals provider produces different previews for different palettes`() =
         runTest(UnconfinedTestDispatcher()) {
-            val audioFile = createSilentWav(tmp.newFile("large_preview.wav"), sampleRate = 48_000, durationMs = 10_000)
-            val analyzerCalls = AtomicInteger(0)
-            val matrixCache = ReviewSpectrogramMatrixCache(analyze = { samples, config ->
-                analyzerCalls.incrementAndGet()
-                ReviewSpectrogramAnalyzer().analyze(samples, config)
-            })
-            val provider = ProductionVisualsProvider(matrixCache = matrixCache)
-            val firstConfig = ReviewSpectrogramConfig.BirdDefault
-            val secondConfig = firstConfig.copy(
-                palette = SpectrogramPalette.MAGMA,
-                gainDb = 6f,
-            )
-
-            val first = provider.build(
-                audioPath = audioFile.absolutePath,
-                draftId = "long_preview",
-                filesDir = tmp.root,
-                config = firstConfig,
-                audioProcessingConfig = ReviewAudioProcessingConfig.Original,
-            )
-            val second = provider.build(
-                audioPath = audioFile.absolutePath,
-                draftId = "long_preview",
-                filesDir = tmp.root,
-                config = secondConfig,
-                audioProcessingConfig = ReviewAudioProcessingConfig.Original,
-            )
-
-            assertThat(first.spectrogramPreview).isNotEqualTo(second.spectrogramPreview)
-            assertThat(first.waveformPeaks).isNotEmpty()
-            assertThat(second.waveformPeaks).isNotEmpty()
-            assertThat(analyzerCalls.get()).isEqualTo(1)
-        }
-
-    @Test
-    fun `full range preserves the selected palette`() =
-        runTest(UnconfinedTestDispatcher()) {
-            val audioFile = createSilentWav(tmp.newFile("full_palette.wav"), sampleRate = 48_000, durationMs = 10_000)
-            val matrixCache = ReviewSpectrogramMatrixCache(analyze = { samples, config ->
-                ReviewSpectrogramAnalyzer().analyze(samples, config)
-            })
-            val provider = ProductionVisualsProvider(matrixCache = matrixCache)
+            val audioFile = createSilentWav(tmp.newFile("palette_diff.wav"), sampleRate = 48_000, durationMs = 5_000)
+            val provider = ProductionVisualsProvider()
 
             val magenta = provider.build(
                 audioPath = audioFile.absolutePath,
-                draftId = "full_palette",
+                draftId = "palette_diff",
                 filesDir = tmp.root,
-                config = ReviewSpectrogramConfig.BirdDefault.copy(
-                    displayRange = SpectrogramDisplayRange.FULL,
-                    palette = SpectrogramPalette.MAGMA,
-                ),
+                config = ReviewSpectrogramConfig.BirdDefault.copy(palette = SpectrogramPalette.MAGMA),
                 audioProcessingConfig = ReviewAudioProcessingConfig.Original,
             )
             val viridis = provider.build(
                 audioPath = audioFile.absolutePath,
-                draftId = "full_palette_2",
+                draftId = "palette_diff_2",
                 filesDir = tmp.root,
-                config = ReviewSpectrogramConfig.BirdDefault.copy(
-                    displayRange = SpectrogramDisplayRange.FULL,
-                    palette = SpectrogramPalette.VIRIDIS,
-                ),
+                config = ReviewSpectrogramConfig.BirdDefault.copy(palette = SpectrogramPalette.VIRIDIS),
                 audioProcessingConfig = ReviewAudioProcessingConfig.Original,
             )
 
             assertThat(magenta.spectrogramPreview).isNotEqualTo(viridis.spectrogramPreview)
+            assertThat(magenta.waveformPeaks).isNotEmpty()
         }
 
     @Test

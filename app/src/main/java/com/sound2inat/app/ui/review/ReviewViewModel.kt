@@ -13,7 +13,6 @@ import com.sound2inat.app.inference.InferenceQueue
 import com.sound2inat.app.inference.JobStatus
 import com.sound2inat.app.inference.QueuedJob
 import com.sound2inat.app.ui.FILE_PROVIDER_AUTHORITY
-import com.sound2inat.app.ui.spectrogram.SpectrogramNoiseFloorMode
 import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
 import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INaturalistClient
@@ -1703,89 +1702,28 @@ internal class ProductionVisualsProvider(
         val startedAt = SystemClock.elapsedRealtime()
         val input = File(audioPath)
         Log.d("ReviewVisuals", "provider-start draft=$draftId file=${input.name}")
-        val infoStarted = SystemClock.elapsedRealtime()
-        val wavInfo = readMono16Info(input)
+        val readStart = SystemClock.elapsedRealtime()
+        val (shorts, sampleRateHz) = WavReader.readMono16(input)
+        val samples = FloatArray(shorts.size) { i -> shorts[i] / Short.MAX_VALUE.toFloat() }
         Log.d(
             "ReviewVisuals",
-            "wav-info draft=$draftId elapsed=${SystemClock.elapsedRealtime() - infoStarted}ms rate=${wavInfo.sampleRateHz} samples=${wavInfo.totalSamples}",
+            "wav-read draft=$draftId elapsed=${SystemClock.elapsedRealtime() - readStart}ms rate=$sampleRateHz samples=${samples.size}",
         )
-        val rendererConfig = if (config.displayRange == SpectrogramDisplayRange.FULL) {
-            config.copy(
-                noiseFloorMode = SpectrogramNoiseFloorMode.NONE,
-                gateDb = 0f,
-                displayRangeDb = 80f,
-                gamma = 1f,
-                smoothingTimeRadius = 0,
-                smoothingFrequencyRadius = 0,
-            )
-        } else {
-            config
-        }
-        val analysisConfig = ReviewSpectrogramAnalysisConfig.from(sampleRateHz = wavInfo.sampleRateHz)
-        val matrixStarted = SystemClock.elapsedRealtime()
-        val matrix = matrixCache.getOrCreate(
-            audioFile = input,
-            draftId = draftId,
-            filesDir = filesDir,
-            config = analysisConfig,
-            readSamples = { file ->
-                val (samples, _) = WavReader.readMono16(file)
-                FloatArray(samples.size) { index -> samples[index] / Short.MAX_VALUE.toFloat() }
-            },
+        val palette = config.palette ?: SpectrogramPalette.INK
+        val contrastDb = config.gainDb ?: 0f
+        val renderStart = SystemClock.elapsedRealtime()
+        val rendered = LiveStyleReviewRenderer.render(
+            samples = samples,
+            sampleRateHz = sampleRateHz,
+            palette = palette,
+            contrastDb = contrastDb,
         )
         Log.d(
             "ReviewVisuals",
-            "matrix-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - matrixStarted}ms rows=${matrix.values.size} frames=${matrix.frames}"
-        )
-        val displayPlaneKey = buildString {
-            append(matrixCache.cacheKey(input, analysisConfig))
-            append('|')
-            append(rendererConfig.displayPlaneCacheSuffix())
-        }
-        val planeStarted = SystemClock.elapsedRealtime()
-        val displayPlane = displayPlaneCache.getOrCreate(
-            key = displayPlaneKey,
-            draftId = draftId,
-            audioName = input.name,
-        ) {
-            SpectrogramRenderer(
-                targetWidth = SpectrogramRenderer.DEFAULT_TARGET_WIDTH,
-                config = rendererConfig,
-            ).buildDisplayPlane(
-                matrix,
-                trace = { step, elapsedMs ->
-                    Log.d(
-                        "ReviewVisuals",
-                        "render-step draft=$draftId stage=display-plane step=$step elapsed=${elapsedMs}ms",
-                    )
-                },
-            )
-        }
-        Log.d(
-            "ReviewVisuals",
-            "display-plane-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - planeStarted}ms rows=${displayPlane.height} cols=${displayPlane.width}",
-        )
-        val renderStarted = SystemClock.elapsedRealtime()
-        val previewRows = SpectrogramRenderer(
-            targetWidth = SpectrogramRenderer.DEFAULT_TARGET_WIDTH,
-            config = rendererConfig,
-        ).render(displayPlane) { step, elapsedMs ->
-            Log.d(
-                "ReviewVisuals",
-                "render-step draft=$draftId stage=palette-remap step=$step elapsed=${elapsedMs}ms",
-            )
-        }
-        val previewCopyStarted = SystemClock.elapsedRealtime()
-        val preview = ReviewSpectrogramPreview.fromRows(previewRows)
-        Log.d(
-            "ReviewVisuals",
-            "preview-copy draft=$draftId elapsed=${SystemClock.elapsedRealtime() - previewCopyStarted}ms width=${preview.width} height=${preview.height}",
-        )
-        Log.d(
-            "ReviewVisuals",
-            "render-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - renderStarted}ms preview=${preview.width}x${preview.height}"
+            "render-done draft=$draftId elapsed=${SystemClock.elapsedRealtime() - renderStart}ms preview=${rendered.preview.width}x${rendered.preview.height}",
         )
         val peaksStarted = SystemClock.elapsedRealtime()
+        val wavInfo = Mono16Info(sampleRateHz = sampleRateHz, totalSamples = samples.size.toLong())
         val peaks = waveformPeaksCache.getOrCreate(input, draftId, filesDir) {
             buildWaveformPeaks(input, wavInfo)
         }
@@ -1794,7 +1732,11 @@ internal class ProductionVisualsProvider(
             "peaks-ready draft=$draftId elapsed=${SystemClock.elapsedRealtime() - peaksStarted}ms count=${peaks.size}"
         )
         Log.i("ReviewVisuals", "provider-done draft=$draftId total=${SystemClock.elapsedRealtime() - startedAt}ms")
-        return Visuals(displayPlane = displayPlane, spectrogramPreview = preview, waveformPeaks = peaks)
+        return Visuals(
+            displayPlane = rendered.displayPlane,
+            spectrogramPreview = rendered.preview,
+            waveformPeaks = peaks,
+        )
     }
 }
 
