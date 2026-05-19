@@ -101,6 +101,32 @@ detekt {
     autoCorrect = true
 }
 
+// Workaround for the AGP / Room interaction where mergeDebugAssets is computed
+// up-to-date before Room exports a freshly-bumped schema (e.g. 11.json), and
+// MigrationTest then fails to locate the schema file. Force the merged-assets
+// directory to contain every checked-in schema before unit tests run.
+val schemaSourceDir = layout.projectDirectory.dir("schemas")
+val schemaMergeOutputDir = layout.buildDirectory.dir(
+    "intermediates/assets/debug/mergeDebugAssets"
+)
+val copyRoomSchemasIntoAssets = tasks.register<Copy>("copyRoomSchemasIntoAssets") {
+    from(schemaSourceDir)
+    into(schemaMergeOutputDir)
+}
+// Anything that bundles or reads merged test assets must run after the copy
+// task; mergeDebugAssets itself stays the source of truth and only gets
+// supplemented (the copy writes alongside its outputs).
+tasks.matching {
+    it.name == "testDebugUnitTest" ||
+        it.name == "packageDebugUnitTestForUnitTest" ||
+        it.name == "compressDebugAssets"
+}.configureEach {
+    dependsOn(copyRoomSchemasIntoAssets)
+}
+copyRoomSchemasIntoAssets.configure {
+    mustRunAfter("mergeDebugAssets")
+}
+
 dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
