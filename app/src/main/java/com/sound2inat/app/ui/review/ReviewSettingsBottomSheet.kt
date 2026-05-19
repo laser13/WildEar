@@ -9,17 +9,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -49,14 +42,7 @@ internal fun ReviewSettingsBottomSheet(
     onSelectedTabChange: (ReviewSettingsTab) -> Unit,
     onApply: (ReviewProcessingProfile) -> Unit,
     onDismiss: () -> Unit,
-    sceneTagsAvailable: Boolean,
-    autoInProgress: Boolean,
-    autoMessage: String?,
-    onPressAuto: () -> Unit,
-    onReset: () -> Unit,
-    onDisplayRangeChange: (SpectrogramDisplayRange?) -> Unit,
     onPaletteChange: (SpectrogramPalette?) -> Unit,
-    onGainChange: (Float?) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     var audioDraftConfig by remember { mutableStateOf(profile.audioProcessingConfig) }
@@ -105,14 +91,7 @@ internal fun ReviewSettingsBottomSheet(
                 )
                 ReviewSettingsTab.Visual -> VisualSettingsTab(
                     config = profile.spectrogramConfig,
-                    sceneTagsAvailable = sceneTagsAvailable,
-                    autoInProgress = autoInProgress,
-                    autoMessage = autoMessage,
-                    onPressAuto = onPressAuto,
-                    onReset = onReset,
-                    onDisplayRangeChange = onDisplayRangeChange,
                     onPaletteChange = onPaletteChange,
-                    onGainChange = onGainChange,
                 )
             }
             when {
@@ -234,86 +213,9 @@ private fun AudioSettingsTab(
 @Composable
 private fun VisualSettingsTab(
     config: ReviewSpectrogramConfig,
-    sceneTagsAvailable: Boolean,
-    autoInProgress: Boolean,
-    autoMessage: String?,
-    onPressAuto: () -> Unit,
-    onReset: () -> Unit,
-    onDisplayRangeChange: (SpectrogramDisplayRange?) -> Unit,
     onPaletteChange: (SpectrogramPalette?) -> Unit,
-    onGainChange: (Float?) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedButton(
-                onClick = onPressAuto,
-                enabled = !autoInProgress,
-                modifier = Modifier.weight(1f),
-            ) {
-                if (autoInProgress) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Filled.AutoAwesome,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                Text("Auto")
-            }
-            OutlinedButton(
-                onClick = onReset,
-                modifier = Modifier.weight(1f),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Refresh,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("Reset")
-            }
-        }
-        if (autoMessage != null) {
-            Text(
-                autoMessage,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Text("Range", style = MaterialTheme.typography.labelMedium)
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            SpectrogramDisplayRange.entries.forEach { range ->
-                FilterChip(
-                    selected = config.displayRange == range,
-                    onClick = { onDisplayRangeChange(range) },
-                    label = {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                range.displayName,
-                                style = MaterialTheme.typography.labelLarge,
-                            )
-                            Text(
-                                range.rangeLabel,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    },
-                )
-            }
-        }
         Text("Palette", style = MaterialTheme.typography.labelMedium)
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
@@ -325,20 +227,6 @@ private fun VisualSettingsTab(
                     selected = config.palette == palette,
                     onClick = { onPaletteChange(palette) },
                     label = { Text(paletteLabel(palette)) },
-                )
-            }
-        }
-        Text("Visual gain", style = MaterialTheme.typography.labelMedium)
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            reviewVisualGainOptions().forEach { gain ->
-                FilterChip(
-                    selected = config.gainDb == gain,
-                    onClick = { onGainChange(gain) },
-                    label = { Text(formatGainLabel(gain)) },
                 )
             }
         }
