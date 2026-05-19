@@ -12,7 +12,6 @@ class ReviewProcessingProfileTest {
         val profile = ReviewProcessingProfile.Default
 
         assertThat(profile.isDefault).isTrue()
-        assertThat(profile.audioProcessingConfig).isEqualTo(ReviewAudioProcessingConfig.Original)
         assertThat(profile.spectrogramConfig).isEqualTo(ReviewSpectrogramConfig.BirdDefault)
         // Null means "follow live defaults" — the resolved value lives behind the
         // effective* accessors.
@@ -29,7 +28,6 @@ class ReviewProcessingProfileTest {
     fun `reset returns the default profile`() {
         val custom = ReviewProcessingProfile(
             spectrogramConfig = ReviewSpectrogramConfig.BirdDefault.copy(gainDb = 10f),
-            audioProcessingConfig = ReviewAudioProcessingConfig.BirdClean,
         )
 
         assertThat(custom.reset()).isEqualTo(ReviewProcessingProfile.Default)
@@ -40,6 +38,5 @@ class ReviewProcessingProfileTest {
         val state = ReviewUiState(draftId = "draft-1")
 
         assertThat(state.processingProfile).isEqualTo(ReviewProcessingProfile.Default)
-        assertThat(state.audioProcessingConfig).isEqualTo(ReviewAudioProcessingConfig.Original)
     }
 }

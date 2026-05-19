@@ -5,7 +5,6 @@ import com.sound2inat.app.recording.DefaultRecordingController
 import com.sound2inat.app.recording.RecordingController
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inference.LiveInferenceEngineFactory
-import com.sound2inat.inference.PostRecordingProcessor
 import com.sound2inat.location.LocationProvider
 import com.sound2inat.recorder.Recorder
 import com.sound2inat.storage.DraftRepository
@@ -21,10 +20,6 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object RecordingModule {
     @Provides @Singleton
-    fun providePostRecordingProcessor(settings: Settings): PostRecordingProcessor =
-        PostRecordingProcessor(settings)
-
-    @Provides @Singleton
     @Suppress("LongParameterList")
     fun provideRecordingController(
         applicationScope: CoroutineScope,
@@ -35,7 +30,6 @@ object RecordingModule {
         engineFactory: LiveInferenceEngineFactory?,
         regionFilter: RegionFilter,
         settings: Settings,
-        processor: PostRecordingProcessor,
     ): RecordingController = DefaultRecordingController(
         applicationScope = applicationScope,
         recorder = recorder,
@@ -47,6 +41,5 @@ object RecordingModule {
         regionFilter = regionFilter,
         regionFilterEnabled = settings.regionalFilterEnabled,
         regionRadiusKm = settings.regionRadiusKm,
-        processor = processor,
     )
 }

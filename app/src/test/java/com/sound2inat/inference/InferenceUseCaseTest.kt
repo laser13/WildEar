@@ -33,13 +33,11 @@ class InferenceUseCaseTest {
     private fun fakeSettings(
         minConf: Float = 0.10f,
         minWindows: Int = 1,
-        spectralEnabled: Boolean = false,
         yamNetEnabled: Boolean = false,
         birdNetMetaEnabled: Boolean = false,
     ): Settings = mockk<Settings>().also { s ->
         every { s.minConfidenceDisplay } returns flowOf(minConf)
         every { s.minWindows } returns flowOf(minWindows)
-        every { s.spectralSubtractionEnabled } returns flowOf(spectralEnabled)
         every { s.yamNetGateEnabled } returns flowOf(yamNetEnabled)
         every { s.birdNetMetaEnabled } returns flowOf(birdNetMetaEnabled)
         every { s.lastKnownLat } returns flowOf(null)

@@ -1,15 +1,11 @@
 package com.sound2inat.app.ui.review
 
 /**
- * Shared review profile tying together what the user hears and what they see.
- *
- * The current profile is intended to become the single source of truth for the
- * review card: when the profile changes, playback, reanalysis, upload and the
- * displayed spectrogram should all reflect the same state.
+ * Shared review profile carrying the spectrogram visual config. Audio is always
+ * played back as recorded — no post-recording processing surface remains.
  */
 data class ReviewProcessingProfile(
     val spectrogramConfig: ReviewSpectrogramConfig = ReviewSpectrogramConfig.BirdDefault,
-    val audioProcessingConfig: ReviewAudioProcessingConfig = ReviewAudioProcessingConfig.Original,
 ) {
     val isDefault: Boolean
         get() = this == Default

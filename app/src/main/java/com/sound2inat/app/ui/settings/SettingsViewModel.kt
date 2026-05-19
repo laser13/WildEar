@@ -50,8 +50,6 @@ class SettingsViewModel(
     private val writeThemeMode: suspend (ThemeMode) -> Unit = {},
     private val audioSourceRawFlow: Flow<Boolean> = kotlinx.coroutines.flow.flowOf(false),
     private val writeAudioSourceRaw: suspend (Boolean) -> Unit = {},
-    private val normalizeAudioFlow: Flow<Boolean> = kotlinx.coroutines.flow.flowOf(true),
-    private val writeNormalizeAudio: suspend (Boolean) -> Unit = {},
     externalScope: CoroutineScope? = null,
 ) : ViewModel() {
 
@@ -86,8 +84,6 @@ class SettingsViewModel(
         writeThemeMode = { settings.setThemeMode(it) },
         audioSourceRawFlow = settings.audioSourceRaw,
         writeAudioSourceRaw = { settings.setAudioSourceRaw(it) },
-        normalizeAudioFlow = settings.normalizeAudio,
-        writeNormalizeAudio = { settings.setNormalizeAudio(it) },
     )
 
     private val scope: CoroutineScope = externalScope ?: viewModelScope
@@ -159,15 +155,8 @@ class SettingsViewModel(
         }
         // Group 3: audio source settings
         scope.launch {
-            combine(
-                audioSourceRawFlow,
-                normalizeAudioFlow,
-            ) { audioRaw, normalize ->
-                audioRaw to normalize
-            }.collect { (audioRaw, normalize) ->
-                _state.update { s ->
-                    s.copy(audioSourceRaw = audioRaw, normalizeAudio = normalize)
-                }
+            audioSourceRawFlow.collect { audioRaw ->
+                _state.update { s -> s.copy(audioSourceRaw = audioRaw) }
             }
         }
     }
@@ -248,7 +237,6 @@ class SettingsViewModel(
     fun setAllowDeleteUploaded(v: Boolean) { scope.launch { writeAllowDeleteUploaded(v) } }
     fun setThemeMode(v: ThemeMode) { scope.launch { writeThemeMode(v) } }
     fun setAudioSourceRaw(v: Boolean) { scope.launch { writeAudioSourceRaw(v) } }
-    fun setNormalizeAudio(v: Boolean) { scope.launch { writeNormalizeAudio(v) } }
 
     private fun updateSection(modelId: String, transform: (ModelSection) -> ModelSection) {
         _state.value = _state.value.copy(

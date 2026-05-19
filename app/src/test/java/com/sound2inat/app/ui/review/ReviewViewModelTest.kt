@@ -268,7 +268,7 @@ class ReviewViewModelTest {
             val expectedPreview = preview()
             val expectedPeaks = floatArrayOf(-0.5f, 0.5f, -0.25f, 0.25f)
             var calls = 0
-            val provider = VisualsProvider { _, _, _, _, _ ->
+            val provider = VisualsProvider { _, _, _, _ ->
                 calls++
                 Visuals(spectrogramPreview = expectedPreview, waveformPeaks = expectedPeaks)
             }
@@ -302,7 +302,7 @@ class ReviewViewModelTest {
                 insert(draftFor(inactiveDraftId, status = DraftStatus.PENDING_REVIEW))
             }
             val visualsCalls = AtomicInteger(0)
-            val provider = VisualsProvider { _, _, _, _, _ ->
+            val provider = VisualsProvider { _, _, _, _ ->
                 visualsCalls.incrementAndGet()
                 Visuals(spectrogramPreview = preview(), waveformPeaks = floatArrayOf(-1f, 1f))
             }
@@ -357,7 +357,7 @@ class ReviewViewModelTest {
                 repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
-                visuals = VisualsProvider { _, _, _, _, _ ->
+                visuals = VisualsProvider { _, _, _, _ ->
                     gate.await()
                     Visuals(spectrogramPreview = preview(), waveformPeaks = floatArrayOf(-1f, 1f))
                 },
@@ -395,7 +395,7 @@ class ReviewViewModelTest {
                 repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
-                visuals = VisualsProvider { _, _, _, _, _ ->
+                visuals = VisualsProvider { _, _, _, _ ->
                     calls++
                     gate.await()
                     Visuals(spectrogramPreview = preview(calls), waveformPeaks = floatArrayOf(-1f, 1f))
@@ -421,14 +421,13 @@ class ReviewViewModelTest {
         }
 
     @Test
-    fun `setSpectrogramGain rerenders visuals without clearing processed audio`() =
+    fun `setSpectrogramGain rerenders visuals`() =
         runTest(UnconfinedTestDispatcher()) {
             val draftId = "visual_gain"
             val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
             val draftDao = FakeDraftDao().apply {
                 insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
             }
-            val processedOutput = tmp.newFile("processed_gain.wav")
             var visualsCalls = 0
             val repo = repo(draftDao, FakeDetectionDao())
             val queue = makeQueue(draftRepo = repo)
@@ -437,8 +436,7 @@ class ReviewViewModelTest {
                 repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
-                processedAudio = ProcessedAudioProvider { _, _, _, _ -> processedOutput },
-                visuals = VisualsProvider { _, _, _, config, _ ->
+                visuals = VisualsProvider { _, _, _, _ ->
                     visualsCalls++
                     Visuals(
                         spectrogramPreview = preview(),
@@ -450,28 +448,24 @@ class ReviewViewModelTest {
                 externalScope = backgroundScope,
             )
 
-            vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
             vm.ensureVisuals(tmp.root)
             advanceUntilIdle()
-            val processedBefore = vm.state.value.processedAudioPath
 
             vm.setSpectrogramGain(6f)
             advanceUntilIdle()
 
             assertThat(visualsCalls).isEqualTo(2)
-            assertThat(vm.state.value.processedAudioPath).isEqualTo(processedBefore)
             assertThat(vm.state.value.playback).isEqualTo(PlaybackState.Idle)
         }
 
     @Test
-    fun `setSpectrogramPalette rerenders visuals without clearing processed audio`() =
+    fun `setSpectrogramPalette rerenders visuals`() =
         runTest(UnconfinedTestDispatcher()) {
             val draftId = "visual_palette"
             val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
             val draftDao = FakeDraftDao().apply {
                 insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
             }
-            val processedOutput = tmp.newFile("processed_palette.wav")
             var visualsCalls = 0
             val repo = repo(draftDao, FakeDetectionDao())
             val queue = makeQueue(draftRepo = repo)
@@ -480,8 +474,7 @@ class ReviewViewModelTest {
                 repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
-                processedAudio = ProcessedAudioProvider { _, _, _, _ -> processedOutput },
-                visuals = VisualsProvider { _, _, _, config, _ ->
+                visuals = VisualsProvider { _, _, _, _ ->
                     visualsCalls++
                     Visuals(
                         spectrogramPreview = preview(),
@@ -493,10 +486,8 @@ class ReviewViewModelTest {
                 externalScope = backgroundScope,
             )
 
-            vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
             vm.ensureVisuals(tmp.root)
             advanceUntilIdle()
-            val processedBefore = vm.state.value.processedAudioPath
 
             vm.setSpectrogramPalette(SpectrogramPalette.MAGMA)
             advanceUntilIdle()
@@ -504,7 +495,6 @@ class ReviewViewModelTest {
             assertThat(visualsCalls).isEqualTo(1)
             assertThat(vm.spectrogramDisplayPlane.value).isNotNull()
             assertThat(vm.spectrogramConfig.value.palette).isEqualTo(SpectrogramPalette.MAGMA)
-            assertThat(vm.state.value.processedAudioPath).isEqualTo(processedBefore)
             assertThat(vm.state.value.playback).isEqualTo(PlaybackState.Idle)
         }
 
@@ -519,14 +509,12 @@ class ReviewViewModelTest {
                 draftId = "palette_diff",
                 filesDir = tmp.root,
                 config = ReviewSpectrogramConfig.BirdDefault.copy(palette = SpectrogramPalette.MAGMA),
-                audioProcessingConfig = ReviewAudioProcessingConfig.Original,
             )
             val viridis = provider.build(
                 audioPath = audioFile.absolutePath,
                 draftId = "palette_diff_2",
                 filesDir = tmp.root,
                 config = ReviewSpectrogramConfig.BirdDefault.copy(palette = SpectrogramPalette.VIRIDIS),
-                audioProcessingConfig = ReviewAudioProcessingConfig.Original,
             )
 
             assertThat(magenta.spectrogramPreview).isNotEqualTo(viridis.spectrogramPreview)
@@ -553,7 +541,7 @@ class ReviewViewModelTest {
                 repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
-                visuals = VisualsProvider { _, _, _, _, _ ->
+                visuals = VisualsProvider { _, _, _, _ ->
                     Visuals(
                         displayPlane = ReviewSpectrogramDisplayPlane(
                             width = 1,
@@ -587,91 +575,7 @@ class ReviewViewModelTest {
         }
 
     @Test
-    fun `setAudioProcessingConfig updates the current profile`() =
-        runTest(UnconfinedTestDispatcher()) {
-            val draftId = "audio_config_reset"
-            val draftDao = FakeDraftDao().apply {
-                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
-            }
-            val repo = repo(draftDao, FakeDetectionDao())
-            val queue = makeQueue(draftRepo = repo)
-            val vm = ReviewViewModel(
-                draftId = draftId,
-                repo = repo,
-                player = FakeAudioPlayer(),
-                inference = noopInference(),
-                queue = queue,
-                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
-                externalScope = backgroundScope,
-            )
-
-            val customProfile = ReviewProcessingProfile(
-                spectrogramConfig = ReviewSpectrogramConfig(
-                    palette = SpectrogramPalette.MAGMA,
-                    gainDb = 8f,
-                ),
-                audioProcessingConfig = ReviewAudioProcessingConfig.BoostQuiet,
-            )
-
-            vm.setProcessingProfile(customProfile)
-            assertThat(vm.state.value.processingProfile).isEqualTo(customProfile)
-
-            vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
-            assertThat(
-                vm.state.value.processingProfile.audioProcessingConfig
-            ).isEqualTo(ReviewAudioProcessingConfig.BirdClean)
-            assertThat(vm.state.value.audioProcessingConfig).isEqualTo(ReviewAudioProcessingConfig.BirdClean)
-
-            vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.Original)
-
-            assertThat(vm.state.value.audioProcessingConfig).isEqualTo(ReviewAudioProcessingConfig.Original)
-            assertThat(vm.state.value.processingProfile).isEqualTo(ReviewProcessingProfile.Default)
-            assertThat(
-                vm.state.value.processingProfile.spectrogramConfig
-            ).isEqualTo(ReviewProcessingProfile.Default.spectrogramConfig)
-        }
-
-    @Test
-    fun `reanalyze current profile materializes processed audio without visuals first`() =
-        runTest(UnconfinedTestDispatcher()) {
-            val draftId = "audio_source_not_ready"
-            val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
-            val draftDao = FakeDraftDao().apply {
-                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
-            }
-            val repo = repo(draftDao, FakeDetectionDao())
-            var capturedPath: String? = null
-            val inference = InferenceJob { audioPath, _, _, _, _ ->
-                capturedPath = audioPath
-                InferenceOutcome.Success("birdnet_v2_4", "2.4", emptyList())
-            }
-            val processedOutput = tmp.newFile("processed.wav")
-            val processedAudio = ProcessedAudioProvider { _, _, _, _ ->
-                processedOutput.writeBytes(byteArrayOf(1, 2, 3, 4))
-                processedOutput
-            }
-            val queue = makeQueue(FakeInferenceUseCase(birdnetReanalysisJob = inference), repo)
-            val vm = ReviewViewModel(
-                draftId = draftId,
-                repo = repo,
-                player = FakeAudioPlayer(),
-                inference = inference,
-                processedAudio = processedAudio,
-                queue = queue,
-                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
-                externalScope = backgroundScope,
-            )
-
-            vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
-            vm.reanalyze(runBirdnet = true, runPerch = false)
-            advanceUntilIdle()
-
-            assertThat(capturedPath).isEqualTo(processedOutput.absolutePath)
-            assertThat(vm.state.value.processedAudioPath).isEqualTo(processedOutput.absolutePath)
-        }
-
-    @Test
-    fun `reanalyze original profile keeps the original audio path`() =
+    fun `reanalyze uses the original audio path`() =
         runTest(UnconfinedTestDispatcher()) {
             val draftId = "audio_source_original"
             val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
@@ -699,146 +603,6 @@ class ReviewViewModelTest {
             advanceUntilIdle()
 
             assertThat(capturedPath).isEqualTo(audioFile.absolutePath)
-            assertThat(vm.state.value.processedAudioPath).isNull()
-        }
-
-    @Test
-    fun `submitToINaturalist forwards current profile audio override when processed`() =
-        runTest(UnconfinedTestDispatcher()) {
-            val draftId = "audio_upload_processed"
-            val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
-            val draftDao = FakeDraftDao().apply {
-                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
-            }
-            val detectionDao = FakeDetectionDao().apply {
-                insertAll(
-                    listOf(
-                        DetectionEntity(
-                            id = 501L,
-                            draftId = draftId,
-                            taxonScientificName = "Parus major",
-                            taxonCommonName = "Great Tit",
-                            maxConfidence = 0.9f,
-                            detectedWindows = 2,
-                            firstSeenMs = 0L,
-                            lastSeenMs = 1_000L,
-                            isSelectedByUser = true,
-                        ),
-                    ),
-                )
-            }
-            val repo = repo(draftDao, detectionDao)
-            val queue = makeQueue(draftRepo = repo)
-            val processedOutput = createConstantWav(tmp.newFile("processed_upload.wav"), sampleValue = 0x1234)
-            var capturedOverride: File? = null
-            val submission = InatSubmissionJob { _, _, _, _, _, sourceAudioOverride ->
-                capturedOverride = sourceAudioOverride
-                InatSubmissionOutcome.Success(listOf("https://example.com/obs"))
-            }
-            val vm = ReviewViewModel(
-                draftId = draftId,
-                repo = repo,
-                player = FakeAudioPlayer(),
-                inference = noopInference(),
-                processedAudio = ProcessedAudioProvider { _, _, _, _ -> processedOutput },
-                submission = submission,
-                tokenProvider = { "jwt" },
-                spectrogramPngWriter = SpectrogramPngWriter { _, target ->
-                    target.parentFile?.mkdirs()
-                    target.writeBytes(byteArrayOf(1, 2, 3))
-                },
-                visuals = VisualsProvider { _, _, _, _, _ ->
-                    Visuals(spectrogramPreview = preview(), waveformPeaks = floatArrayOf(-1f, 1f))
-                },
-                queue = queue,
-                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
-                externalScope = backgroundScope,
-            )
-
-            vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
-            vm.ensureVisuals(tmp.root)
-            advanceUntilIdle()
-            vm.submitToINaturalist()
-            advanceUntilIdle()
-
-            assertThat(capturedOverride).isEqualTo(processedOutput)
-            assertThat(vm.state.value.processedAudioPath).isEqualTo(processedOutput.absolutePath)
-        }
-
-    @Test
-    fun `play uses the current profile audio`() = runTest(UnconfinedTestDispatcher()) {
-        val draftId = "play_profile"
-        val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
-        val draftDao = FakeDraftDao().apply {
-            insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
-        }
-        val repo = repo(draftDao, FakeDetectionDao())
-        val processedOutput = createConstantWav(tmp.newFile("play_processed.wav"), sampleValue = 0x1234)
-        val processedAudio = ProcessedAudioProvider { _, _, _, _ -> processedOutput }
-        val player = FakeAudioPlayer()
-        val queue = makeQueue(draftRepo = repo)
-        val vm = ReviewViewModel(
-            draftId = draftId,
-            repo = repo,
-            player = player,
-            inference = noopInference(),
-            processedAudio = processedAudio,
-            visuals = VisualsProvider { _, _, _, _, _ ->
-                Visuals(spectrogramPreview = preview(), waveformPeaks = floatArrayOf(-1f, 1f))
-            },
-            queue = queue,
-            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
-            externalScope = backgroundScope,
-        )
-
-        vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
-        vm.ensureVisuals(tmp.root)
-        advanceUntilIdle()
-        vm.play()
-        advanceUntilIdle()
-
-        assertThat(player.startedPath).isEqualTo(processedOutput.absolutePath)
-    }
-
-    @Test
-    fun `playing a processed profile exposes loading while materializing`() =
-        runTest(UnconfinedTestDispatcher()) {
-            val draftId = "play_loading"
-            val audioFile = createSilentWav(tmp.newFile("$draftId.wav"), durationMs = 2_000)
-            val draftDao = FakeDraftDao().apply {
-                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW).copy(audioPath = audioFile.absolutePath))
-            }
-            val repo = repo(draftDao, FakeDetectionDao())
-            val gate = CompletableDeferred<Unit>()
-            val processedOutput = tmp.newFile("play_loading_processed.wav")
-            val processedAudio = ProcessedAudioProvider { _, _, _, _ ->
-                gate.await()
-                processedOutput.writeBytes(byteArrayOf(1, 2, 3, 4))
-                processedOutput
-            }
-            val player = FakeAudioPlayer()
-            val queue = makeQueue(draftRepo = repo)
-            val vm = ReviewViewModel(
-                draftId = draftId,
-                repo = repo,
-                player = player,
-                inference = noopInference(),
-                processedAudio = processedAudio,
-                queue = queue,
-                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
-                externalScope = backgroundScope,
-            )
-
-            vm.setAudioProcessingConfig(ReviewAudioProcessingConfig.BirdClean)
-            vm.play()
-            runCurrent()
-            assertThat(vm.state.value.processingAudio).isTrue()
-
-            gate.complete(Unit)
-            advanceUntilIdle()
-
-            assertThat(vm.state.value.processingAudio).isFalse()
-            assertThat(player.startedPath).isEqualTo(processedOutput.absolutePath)
         }
 
     @Test

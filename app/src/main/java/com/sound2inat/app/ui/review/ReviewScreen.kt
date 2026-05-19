@@ -658,15 +658,6 @@ private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = if (state.processingProfile.audioProcessingConfig.requiresProcessing) {
-                    "Upload uses the current processing profile. Original WAV is kept unchanged."
-                } else {
-                    "Upload uses the original recording. Original WAV is kept unchanged."
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Button(
                 onClick = { vm.submitToINaturalist() },
                 enabled = canSubmit,
