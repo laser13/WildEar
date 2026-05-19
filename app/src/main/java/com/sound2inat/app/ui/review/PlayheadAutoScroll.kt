@@ -11,6 +11,11 @@ package com.sound2inat.app.ui.review
  *    target is clamped so the cursor can travel from edge to centre and back.
  *  - Auto-follow OFF (user scrolled manually) → no scroll change until the
  *    cursor re-enters the visible window, at which point auto-follow re-arms.
+ *  - The function is robust to unusual inputs: cursorPx < 0 is treated as
+ *    the start of the strip (clamped via centeredTarget). viewportSize <= 0
+ *    and maxScroll <= 0 short-circuit to a no-op that preserves the current
+ *    autoFollow flag, so the strip behaves predictably before its first
+ *    measurement and when content fits entirely in the viewport.
  */
 internal object PlayheadAutoScroll {
     data class Decision(

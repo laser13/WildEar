@@ -88,6 +88,9 @@ internal fun WaveformAndSpectrogram(
     val scrollState = rememberScrollState()
     var autoFollow by remember(durationMs) { mutableStateOf(true) }
 
+    // Disarm auto-follow as soon as the user starts a manual scroll gesture;
+    // PlayheadAutoScroll.decide() takes care of re-arming when the cursor
+    // catches up to the visible window again.
     LaunchedEffect(scrollState) {
         snapshotFlow { scrollState.isScrollInProgress }
             .collect { inProgress ->
@@ -95,21 +98,28 @@ internal fun WaveformAndSpectrogram(
             }
     }
 
-    LaunchedEffect(positionMs, durationMs, contentWidthPx, scrollState) {
+    // Apply auto-follow decision on every position tick: keep the cursor
+    // centered during playback, but only if auto-follow is currently armed
+    // (or the cursor returned into the visible window after a manual scroll —
+    // see PlayheadAutoScroll). One long-lived coroutine consumes positionMs
+    // through snapshotFlow so we don't restart the effect ~20 times/second.
+    LaunchedEffect(durationMs, contentWidthPx, scrollState) {
         if (durationMs <= 0L || contentWidthPx <= 0) return@LaunchedEffect
-        val cursorPx = cursor * contentWidthPx
-        val decision = PlayheadAutoScroll.decide(
-            autoFollow = autoFollow,
-            cursorPx = cursorPx,
-            currentScroll = scrollState.value,
-            viewportSize = scrollState.viewportSize,
-            maxScroll = scrollState.maxValue,
-        )
-        if (decision.newAutoFollow != autoFollow) {
-            autoFollow = decision.newAutoFollow
-        }
-        decision.targetScroll?.let { target ->
-            scrollState.scrollTo(target)
+        snapshotFlow { positionMs }.collect { pos ->
+            val cursorPx = (pos.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) * contentWidthPx
+            val decision = PlayheadAutoScroll.decide(
+                autoFollow = autoFollow,
+                cursorPx = cursorPx,
+                currentScroll = scrollState.value,
+                viewportSize = scrollState.viewportSize,
+                maxScroll = scrollState.maxValue,
+            )
+            if (decision.newAutoFollow != autoFollow) {
+                autoFollow = decision.newAutoFollow
+            }
+            decision.targetScroll?.let { target ->
+                scrollState.scrollTo(target)
+            }
         }
     }
 

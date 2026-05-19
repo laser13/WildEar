@@ -128,6 +128,21 @@ class PlayheadAutoScrollTest {
     }
 
     @Test
+    fun `negative cursorPx is treated as start of strip`() {
+        val decision = PlayheadAutoScroll.decide(
+            autoFollow = true,
+            cursorPx = -100f,
+            currentScroll = 0,
+            viewportSize = 400,
+            maxScroll = 2_000,
+        )
+
+        // centeredTarget = clamp(-100 - 200, 0, 2000) = 0, совпадает с currentScroll → null.
+        assertThat(decision.newAutoFollow).isTrue()
+        assertThat(decision.targetScroll).isNull()
+    }
+
+    @Test
     fun `no-op when strip fits entirely in the viewport`() {
         val decision = PlayheadAutoScroll.decide(
             autoFollow = true,
