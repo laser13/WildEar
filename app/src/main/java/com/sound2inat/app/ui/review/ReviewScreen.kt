@@ -653,19 +653,33 @@ private fun InferenceProgressBlock(progress: Float) {
 @Suppress("FunctionNaming")
 @Composable
 private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
-    val alreadyUploaded = state.status == DraftStatus.UPLOADED ||
-        state.inatSubmission is InatSubmissionState.Done
     val selectedCount = state.species.count { it.isSelected }
+    val existingNames = remember(state.inatObservations) {
+        state.inatObservations.mapTo(mutableSetOf()) { it.scientificName }
+    }
+    val pendingCount = state.species.count {
+        it.isSelected && it.taxonScientificName !in existingNames
+    }
+    val alreadyHasObservations = state.inatObservations.isNotEmpty()
     val inProgress = state.inatSubmission is InatSubmissionState.InProgress
     val awaitingLogin = state.inatSubmission is InatSubmissionState.NeedsInteractiveLogin
-    val canSubmit = !alreadyUploaded && selectedCount > 0 && !inProgress && !awaitingLogin
+    // "Already uploaded" only when nothing remains to submit AND a prior
+    // submission produced at least one observation (or the draft has been
+    // explicitly marked UPLOADED).
+    val alreadyUploaded = pendingCount == 0 &&
+        (state.status == DraftStatus.UPLOADED || alreadyHasObservations)
+    val canSubmit = pendingCount > 0 && !inProgress && !awaitingLogin
 
-    val alreadyUploadedForLabel = state.status == DraftStatus.UPLOADED || state.inatSubmission is InatSubmissionState.Done
     val label = when {
         awaitingLogin -> stringResource(R.string.review_submit_signing_in)
         state.inatSubmission is InatSubmissionState.InProgress -> stringResource(R.string.review_submit_uploading)
-        alreadyUploadedForLabel -> stringResource(R.string.review_submit_already_uploaded)
+        alreadyUploaded -> stringResource(R.string.review_submit_already_uploaded)
         selectedCount == 0 -> stringResource(R.string.review_submit_select_species)
+        alreadyHasObservations -> pluralStringResource(
+            R.plurals.review_submit_pending,
+            pendingCount,
+            pendingCount,
+        )
         else -> pluralStringResource(R.plurals.review_submit_selected, selectedCount, selectedCount)
     }
 

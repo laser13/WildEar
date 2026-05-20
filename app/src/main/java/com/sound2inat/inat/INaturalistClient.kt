@@ -257,7 +257,7 @@ open class INaturalistClient(
      *   - `file` — binary, required (note: NOT `audio`; that's the v1
      *     legacy controller field name and the v1 path itself returns 500)
      */
-    suspend fun uploadSound(token: String, observationUuid: String, audioFile: File): Long =
+    open suspend fun uploadSound(token: String, observationUuid: String, audioFile: File): Long =
         withContext(ioDispatcher) {
             require(observationUuid.isNotBlank()) {
                 "uploadSound requires the observation's UUID (got blank)"
@@ -364,7 +364,7 @@ open class INaturalistClient(
      * Updates the observation's free-text description. Used by the multi-species
      * submission flow to cross-link sibling observations after they're all created.
      */
-    suspend fun updateObservationDescription(
+    open suspend fun updateObservationDescription(
         token: String,
         observationId: Long,
         description: String,

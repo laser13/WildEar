@@ -528,7 +528,27 @@ class ReviewViewModelTest {
             val draftDao = FakeDraftDao().apply {
                 insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
             }
-            val repo = repo(draftDao, FakeDetectionDao())
+            // submitToINaturalist now gates on "at least one selected species
+            // without a row in inat_observations" — seed a selected detection
+            // so the submission actually runs.
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 1L,
+                            draftId = draftId,
+                            taxonScientificName = "Parus major",
+                            taxonCommonName = null,
+                            maxConfidence = 0.9f,
+                            detectedWindows = 3,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 3_000L,
+                            isSelectedByUser = true,
+                        ),
+                    ),
+                )
+            }
+            val repo = repo(draftDao, detectionDao)
             val queue = makeQueue(draftRepo = repo)
             var capturedSpectrogram: File? = null
             var pngWrites = 0
@@ -572,6 +592,164 @@ class ReviewViewModelTest {
             assertThat(pngWrites).isEqualTo(1)
             assertThat(capturedSpectrogram).isNotNull()
             assertThat(capturedSpectrogram!!.exists()).isTrue()
+        }
+
+    /**
+     * Incremental submission: even when the draft has previously been
+     * UPLOADED and one species already has a row in `inat_observations`,
+     * `submitToINaturalist` must fire again whenever any selected species
+     * still lacks a row. This is the ReviewVM half of the
+     * "iNat submission fixes" plan — the gating is done off
+     * `inatObservations` (the source of truth for "what's already on iNat"),
+     * not the draft status flag, so a fresh re-analysis that adds a new
+     * species can be submitted without resetting the draft.
+     */
+    @Test
+    fun `submit re-runs when status is UPLOADED but a new species is selected`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "d_incremental"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.UPLOADED))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 1L,
+                            draftId = draftId,
+                            taxonScientificName = "Parus major",
+                            taxonCommonName = null,
+                            maxConfidence = 0.9f,
+                            detectedWindows = 3,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 3_000L,
+                            isSelectedByUser = true,
+                        ),
+                        DetectionEntity(
+                            id = 2L,
+                            draftId = draftId,
+                            taxonScientificName = "Apus apus",
+                            taxonCommonName = null,
+                            maxConfidence = 0.7f,
+                            detectedWindows = 2,
+                            firstSeenMs = 1_000L,
+                            lastSeenMs = 2_500L,
+                            isSelectedByUser = true,
+                        ),
+                    ),
+                )
+            }
+            val repo = repo(draftDao, detectionDao)
+            val queue = makeQueue(draftRepo = repo)
+            // Pre-existing inat observation row for Parus only; Apus is fresh
+            // and must trigger the submitter despite the draft being UPLOADED.
+            val obsFlow = MutableStateFlow(
+                listOf(
+                    InatObsEntry(
+                        scientificName = "Parus major",
+                        observationId = 900L,
+                        url = "https://www.inaturalist.org/observations/900",
+                    ),
+                )
+            )
+            var submitCalls = 0
+            val submission = InatSubmissionJob { _, _, _, _, _, _ ->
+                submitCalls++
+                InatSubmissionOutcome.Success(listOf("https://www.inaturalist.org/observations/901"))
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                submission = submission,
+                tokenProvider = { "jwt" },
+                inatObservationsFlow = obsFlow,
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            advanceUntilIdle()
+
+            // Sanity: state reflects the pre-existing observation + two selections.
+            assertThat(vm.state.value.inatObservations.map { it.scientificName })
+                .containsExactly("Parus major")
+            assertThat(vm.state.value.species.filter { it.isSelected }.map { it.taxonScientificName })
+                .containsExactly("Parus major", "Apus apus")
+            assertThat(vm.state.value.status).isEqualTo(DraftStatus.UPLOADED)
+
+            // Submit must NOT be gated by status == UPLOADED — there is one
+            // pending selection (Apus apus) that still needs an iNat row.
+            vm.submitToINaturalist()
+            advanceUntilIdle()
+
+            assertThat(submitCalls).isEqualTo(1)
+            assertThat(vm.state.value.inatSubmission).isInstanceOf(InatSubmissionState.Done::class.java)
+        }
+
+    /**
+     * Companion to the test above — when every selected species is already
+     * persisted on iNat, `submitToINaturalist` must short-circuit so a stray
+     * tap on the Submit button doesn't replay the upload.
+     */
+    @Test
+    fun `submit is gated when every selected species is already uploaded`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "d_no_pending"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.UPLOADED))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 1L,
+                            draftId = draftId,
+                            taxonScientificName = "Parus major",
+                            taxonCommonName = null,
+                            maxConfidence = 0.9f,
+                            detectedWindows = 3,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 3_000L,
+                            isSelectedByUser = true,
+                        ),
+                    ),
+                )
+            }
+            val repo = repo(draftDao, detectionDao)
+            val queue = makeQueue(draftRepo = repo)
+            val obsFlow = MutableStateFlow(
+                listOf(
+                    InatObsEntry(
+                        scientificName = "Parus major",
+                        observationId = 900L,
+                        url = "https://www.inaturalist.org/observations/900",
+                    ),
+                ),
+            )
+            var submitCalls = 0
+            val submission = InatSubmissionJob { _, _, _, _, _, _ ->
+                submitCalls++
+                InatSubmissionOutcome.Success(emptyList())
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                submission = submission,
+                tokenProvider = { "jwt" },
+                inatObservationsFlow = obsFlow,
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            advanceUntilIdle()
+
+            vm.submitToINaturalist()
+            advanceUntilIdle()
+
+            assertThat(submitCalls).isEqualTo(0)
         }
 
     @Test

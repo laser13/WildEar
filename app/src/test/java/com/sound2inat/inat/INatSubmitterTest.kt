@@ -250,9 +250,12 @@ class INatSubmitterTest {
         val result = submitter.submit("jwt", draftWith(listOf("Parus major", "Sylvia")))
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
         assertThat(inatDao.rows).hasSize(1)
-        // The Sylvia failure is reported in inatLastError but the draft still
-        // moved to UPLOADED because Parus succeeded.
-        assertThat(dao.inserted.first().status).isEqualTo(DraftStatus.UPLOADED)
+        // Partial-success contract (incremental submission): the Sylvia
+        // failure keeps the draft in REVIEWED so the user can re-run submit
+        // after fixing the issue (e.g. the species got a name correction on
+        // iNat). Parus's row is persisted and the idempotency pre-check in
+        // submitOne will short-circuit Parus on the retry.
+        assertThat(dao.inserted.first().status).isEqualTo(DraftStatus.REVIEWED)
         assertThat(dao.inserted.first().inatLastError).contains("Sylvia")
     }
 
@@ -265,8 +268,9 @@ class INatSubmitterTest {
         assertThat(inatDao.rows).isEmpty()
     }
 
-    @Test fun `re-submit wipes prior inat rows for the same draft`() = runTest {
-        // Pre-populate as if a prior submit landed two observations.
+    @Test fun `re-submit preserves prior inat rows for species not in this run`() = runTest {
+        // Pre-populate as if a prior submit landed two observations for
+        // species the user did NOT pick this time around.
         inatDao.rows += listOf(
             InatObservationEntity(1, "d-1", "Old A", 1L, 100L, "https://x/100", 0L),
             InatObservationEntity(2, "d-1", "Old B", 2L, 101L, "https://x/101", 0L),
@@ -280,12 +284,21 @@ class INatSubmitterTest {
         server.enqueue(MockResponse().setBody("""{"id":12}"""))
         // addIdentification (best-effort).
         server.enqueue(MockResponse().setBody("""{"id":21}"""))
+        // crossLink now includes the prior rows (3 total siblings) so it
+        // issues a PUT description per row plus a POST OFV for the new one
+        // (the prior rows have no uuid, so OFV is skipped for them).
+        server.enqueue(MockResponse().setBody("""{"id":900}""")) // PUT description on new 900
+        server.enqueue(MockResponse().setBody("""{"id":100}""")) // PUT description on prior 100
+        server.enqueue(MockResponse().setBody("""{"id":101}""")) // PUT description on prior 101
+        server.enqueue(MockResponse().setBody("""{"id":31}""")) // POST OFV for new u-1
 
         submitter.submit("jwt", draftWith(listOf("Parus major")))
 
-        // Old rows wiped, only the new one remains.
-        assertThat(inatDao.rows).hasSize(1)
-        assertThat(inatDao.rows.first().taxonScientificName).isEqualTo("Parus major")
+        // Incremental contract: prior rows for species NOT submitted in
+        // this run are carried over, not wiped. The DB now holds Old A,
+        // Old B, AND the freshly-uploaded Parus major.
+        assertThat(inatDao.rows.map { it.taxonScientificName })
+            .containsExactly("Old A", "Old B", "Parus major")
     }
 
     /**

@@ -207,4 +207,9 @@
         <item quantity="one">Submit 1 selected</item>
         <item quantity="other">Submit %1$d selected</item>
     </plurals>
+
+    <plurals name="review_submit_pending">
+        <item quantity="one">Submit 1 more species</item>
+        <item quantity="other">Submit %1$d more species</item>
+    </plurals>
 </resources>

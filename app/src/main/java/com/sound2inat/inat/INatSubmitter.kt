@@ -165,36 +165,74 @@ class INatSubmitter(
         }
 
         // Cross-link pass — best-effort; failures don't unwind the upload.
-        if (createdPairs.size > 1) {
-            crossLink(token, createdPairs)
+        // Always run when ANY species is in scope (prior or fresh), so prior
+        // sibling observations get their description PUT-updated to reference
+        // newly-added species too.
+        if (createdPairs.isNotEmpty()) {
+            crossLink(token, draft, createdPairs)
         }
 
         // Atomic wipe-and-replace + status flip: delete any prior rows for
-        // this draft, insert the freshly created observations, and update the
-        // draft's status in a SINGLE transaction. Previously the status flip
-        // ran outside the transaction — if the process died between the
-        // persist and the update, iNat had observations but the draft was
-        // stuck in REVIEWED, so a retry would re-POST /observations and
-        // create duplicates on iNaturalist. Now both writes commit together
-        // or roll back together; the idempotency pre-check in `submitOne`
-        // covers the narrower window between createObservation and persist.
+        // this draft, insert the union of (rows carried over from prior runs
+        // for species NOT submitted in this run) + (rows freshly created
+        // here), and update the draft's status — all in a SINGLE transaction.
+        //
+        // The union step is what makes the flow incrementally re-runnable:
+        // wiping-and-replacing with only `pendingRows` would orphan local
+        // copies of observations from a previous successful submit (they'd
+        // still exist on iNat but the app would forget about them), causing
+        // `pendingCount` in ReviewViewModel to re-count them as pending and
+        // the UploadedBanner to lose its links. The idempotency pre-check
+        // in `submitOne` covers the narrower window between createObservation
+        // and persist; this union covers the cross-run window.
+        //
+        // Status logic: the draft only flips to UPLOADED when every selected
+        // species was successfully persisted AND no per-species failure was
+        // recorded. Otherwise it stays in REVIEWED so the user can re-run
+        // submit to retry the missing species (the idempotency pre-check
+        // skips the already-persisted ones).
+        val totalSelected = selected.size
+        val succeeded = pendingRows.size
+        val anyFailure = failures.isNotEmpty()
+        val nextStatus = if (succeeded == totalSelected && !anyFailure) {
+            DraftStatus.UPLOADED
+        } else {
+            DraftStatus.REVIEWED
+        }
         val updatedDraft = draft.draft.copy(
-            status = DraftStatus.UPLOADED,
+            status = nextStatus,
             inatLastError = if (failures.isEmpty()) null else failures.joinToString(" | "),
             updatedAtUtcMs = nowMs(),
         )
-        val createdRows = persistAndMarkUploaded(draft.draft.id, pendingRows, updatedDraft)
-        val primary = createdRows.first()
-        return Result.Ok(primary.observationUrl, createdRows.map { it.observationUrl })
+        // Build the full row set to persist: carry over any prior rows whose
+        // observation isn't being re-inserted by this run, then append the
+        // freshly-created rows. Re-reading priorRows here (after crossLink
+        // already read them) is cheap and keeps the persist step self-
+        // contained — the DAO is local and the read is cheap.
+        val priorRows = inatObservations.listForDraft(draft.draft.id)
+        val newIds = pendingRows.mapTo(mutableSetOf()) { it.observationId }
+        val carriedOver = priorRows.filter { it.observationId !in newIds }
+        val allRows = carriedOver + pendingRows
+        val savedRows = persistAndMarkUploaded(draft.draft.id, allRows, updatedDraft)
+        // The user's expectation when (re-)submitting is to see the URL of a
+        // species they just uploaded, not a carried-over one. The freshly-
+        // inserted rows appear at the tail of `savedRows` (we appended them
+        // above), so take the first row from that tail as the primary URL.
+        // `pendingRows` is guaranteed non-empty here (the early-return above
+        // covers the no-fresh-uploads case).
+        val freshlyInsertedUrls = savedRows.takeLast(pendingRows.size).map { it.observationUrl }
+        val primary = freshlyInsertedUrls.first()
+        return Result.Ok(primary, savedRows.map { it.observationUrl })
     }
 
     /**
      * Atomically deletes all prior iNat observation rows for [draftId],
-     * inserts [rows], and flips the draft to its [updatedDraft] state
-     * (typically `UPLOADED`). When a [Sound2iNatDb] reference is available
-     * all three operations run inside a single [withTransaction] block;
-     * otherwise they execute sequentially (test paths with fake DAOs that
-     * have no transactional guarantee).
+     * inserts [rows] (the caller passes the FULL set to keep — carried-over
+     * prior rows + freshly-created rows for this run), and flips the draft
+     * to its [updatedDraft] state. When a [Sound2iNatDb] reference is
+     * available all three operations run inside a single [withTransaction]
+     * block; otherwise they execute sequentially (test paths with fake DAOs
+     * that have no transactional guarantee).
      */
     private suspend fun persistAndMarkUploaded(
         draftId: String,
@@ -393,10 +431,27 @@ class INatSubmitter(
 
     private suspend fun crossLink(
         token: String,
-        pairs: List<Pair<SubmittedObs, DetectionEntity>>,
+        draft: DraftWithDetections,
+        createdPairs: List<Pair<SubmittedObs, DetectionEntity>>,
     ) {
-        for ((submitted, det) in pairs) {
-            val others = pairs.filter { it.first.entity.observationId != submitted.entity.observationId }
+        // Union: rows persisted in prior runs (kept around for back-references)
+        // + the freshly-submitted pairs from this run. Prior rows are wrapped
+        // in a SubmittedObs with an empty uuid — uuid-dependent calls
+        // (createObservationFieldValue) skip them.
+        val priorRows = inatObservations.listForDraft(draft.draft.id)
+        val detectionByName = draft.detections.associateBy { it.taxonScientificName }
+        val newIds = createdPairs.mapTo(mutableSetOf()) { it.first.entity.observationId }
+        val priorPairs = priorRows
+            .filter { it.observationId !in newIds }
+            .mapNotNull { row ->
+                val det = detectionByName[row.taxonScientificName] ?: return@mapNotNull null
+                SubmittedObs(entity = row, uuid = "") to det
+            }
+        val allPairs = priorPairs + createdPairs
+        if (allPairs.size <= 1) return
+
+        for ((submitted, det) in allPairs) {
+            val others = allPairs.filter { it.first.entity.observationId != submitted.entity.observationId }
             val siblings = others.joinToString("\n") { (sib, _) ->
                 " - ${sib.entity.taxonScientificName} → ${sib.entity.observationUrl}"
             }

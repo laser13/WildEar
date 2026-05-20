@@ -761,20 +761,27 @@ class ReviewViewModel(
 
     fun submitToINaturalist() {
         if (_state.value.inatSubmission == InatSubmissionState.InProgress) return
-        // Already finished in this VM instance — block re-fire so a stray
-        // recomposition or second click doesn't duplicate the upload.
-        if (_state.value.inatSubmission is InatSubmissionState.Done) return
         // While we're waiting for the user to finish the interactive login
         // sheet, additional taps must be ignored — the launcher is in flight
         // and will retry the submit itself when the activity returns.
         if (_state.value.inatSubmission is InatSubmissionState.NeedsInteractiveLogin) return
-        // If a prior session already marked the draft UPLOADED, the user must
-        // explicitly reset before re-submitting (no safe-by-default re-fire).
-        if (_state.value.status == DraftStatus.UPLOADED) {
-            android.util.Log.w(
+        // Compute species still unsubmitted. The draft may already be in
+        // UPLOADED but still have unsubmitted selections — e.g. the user
+        // re-ran inference and ticked a freshly-detected species. Submit is
+        // allowed iff at least one selected species lacks a row in
+        // inat_observations. Gating on pendingCount also subsumes the
+        // legacy `is InatSubmissionState.Done` short-circuit: a Done state
+        // with pendingCount > 0 means a successful first round left a new
+        // selection waiting for a follow-up submit.
+        val existingNames = _state.value.inatObservations
+            .mapTo(mutableSetOf()) { it.scientificName }
+        val pendingCount = _state.value.species.count {
+            it.isSelected && it.taxonScientificName !in existingNames
+        }
+        if (pendingCount == 0) {
+            android.util.Log.i(
                 "ReviewViewModel",
-                "submitToINaturalist ignored — draft is already UPLOADED",
-                Throwable("call site"),
+                "submitToINaturalist ignored — no pending species (all selected ones already uploaded)",
             )
             return
         }
