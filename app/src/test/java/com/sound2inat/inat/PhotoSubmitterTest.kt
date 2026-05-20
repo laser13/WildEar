@@ -71,8 +71,8 @@ class PhotoSubmitterTest {
     fun `uploading a photo draft creates one observation and uploads every image`() = runTest {
         val draftId = draftWithImages(2)
         server.enqueue(MockResponse().setBody("""{"id":900,"uuid":"u-1"}"""))
-        server.enqueue(MockResponse().setBody("""{"results":[{"id":1}]}"""))
-        server.enqueue(MockResponse().setBody("""{"results":[{"id":2}]}"""))
+        server.enqueue(MockResponse().setBody("""{"id":1,"observation_id":900}"""))
+        server.enqueue(MockResponse().setBody("""{"id":2,"observation_id":900}"""))
         server.enqueue(MockResponse().setBody("""{}"""))
 
         val result = submitter.submit("jwt", draftId)
@@ -83,8 +83,8 @@ class PhotoSubmitterTest {
         assertThat(saved.inatObservationUuid).isEqualTo("u-1")
         assertThat(saved.inatObservationUrl).isEqualTo("https://www.inaturalist.org/observations/900")
         assertThat(server.takeRequest().path).isEqualTo("/v1/observations")
-        assertThat(server.takeRequest().path).isEqualTo("/v2/observation_photos")
-        assertThat(server.takeRequest().path).isEqualTo("/v2/observation_photos")
+        assertThat(server.takeRequest().path).isEqualTo("/v1/observation_photos")
+        assertThat(server.takeRequest().path).isEqualTo("/v1/observation_photos")
         val tagRequest = server.takeRequest()
         assertThat(tagRequest.path).isEqualTo("/v2/observations/u-1")
         assertThat(tagRequest.body.readUtf8()).contains("WildEar")
@@ -113,7 +113,7 @@ class PhotoSubmitterTest {
         assertThat(result).isInstanceOf(PhotoSubmitResult.Failure::class.java)
         assertThat(db.photoDrafts().getById(draftId)!!.inatLastError).contains("All photo uploads failed")
         assertThat(server.takeRequest().path).isEqualTo("/v1/observations")
-        assertThat(server.takeRequest().path).isEqualTo("/v2/observation_photos")
+        assertThat(server.takeRequest().path).isEqualTo("/v1/observation_photos")
         assertThat(server.takeRequest().path).isEqualTo("/v2/observations/u-1")
         assertThat(server.takeRequest().path).isEqualTo("/v1/observations/900")
     }

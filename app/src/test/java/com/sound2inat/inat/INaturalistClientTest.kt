@@ -628,26 +628,29 @@ class INaturalistClientTest {
     }
 
     @Test
-    fun `uploadObservationPhoto posts to v2 with correct fields and returns id`() = runTest {
-        // Enqueue a v2-shaped response: { "results": [{ "id": 42 }] }
+    fun `uploadObservationPhoto posts to v1 with correct fields and returns id`() = runTest {
+        // v1 returns a flat object, not wrapped in `results`.
         server.enqueue(
-            MockResponse().setBody("""{"results":[{"id":42}]}""").setResponseCode(200),
+            MockResponse().setBody("""{"id":42,"observation_id":123}""").setResponseCode(200),
         )
         val photo = tmp.newFile("habitat.jpg").apply { writeText("JPEG") }
         val result = client.uploadObservationPhoto(
             token = "Bearer test-token",
-            observationUuid = "obs-uuid-123",
+            observationId = 123L,
             photoFile = photo,
         )
         assertThat(result).isEqualTo(42L)
 
-        // Verify request went to v2 endpoint
+        // Verify request went to v1 endpoint
         val req = server.takeRequest()
-        assertThat(req.path).isEqualTo("/v2/observation_photos")
+        assertThat(req.path).isEqualTo("/v1/observation_photos")
         assertThat(req.method).isEqualTo("POST")
         val body = req.body.readUtf8()
         assertThat(body).contains("observation_photo[observation_id]")
-        assertThat(body).contains("obs-uuid-123")
+        // Verify the id appears as a numeric multipart value (between CRLF
+        // separators), not just embedded in some other field — this is the
+        // canary against accidentally regressing to a UUID-string identifier.
+        assertThat(body).contains("\r\n123\r\n")
         assertThat(body).contains("name=\"file\"")
         assertThat(body).contains(photo.name)
     }

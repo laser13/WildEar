@@ -68,7 +68,7 @@ open class PhotoSubmitter @Inject constructor(
             runCatching {
                 client.uploadObservationPhoto(
                     token = token,
-                    observationUuid = created.uuid,
+                    observationId = created.id,
                     photoFile = file,
                     mimeType = image.mimeType.takeIf { it.isNotBlank() } ?: "image/jpeg",
                 )

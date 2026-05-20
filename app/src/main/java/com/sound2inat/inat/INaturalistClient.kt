@@ -292,14 +292,17 @@ open class INaturalistClient(
         }
 
     /**
-     * Uploads [photoFile] (JPEG) and links it to the observation identified by
-     * [observationUuid]. Returns the iNat observation_photo id.
+     * Uploads [photoFile] and links it to the observation identified by
+     * [observationId]. Returns the iNat observation_photo id.
      *
-     * API: POST /v2/observation_photos
+     * API: POST /v1/observation_photos
      *
-     * Multipart shape:
-     *   - `observation_photo[observation_id]` — string UUID, required
-     *   - `file` — binary JPEG
+     * Multipart shape (per iNaturalistAPI `swagger_v1.yml.ejs`):
+     *   - `observation_photo[observation_id]` — integer id, required
+     *   - `file` — binary image, required
+     *
+     * v2's `/observation_photos` returns `422 {"errors":"No photo specified"}`
+     * for this body shape and its actual contract is undocumented — stay on v1.
      *
      * Best-effort: callers should catch exceptions and log rather than rolling
      * back the parent observation — a missing photo is far less harmful than a
@@ -307,17 +310,17 @@ open class INaturalistClient(
      */
     open suspend fun uploadObservationPhoto(
         token: String,
-        observationUuid: String,
+        observationId: Long,
         photoFile: File,
         mimeType: String = "image/jpeg",
     ): Long = withContext(ioDispatcher) {
-        require(observationUuid.isNotBlank()) { "uploadObservationPhoto requires observation UUID" }
+        require(observationId > 0L) { "uploadObservationPhoto requires a positive observation id" }
         require(photoFile.exists() && photoFile.length() > 0) {
             "Photo file missing or empty: ${photoFile.absolutePath}"
         }
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
-            .addFormDataPart("observation_photo[observation_id]", observationUuid)
+            .addFormDataPart("observation_photo[observation_id]", observationId.toString())
             .addFormDataPart(
                 name = "file",
                 filename = photoFile.name,
@@ -325,15 +328,16 @@ open class INaturalistClient(
             )
             .build()
         val req = Request.Builder()
-            .url("$v2BaseUrl/observation_photos")
+            .url("$baseUrl/observation_photos")
             .header("Authorization", token)
             .header("Accept", "application/json")
             .post(body)
             .build()
+        // v1 returns a flat object `{id, observation_id, photo, ...}` — no
+        // `results` array wrapper.
         val resp = executeJson(req)
-        val results = resp.optJSONArray("results")
-        if (results == null || results.length() == 0) error("uploadObservationPhoto: empty results in response")
-        results.getJSONObject(0).getLong("id")
+        resp.optLong("id").takeIf { it > 0L }
+            ?: error("uploadObservationPhoto: /v1/observation_photos returned no id; got $resp")
     }
 
     /**
@@ -911,7 +915,6 @@ open class INaturalistClient(
         const val DEFAULT_BASE_URL = "https://api.inaturalist.org/v1"
         private val JSON = "application/json; charset=utf-8".toMediaType()
         private val WAV_MEDIA_TYPE = "audio/wav".toMediaType()
-        private val JPEG_MEDIA_TYPE = "image/jpeg".toMediaType()
         private const val MAX_ERR_LEN = 200
         private const val LOG_TAG = "INatHttp"
         private const val LOG_BODY_LEN = 1000

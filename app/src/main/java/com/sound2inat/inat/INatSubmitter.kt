@@ -118,13 +118,8 @@ class INatSubmitter(
         val pendingRows = mutableListOf<InatObservationEntity>()
         val createdPairs = mutableListOf<Pair<SubmittedObs, DetectionEntity>>()
         val failures = mutableListOf<String>()
-        var spectrogramPhotoUploaded = false
 
         for (det in selected) {
-            val attachSpectrogramPhoto = !spectrogramPhotoUploaded &&
-                spectrogramPhoto != null &&
-                spectrogramPhoto.exists() &&
-                spectrogramPhoto.length() > 0L
             val outcome = runCatching {
                 submitOne(
                     token,
@@ -135,10 +130,6 @@ class INatSubmitter(
                     habitatPhotos,
                     includeHabitatPhotoByTaxon,
                     spectrogramPhoto,
-                    attachSpectrogramPhoto,
-                    onSpectrogramPhotoAttempt = {
-                        spectrogramPhotoUploaded = true
-                    },
                 )
             }
             outcome.onSuccess { submitted ->
@@ -237,8 +228,6 @@ class INatSubmitter(
         habitatPhotos: List<File> = emptyList(),
         includeHabitatPhotoByTaxon: Map<String, Boolean> = emptyMap(),
         spectrogramPhoto: File? = null,
-        uploadSpectrogramPhoto: Boolean = false,
-        onSpectrogramPhotoAttempt: () -> Unit = {},
     ): SubmittedObs? {
         // Idempotency pre-check: if a prior submission attempt already created
         // an observation for this (draftId, species) on iNat but crashed before
@@ -296,19 +285,15 @@ class INatSubmitter(
                 .onFailure { android.util.Log.w(LOG_TAG, "Cleanup failed for ${created.id}", it) }
             throw t
         }
-        if (uploadSpectrogramPhoto && spectrogramPhoto != null) {
-            try {
-                runCatching { client.uploadObservationPhoto(token, created.uuid, spectrogramPhoto) }
-                    .onFailure {
-                        android.util.Log.w(
-                            LOG_TAG,
-                            "Spectrogram photo upload failed for ${created.id}",
-                            it,
-                        )
-                    }
-            } finally {
-                onSpectrogramPhotoAttempt()
-            }
+        if (spectrogramPhoto != null && spectrogramPhoto.exists() && spectrogramPhoto.length() > 0L) {
+            runCatching { client.uploadObservationPhoto(token, created.id, spectrogramPhoto) }
+                .onFailure {
+                    android.util.Log.w(
+                        LOG_TAG,
+                        "Spectrogram photo upload failed for ${created.id}",
+                        it,
+                    )
+                }
         }
         runCatching {
             client.updateObservationTags(token, created.uuid, APP_TAG)
@@ -338,7 +323,7 @@ class INatSubmitter(
         // Best-effort habitat photo upload — failure doesn't roll back the observation.
         if (includeHabitatPhotoByTaxon[det.taxonScientificName] == true) {
             for (photo in habitatPhotos.filter { it.exists() }) {
-                runCatching { client.uploadObservationPhoto(token, created.uuid, photo) }
+                runCatching { client.uploadObservationPhoto(token, created.id, photo) }
                     .onFailure {
                         android.util.Log.w(LOG_TAG, "Photo upload failed for ${created.id}", it)
                     }

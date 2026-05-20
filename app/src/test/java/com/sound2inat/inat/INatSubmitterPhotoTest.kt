@@ -68,19 +68,19 @@ class INatSubmitterPhotoTest {
         baseUrl: String,
         ioDispatcher: CoroutineDispatcher,
     ) : INaturalistClient(http, baseUrl, ioDispatcher = ioDispatcher) {
-        /** Collected (observationUuid, photoFile) pairs in call order. */
-        val uploadedPhotos = mutableListOf<Pair<String, File>>()
+        /** Collected (observationId, photoFile) pairs in call order. */
+        val uploadedPhotos = mutableListOf<Pair<Long, File>>()
         val photoUploadRequestCounts = mutableListOf<Int>()
         var failPhotoUploads: Boolean = false
 
         override suspend fun uploadObservationPhoto(
             token: String,
-            observationUuid: String,
+            observationId: Long,
             photoFile: File,
             mimeType: String,
         ): Long {
             photoUploadRequestCounts += server.requestCount
-            uploadedPhotos += observationUuid to photoFile
+            uploadedPhotos += observationId to photoFile
             if (failPhotoUploads) throw RuntimeException("spectrogram upload failed")
             return uploadedPhotos.size.toLong()
         }
@@ -184,7 +184,7 @@ class INatSubmitterPhotoTest {
 
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
         assertThat(trackingClient.uploadedPhotos).hasSize(1)
-        assertThat(trackingClient.uploadedPhotos.first().first).isEqualTo("u-photo-1")
+        assertThat(trackingClient.uploadedPhotos.first().first).isEqualTo(900L)
         assertThat(trackingClient.uploadedPhotos.first().second).isEqualTo(photoFile)
     }
 
@@ -250,7 +250,7 @@ class INatSubmitterPhotoTest {
     }
 
     @Test
-    fun `spectrogram photo uploads once after the first successful sound upload`() = runTest {
+    fun `spectrogram photo uploads for every species in the batch`() = runTest {
         val trackingClient = makeTrackingClient()
         val draftDao = LocalFakeDraftDao()
         val submitter = makeSubmitter(trackingClient, draftDao, LocalFakeInatDao(), tmp.newFolder("cache-5"))
@@ -272,10 +272,11 @@ class INatSubmitterPhotoTest {
         )
 
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
-        assertThat(trackingClient.uploadedPhotos).hasSize(1)
-        assertThat(trackingClient.uploadedPhotos.first().first).isEqualTo("u-spec-1")
-        assertThat(trackingClient.uploadedPhotos.first().second).isEqualTo(spectrogram)
-        assertThat(trackingClient.photoUploadRequestCounts).containsExactly(3)
+        assertThat(trackingClient.uploadedPhotos).hasSize(2)
+        assertThat(trackingClient.uploadedPhotos[0].first).isEqualTo(910L)
+        assertThat(trackingClient.uploadedPhotos[0].second).isEqualTo(spectrogram)
+        assertThat(trackingClient.uploadedPhotos[1].first).isEqualTo(911L)
+        assertThat(trackingClient.uploadedPhotos[1].second).isEqualTo(spectrogram)
     }
 
     @Test
@@ -302,38 +303,12 @@ class INatSubmitterPhotoTest {
         )
 
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
-        assertThat(trackingClient.uploadedPhotos).hasSize(1)
-        assertThat(trackingClient.uploadedPhotos.first().first).isEqualTo("u-spec-fail-1")
-        assertThat(trackingClient.uploadedPhotos.first().second).isEqualTo(spectrogram)
-    }
-
-    @Test
-    fun `spectrogram photo failure is not retried for later species in same batch`() = runTest {
-        val trackingClient = makeTrackingClient().apply {
-            failPhotoUploads = true
-        }
-        val submitter = makeSubmitter(trackingClient, LocalFakeDraftDao(), LocalFakeInatDao(), tmp.newFolder("cache-7"))
-
-        enqueueSuccessfulSubmit(uuid = "u-spec-batch-1", observationId = 930L)
-        enqueueSuccessfulSubmit(uuid = "u-spec-batch-2", observationId = 931L)
-        server.enqueue(MockResponse().setBody("""{"id":708}"""))
-        server.enqueue(MockResponse().setBody("""{"id":709}"""))
-        server.enqueue(MockResponse().setBody("""{"id":710}"""))
-        server.enqueue(MockResponse().setBody("""{"id":711}"""))
-
-        val spectrogram = tmp.newFile("spectrogram-batch.png").apply {
-            writeBytes(ByteArray(64) { 0x33.toByte() })
-        }
-        val result = submitter.submit(
-            token = "jwt",
-            draft = draftWith(listOf("Parus major", "Sylvia"), draftId = "d-spec-3"),
-            spectrogramPhoto = spectrogram,
-        )
-
-        assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
-        assertThat(trackingClient.uploadedPhotos).hasSize(1)
-        assertThat(trackingClient.uploadedPhotos.first().first).isEqualTo("u-spec-batch-1")
-        assertThat(trackingClient.photoUploadRequestCounts).containsExactly(3)
+        // Failure-tracking is best-effort and per-observation; both species
+        // still attempt upload, but neither failure rolls back the overall
+        // submission.
+        assertThat(trackingClient.uploadedPhotos).hasSize(2)
+        assertThat(trackingClient.uploadedPhotos[0].first).isEqualTo(920L)
+        assertThat(trackingClient.uploadedPhotos[1].first).isEqualTo(921L)
     }
 }
 
