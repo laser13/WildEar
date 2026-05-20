@@ -80,6 +80,7 @@
     <string name="review_no_location">No location</string>
     <string name="review_section_detected_wildlife">Detected wildlife</string>
     <string name="review_submit_uploading">Uploading…</string>
+    <string name="review_submit_signing_in">Signing in to iNaturalist…</string>
     <string name="review_submit_already_uploaded">Already uploaded</string>
     <string name="review_submit_select_species">Select species</string>
     <string name="dialog_reanalyze_title">Re-analyze recording</string>

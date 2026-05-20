@@ -1,6 +1,7 @@
 package com.sound2inat.inat
 
 import android.content.Context
+import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.WebStorage
 import com.sound2inat.app.data.Settings
@@ -8,6 +9,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +20,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
@@ -73,11 +76,20 @@ open class INatAuthRepository @Inject constructor(
         ensureMigrated()
         val cached = storage.token
         val age = System.currentTimeMillis() - storage.tokenFetchedAtUtcMs
-        if (cached != null && age in 0..TOKEN_TTL_MS) return cached
+        if (cached != null && age in 0..TOKEN_TTL_MS) {
+            Log.d(LOG_TAG, "getValidToken: cached token still fresh (age=${age}ms)")
+            return cached
+        }
+        Log.d(
+            LOG_TAG,
+            "getValidToken: cached token stale or missing (cached=${cached != null}, age=${age}ms) — silent refresh",
+        )
         // Stale or missing: attempt silent WebView refresh. Return null on failure
         // so the caller surfaces an interactive login prompt instead of silently
         // sending a stale token that will 401.
-        return trySilentRefresh(refreshDispatcher)
+        val refreshed = trySilentRefresh(refreshDispatcher)
+        Log.d(LOG_TAG, "getValidToken: refresh result=${if (refreshed != null) "token" else "null"}")
+        return refreshed
     }
 
     /**
@@ -138,7 +150,26 @@ open class INatAuthRepository @Inject constructor(
     internal open suspend fun trySilentRefresh(dispatcher: CoroutineDispatcher): String? =
         refreshMutex.withLock {
             refreshDeferred?.let { return@withLock it.await() }
-            val deferred = coroutineScope { async { trySilentRefreshWebView(dispatcher) } }
+            val deferred = coroutineScope {
+                async {
+                    // Coroutine-level deadline replaces the previous
+                    // webView.postDelayed callback. postDelayed needs the
+                    // creating thread's Looper to dispatch the runnable, and
+                    // Main can be busy enough (Compose recomposition, GC,
+                    // spectrogram work) that the 15s message never runs —
+                    // leaving the caller hung indefinitely. withTimeout
+                    // cancels the suspendCancellableCoroutine regardless of
+                    // what Main is doing.
+                    try {
+                        withTimeout(SILENT_REFRESH_TIMEOUT_MS) {
+                            trySilentRefreshWebView(dispatcher)
+                        }
+                    } catch (e: TimeoutCancellationException) {
+                        Log.w(LOG_TAG, "trySilentRefresh: timed out after ${SILENT_REFRESH_TIMEOUT_MS}ms", e)
+                        null
+                    }
+                }
+            }
             refreshDeferred = deferred
             try {
                 deferred.await()
@@ -157,9 +188,14 @@ open class INatAuthRepository @Inject constructor(
      *
      * `WebView` requires a Looper, so the work is forced onto
      * [mainDispatcher] regardless of the caller's coroutine context.
+     *
+     * The hard deadline is enforced by [trySilentRefresh] via [withTimeout];
+     * [invokeOnCancellation] tears the WebView down whether we hit the
+     * deadline or the caller cancelled.
      */
     private suspend fun trySilentRefreshWebView(mainDispatcher: CoroutineDispatcher): String? =
         withContext(mainDispatcher) {
+            Log.d(LOG_TAG, "trySilentRefresh: launching headless WebView -> ${INatWebLoginActivity.LOGIN_URL}")
             suspendCancellableCoroutine<String?> { cont ->
                 var resolved = false
                 // Use a holder so the onTokenCaptured lambda can reference the
@@ -171,6 +207,7 @@ open class INatAuthRepository @Inject constructor(
                     onTokenCaptured = { token ->
                         if (!resolved) {
                             resolved = true
+                            Log.d(LOG_TAG, "trySilentRefresh: token captured")
                             webViewHolder[0]?.destroy()
                             cont.resume(token)
                         }
@@ -178,19 +215,10 @@ open class INatAuthRepository @Inject constructor(
                 )
                 webViewHolder[0] = webView
                 cont.invokeOnCancellation {
+                    Log.d(LOG_TAG, "trySilentRefresh: cancelled (likely timeout) — destroying WebView")
                     webView.stopLoading()
                     webView.destroy()
                 }
-                // After SILENT_REFRESH_TIMEOUT_MS we give up. iNat redirects
-                // unauthenticated requests to /login, which never fires the
-                // token capture callback — without a deadline we'd hang.
-                webView.postDelayed({
-                    if (!resolved) {
-                        resolved = true
-                        webView.destroy()
-                        cont.resume(null)
-                    }
-                }, SILENT_REFRESH_TIMEOUT_MS)
             }
         }
 
@@ -247,5 +275,7 @@ open class INatAuthRepository @Inject constructor(
 
         /** Hard ceiling for one silent-refresh attempt. */
         const val SILENT_REFRESH_TIMEOUT_MS = 15_000L
+
+        private const val LOG_TAG = "INatAuth"
     }
 }

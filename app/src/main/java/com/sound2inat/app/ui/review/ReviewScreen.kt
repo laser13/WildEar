@@ -93,6 +93,7 @@ import com.sound2inat.app.ui.theme.detectionCardLikelyLight
 import com.sound2inat.app.ui.theme.detectionCardUnlikelyDark
 import com.sound2inat.app.ui.theme.detectionCardUnlikelyLight
 import com.sound2inat.app.ui.theme.iNatGreen
+import com.sound2inat.inat.INatWebLoginActivity
 import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.DraftStatus
@@ -214,6 +215,21 @@ private fun ReviewPage(
                     }
                 }
             }
+    }
+
+    // Interactive iNat re-login launcher. submitToINaturalist() flips
+    // inatSubmission to NeedsInteractiveLogin when the silent WebView refresh
+    // can't get a token; the LaunchedEffect below picks that up, opens the
+    // login activity, and pipes the result back to the VM which then retries
+    // the submit automatically.
+    val inatLoginLauncher = rememberLauncherForActivityResult(
+        contract = INatWebLoginActivity.Contract(),
+        onResult = { token -> vm.onInteractiveLoginResult(token) },
+    )
+    LaunchedEffect(state.inatSubmission) {
+        if (state.inatSubmission is InatSubmissionState.NeedsInteractiveLogin) {
+            inatLoginLauncher.launch(Unit)
+        }
     }
 
     var pickerVisible by remember { mutableStateOf(false) }
@@ -641,10 +657,12 @@ private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
         state.inatSubmission is InatSubmissionState.Done
     val selectedCount = state.species.count { it.isSelected }
     val inProgress = state.inatSubmission is InatSubmissionState.InProgress
-    val canSubmit = !alreadyUploaded && selectedCount > 0 && !inProgress
+    val awaitingLogin = state.inatSubmission is InatSubmissionState.NeedsInteractiveLogin
+    val canSubmit = !alreadyUploaded && selectedCount > 0 && !inProgress && !awaitingLogin
 
     val alreadyUploadedForLabel = state.status == DraftStatus.UPLOADED || state.inatSubmission is InatSubmissionState.Done
     val label = when {
+        awaitingLogin -> stringResource(R.string.review_submit_signing_in)
         state.inatSubmission is InatSubmissionState.InProgress -> stringResource(R.string.review_submit_uploading)
         alreadyUploadedForLabel -> stringResource(R.string.review_submit_already_uploaded)
         selectedCount == 0 -> stringResource(R.string.review_submit_select_species)

@@ -95,6 +95,7 @@ sealed interface PlaybackState {
 sealed interface InatSubmissionState {
     data object Idle : InatSubmissionState
     data object InProgress : InatSubmissionState
+    data object NeedsInteractiveLogin : InatSubmissionState
     data class Done(val urls: List<String>) : InatSubmissionState
     data class Failed(val message: String) : InatSubmissionState
 }

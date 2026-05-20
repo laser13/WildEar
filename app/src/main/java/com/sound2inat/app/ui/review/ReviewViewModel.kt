@@ -165,6 +165,13 @@ class ReviewViewModel(
         InatSubmissionOutcome.Failure("No iNaturalist submitter configured")
     },
     private val tokenProvider: suspend () -> String? = { null },
+    /**
+     * Persists a token captured by the interactive login WebView. Wired to
+     * [com.sound2inat.inat.INatAuthRepository.acceptCapturedToken] in
+     * production; defaults to a no-op so unit tests that do not exercise
+     * the re-login path don't need to stub it.
+     */
+    private val acceptInatToken: suspend (String) -> Unit = { },
     private val inatObservationsFlow: kotlinx.coroutines.flow.Flow<List<InatObsEntry>> =
         kotlinx.coroutines.flow.flowOf(emptyList()),
     /** Returns the iNaturalist default photo medium_url for a scientific name, or null. */
@@ -745,11 +752,22 @@ class ReviewViewModel(
      * users have reported it firing without an explicit tap, which would
      * otherwise be invisible (the lambda is just `vm::submitToINaturalist`).
      */
+    /**
+     * Tracks whether we've already bounced through interactive re-login in this
+     * submit attempt. Prevents an infinite loop if the user cancels the login
+     * screen or iNat returns a token that still fails to authenticate.
+     */
+    private var interactiveLoginAttempted: Boolean = false
+
     fun submitToINaturalist() {
         if (_state.value.inatSubmission == InatSubmissionState.InProgress) return
         // Already finished in this VM instance — block re-fire so a stray
         // recomposition or second click doesn't duplicate the upload.
         if (_state.value.inatSubmission is InatSubmissionState.Done) return
+        // While we're waiting for the user to finish the interactive login
+        // sheet, additional taps must be ignored — the launcher is in flight
+        // and will retry the submit itself when the activity returns.
+        if (_state.value.inatSubmission is InatSubmissionState.NeedsInteractiveLogin) return
         // If a prior session already marked the draft UPLOADED, the user must
         // explicitly reset before re-submitting (no safe-by-default re-fire).
         if (_state.value.status == DraftStatus.UPLOADED) {
@@ -769,12 +787,28 @@ class ReviewViewModel(
         scope.launch {
             val token = tokenProvider()
             if (token.isNullOrBlank()) {
-                _state.update {
-                    it.copy(
-                        inatSubmission = InatSubmissionState.Failed(
-                            "iNaturalist session expired — open Settings and tap Log in again",
-                        ),
+                // Silent refresh failed — the iNat session cookie is dead.
+                // Hand off to the UI to launch the interactive login flow.
+                // The screen captures the activity result and feeds it back
+                // via onInteractiveLoginResult(), which will either retry the
+                // submission (on success) or transition to Failed (on cancel).
+                if (interactiveLoginAttempted) {
+                    interactiveLoginAttempted = false
+                    _state.update {
+                        it.copy(
+                            inatSubmission = InatSubmissionState.Failed(
+                                "iNaturalist session expired — open Settings and tap Log in again",
+                            ),
+                        )
+                    }
+                } else {
+                    android.util.Log.i(
+                        "ReviewViewModel",
+                        "submitToINaturalist: token unavailable, requesting interactive login",
                     )
+                    _state.update {
+                        it.copy(inatSubmission = InatSubmissionState.NeedsInteractiveLogin)
+                    }
                 }
                 return@launch
             }
@@ -816,6 +850,9 @@ class ReviewViewModel(
                 spectrogramPhoto = spectrogramPhoto,
                 sourceAudioOverride = sourceAudioOverride,
             )
+            // Settle terminal state; clear the re-login guard so a fresh
+            // Submit tap later can request interactive login again.
+            interactiveLoginAttempted = false
             _state.update {
                 it.copy(
                     inatSubmission = when (outcome) {
@@ -828,7 +865,63 @@ class ReviewViewModel(
     }
 
     fun resetInatSubmission() {
+        interactiveLoginAttempted = false
         _state.update { it.copy(inatSubmission = InatSubmissionState.Idle) }
+    }
+
+    /**
+     * Called by the Review screen after the [com.sound2inat.inat.INatWebLoginActivity]
+     * launcher returns. A non-null [token] means the user successfully logged
+     * in — we persist it via [acceptInatToken] and re-fire [submitToINaturalist],
+     * which now finds a fresh cached token and proceeds straight to upload.
+     * Null means the user dismissed the login screen; we surface that as a
+     * regular submission failure so the Submit button becomes tappable again.
+     */
+    fun onInteractiveLoginResult(token: String?) {
+        if (_state.value.inatSubmission !is InatSubmissionState.NeedsInteractiveLogin) {
+            // Ignore stale callbacks (e.g. configuration change re-delivering
+            // the same result, or the user backing out of the screen between
+            // tap and login completion).
+            android.util.Log.d(
+                "ReviewViewModel",
+                "onInteractiveLoginResult ignored — current state is ${_state.value.inatSubmission::class.simpleName}",
+            )
+            return
+        }
+        if (token.isNullOrBlank()) {
+            android.util.Log.i("ReviewViewModel", "onInteractiveLoginResult: login cancelled")
+            interactiveLoginAttempted = false
+            _state.update {
+                it.copy(
+                    inatSubmission = InatSubmissionState.Failed(
+                        "Sign in to iNaturalist was cancelled — tap Submit again to retry",
+                    ),
+                )
+            }
+            return
+        }
+        android.util.Log.i("ReviewViewModel", "onInteractiveLoginResult: token captured, retrying submit")
+        interactiveLoginAttempted = true
+        // Move out of NeedsInteractiveLogin so submitToINaturalist()'s guard
+        // doesn't short-circuit; Idle is the natural "nothing yet" baseline.
+        _state.update { it.copy(inatSubmission = InatSubmissionState.Idle) }
+        scope.launch {
+            try {
+                acceptInatToken(token)
+            } catch (t: Throwable) {
+                android.util.Log.w("ReviewViewModel", "acceptInatToken failed", t)
+                interactiveLoginAttempted = false
+                _state.update {
+                    it.copy(
+                        inatSubmission = InatSubmissionState.Failed(
+                            "Could not save iNaturalist session: ${t.message ?: "unknown error"}",
+                        ),
+                    )
+                }
+                return@launch
+            }
+            submitToINaturalist()
+        }
     }
 
     /**
@@ -1386,6 +1479,7 @@ class ReviewViewModelFactory @Inject constructor(
             }
         },
         tokenProvider = { inatAuth.getValidToken() },
+        acceptInatToken = { inatAuth.acceptCapturedToken(it) },
         inatObservationsFlow = inatObservationsDao.observeForDraft(draftId)
             .map { rows -> rows.map { InatObsEntry(it.taxonScientificName, it.observationId, it.observationUrl) } },
         photoFetcher = { name -> inatClient.fetchTaxonPhotoUrl(name) },
