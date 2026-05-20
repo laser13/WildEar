@@ -128,7 +128,6 @@ fun interface InatSubmissionJob {
         draftId: String,
         habitatPhotos: List<File>,
         includeHabitatPhotoByTaxon: Map<String, Boolean>,
-        spectrogramPhoto: File?,
         sourceAudioOverride: File?,
     ): InatSubmissionOutcome
 }
@@ -149,10 +148,6 @@ fun interface AudioSaver {
     suspend fun saveToDownloads(file: File, displayName: String): Uri?
 }
 
-fun interface SpectrogramPngWriter {
-    fun write(pixels: Array<IntArray>, file: File)
-}
-
 @Suppress("LongParameterList")
 class ReviewViewModel(
     private val draftId: String,
@@ -161,7 +156,7 @@ class ReviewViewModel(
     private val inference: InferenceJob,
     private val visuals: VisualsProvider = NoopVisualsProvider,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val submission: InatSubmissionJob = InatSubmissionJob { _, _, _, _, _, _ ->
+    private val submission: InatSubmissionJob = InatSubmissionJob { _, _, _, _, _ ->
         InatSubmissionOutcome.Failure("No iNaturalist submitter configured")
     },
     private val tokenProvider: suspend () -> String? = { null },
@@ -222,7 +217,6 @@ class ReviewViewModel(
     private val audioSaver: AudioSaver = AudioSaver { _, _ ->
         throw UnsupportedOperationException("No AudioSaver configured")
     },
-    private val spectrogramPngWriter: SpectrogramPngWriter = SpectrogramPngWriter(SpectrogramBitmap::writePng),
     private val visualsCoordinator: ReviewVisualsCoordinator? = null,
     // Default is used only in JVM tests; production factory passes context.cacheDir/export_clips.
     private val exportClipsDir: File = File(
@@ -823,21 +817,6 @@ class ReviewViewModel(
             val includeByTaxon = _state.value.species.associate {
                 it.taxonScientificName to it.includeHabitatPhoto
             }
-            val fallbackRoot = _state.value.audioPath?.let { audioPath ->
-                File(audioPath).parentFile?.let { parent -> File(parent, "review_cache") }
-            }
-            val filesDir = cachedFilesDir ?: fallbackRoot
-            val spectrogramPhoto = filesDir?.let { dir ->
-                withContext(ioDispatcher) {
-                    currentSpectrogramPng(
-                        filesDir = dir,
-                        draftId = draftId,
-                        profile = _processingProfile.value,
-                        displayPlane = _displayPlane.value,
-                        writer = spectrogramPngWriter,
-                    )
-                }
-            }?.takeIf { it.exists() }
             val sourceAudioOverride = try {
                 File(currentProfileAudioPath())
             } catch (t: Throwable) {
@@ -854,7 +833,6 @@ class ReviewViewModel(
                 draftId = draftId,
                 habitatPhotos = photos,
                 includeHabitatPhotoByTaxon = includeByTaxon,
-                spectrogramPhoto = spectrogramPhoto,
                 sourceAudioOverride = sourceAudioOverride,
             )
             // Settle terminal state; clear the re-login guard so a fresh
@@ -1467,7 +1445,7 @@ class ReviewViewModelFactory @Inject constructor(
         player = MediaPlayerAudioPlayer(),
         inference = inferenceUseCase.inference,
         visuals = ProductionVisualsProvider(),
-        submission = InatSubmissionJob { token, id, photoFiles, includeByTaxon, spectrogramPhoto, sourceAudioOverride ->
+        submission = InatSubmissionJob { token, id, photoFiles, includeByTaxon, sourceAudioOverride ->
             // Pulling the freshest draft + detections so the submitter sees the
             // user's current selection, not a stale snapshot.
             val dwd = repo.observeWithDetections(id).first()
@@ -1477,7 +1455,6 @@ class ReviewViewModelFactory @Inject constructor(
                     draft = dwd,
                     habitatPhotos = photoFiles,
                     includeHabitatPhotoByTaxon = includeByTaxon,
-                    spectrogramPhoto = spectrogramPhoto,
                     sourceAudioOverride = sourceAudioOverride,
                 )
             ) {
@@ -1605,33 +1582,6 @@ internal class ProductionVisualsProvider(
             waveformPeaks = peaks,
         )
     }
-}
-
-private suspend fun currentSpectrogramPng(
-    filesDir: File,
-    draftId: String,
-    profile: ReviewProcessingProfile,
-    displayPlane: ReviewSpectrogramDisplayPlane?,
-    writer: SpectrogramPngWriter,
-): File? {
-    val currentDisplayPlane = displayPlane ?: return null
-    val currentPreview = ReviewSpectrogramPreview.fromDisplayPlane(currentDisplayPlane, profile.spectrogramConfig)
-    if (currentPreview.width == 0 || currentPreview.height == 0) return null
-    val outDir = File(filesDir, "spectrograms").apply { mkdirs() }
-    val paletteToken = profile.spectrogramConfig.palette?.name?.lowercase() ?: "ink"
-    val gainToken = profile.spectrogramConfig.gainDb?.let { (it * 10).toInt().toString() } ?: "0"
-    val outFile = File(
-        outDir,
-        draftId + "_" + paletteToken + "_" + gainToken + ".png",
-    )
-    if (outFile.exists() && outFile.length() > 0L) return outFile
-    val rows = Array(currentPreview.height) { row ->
-        IntArray(currentPreview.width) { col ->
-            currentPreview.argb[row * currentPreview.width + col]
-        }
-    }
-    writer.write(rows, outFile)
-    return outFile.takeIf { it.exists() && it.length() > 0L }
 }
 
 internal data class Mono16Info(

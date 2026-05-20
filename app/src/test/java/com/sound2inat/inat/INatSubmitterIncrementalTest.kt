@@ -3,16 +3,11 @@ package com.sound2inat.inat
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.recorder.WavWriter
 import com.sound2inat.storage.DetectionEntity
-import com.sound2inat.storage.DraftDao
 import com.sound2inat.storage.DraftEntity
-import com.sound2inat.storage.DraftObservationCount
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.DraftWithDetections
-import com.sound2inat.storage.InatObservationDao
 import com.sound2inat.storage.InatObservationEntity
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
@@ -111,6 +106,19 @@ class INatSubmitterIncrementalTest {
             // the test to be independent of that queue. The submitter itself
             // wraps this call in runCatching so a non-throwing override is fine.
         }
+
+        /**
+         * Per-clip spectrogram uploads now fire from inside submitOne; this
+         * test focuses on incremental retry semantics, not on photo uploads.
+         * Short-circuit the photo endpoint so the existing MockWebServer
+         * response queues stay correct.
+         */
+        override suspend fun uploadObservationPhoto(
+            token: String,
+            observationId: Long,
+            photoFile: File,
+            mimeType: String,
+        ): Long = 0L
     }
 
     private fun makeClient(): TrackingClient = TrackingClient(
@@ -121,8 +129,8 @@ class INatSubmitterIncrementalTest {
 
     private fun makeSubmitter(
         client: INaturalistClient,
-        draftDao: FakeDraftDaoIncremental,
-        inatDao: FakeInatDaoIncremental,
+        draftDao: InMemoryDraftDao,
+        inatDao: InMemoryInatObservationDao,
         cacheFolder: File,
     ) = INatSubmitter(
         client = client,
@@ -216,8 +224,8 @@ class INatSubmitterIncrementalTest {
             speciesNames = listOf("Parus major", "Corvus corone"),
         )
         val client = makeClient().apply { scriptSoundUploadFailure(forObservationIndex = 1) }
-        val drafts = FakeDraftDaoIncremental().apply { inserted += draft.draft }
-        val inatObs = FakeInatDaoIncremental()
+        val drafts = InMemoryDraftDao().apply { inserted += draft.draft }
+        val inatObs = InMemoryInatObservationDao()
         val submitter = makeSubmitter(client, drafts, inatObs, tmp.newFolder("cache-inc-1"))
 
         // Species 1 (index 0) succeeds — needs full 7 responses.
@@ -252,8 +260,8 @@ class INatSubmitterIncrementalTest {
             speciesNames = listOf("Parus major", "Corvus corone"),
         )
         val client = makeClient()
-        val drafts = FakeDraftDaoIncremental().apply { inserted += firstRunDraft.draft }
-        val inatObs = FakeInatDaoIncremental()
+        val drafts = InMemoryDraftDao().apply { inserted += firstRunDraft.draft }
+        val inatObs = InMemoryInatObservationDao()
         val submitter = makeSubmitter(client, drafts, inatObs, tmp.newFolder("cache-inc-2"))
 
         // Pre-populate prior iNat rows as if a successful first run had landed
@@ -334,59 +342,3 @@ class INatSubmitterIncrementalTest {
 }
 
 private data class DescriptionUpdate(val observationId: Long, val description: String)
-
-// -------------------------------------------------------------------------
-// Local fake DAOs — the private fakes in INatSubmitterTest.kt cannot be
-// referenced from another file, and the LocalFake* ones in
-// INatSubmitterPhotoTest.kt are also private. Keep this duplication
-// minimal and self-contained.
-// -------------------------------------------------------------------------
-
-private class FakeDraftDaoIncremental : DraftDao {
-    val inserted: MutableList<DraftEntity> = mutableListOf()
-    override fun insert(d: DraftEntity) { inserted += d }
-    override fun update(d: DraftEntity) {
-        val i = inserted.indexOfFirst { it.id == d.id }
-        if (i >= 0) inserted[i] = d else inserted += d
-    }
-    override fun delete(d: DraftEntity) { inserted.removeAll { it.id == d.id } }
-    override fun getById(id: String): DraftEntity? = inserted.firstOrNull { it.id == id }
-    override fun observeAll(): Flow<List<DraftEntity>> = flowOf(inserted.toList())
-    override fun deleteById(id: String): Int = if (inserted.removeAll { it.id == id }) 1 else 0
-    override fun updateStatusConditional(
-        id: String,
-        newStatus: DraftStatus,
-        expectedStatus: DraftStatus,
-    ): Int {
-        val i = inserted.indexOfFirst { it.id == id && it.status == expectedStatus }
-        if (i < 0) return 0
-        inserted[i] = inserted[i].copy(status = newStatus)
-        return 1
-    }
-
-    override fun updatePalette(id: String, name: String?, ts: Long): Int = 0
-    override fun updateSpectrogramGain(id: String, gain: Float?, ts: Long): Int = 0
-}
-
-private class FakeInatDaoIncremental : InatObservationDao {
-    val rows: MutableList<InatObservationEntity> = mutableListOf()
-    private var nextId = 1L
-    override fun insert(row: InatObservationEntity): Long {
-        val id = nextId++
-        rows += row.copy(id = id)
-        return id
-    }
-    override fun listForDraft(draftId: String): List<InatObservationEntity> =
-        rows.filter { it.draftId == draftId }
-    override fun findForDraftAndSpecies(draftId: String, species: String): InatObservationEntity? =
-        rows.firstOrNull { it.draftId == draftId && it.taxonScientificName == species }
-    override fun observeForDraft(draftId: String): Flow<List<InatObservationEntity>> =
-        flowOf(listForDraft(draftId))
-    override fun deleteForDraft(draftId: String): Int =
-        if (rows.removeAll { it.draftId == draftId }) 1 else 0
-    override fun observeCountsByDraft(): Flow<List<DraftObservationCount>> =
-        flowOf(
-            rows.groupBy { it.draftId }
-                .map { (id, list) -> DraftObservationCount(id, list.size) },
-        )
-}

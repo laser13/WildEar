@@ -5,16 +5,12 @@ import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.recorder.WavWriter
 import com.sound2inat.storage.DetectionEntity
-import com.sound2inat.storage.DraftDao
 import com.sound2inat.storage.DraftEntity
-import com.sound2inat.storage.DraftObservationCount
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.DraftWithDetections
 import com.sound2inat.storage.InatObservationDao
 import com.sound2inat.storage.InatObservationEntity
 import com.sound2inat.storage.Sound2iNatDb
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -37,19 +33,32 @@ class INatSubmitterTest {
     @get:Rule val tmp = TemporaryFolder()
     private lateinit var server: MockWebServer
     private lateinit var client: INaturalistClient
-    private lateinit var dao: FakeDraftDao
-    private lateinit var inatDao: FakeInatDao
+    private lateinit var dao: InMemoryDraftDao
+    private lateinit var inatDao: InMemoryInatObservationDao
     private lateinit var submitter: INatSubmitter
 
     @Before fun setUp() {
         server = MockWebServer().also { it.start() }
-        client = INaturalistClient(
+        // Per-clip spectrogram uploads now hit `uploadObservationPhoto` from
+        // inside submitOne — but the test cases below carefully enumerate the
+        // HTTP request count for the resolve/create/sound/tag/annotate/identify
+        // path. Override the photo endpoint to a no-op so MockWebServer is not
+        // hit by the new spectrogram upload, and existing assertions keep
+        // their meaning. INatSubmitterMultiClipTest covers the new behaviour.
+        client = object : INaturalistClient(
             OkHttpClient(),
             baseUrl = server.url("/v1").toString().trimEnd('/'),
             ioDispatcher = UnconfinedTestDispatcher(),
-        )
-        dao = FakeDraftDao()
-        inatDao = FakeInatDao()
+        ) {
+            override suspend fun uploadObservationPhoto(
+                token: String,
+                observationId: Long,
+                photoFile: File,
+                mimeType: String,
+            ): Long = 0L
+        }
+        dao = InMemoryDraftDao()
+        inatDao = InMemoryInatObservationDao()
         submitter = INatSubmitter(
             client = client,
             drafts = dao,
@@ -688,53 +697,4 @@ class INatSubmitterTest {
         }
         return false
     }
-}
-
-private class FakeDraftDao : DraftDao {
-    val inserted: MutableList<DraftEntity> = mutableListOf()
-    override fun insert(d: DraftEntity) { inserted += d }
-    override fun update(d: DraftEntity) {
-        val i = inserted.indexOfFirst { it.id == d.id }
-        if (i >= 0) inserted[i] = d
-    }
-    override fun delete(d: DraftEntity) { inserted.removeAll { it.id == d.id } }
-    override fun getById(id: String): DraftEntity? = inserted.firstOrNull { it.id == id }
-    override fun observeAll(): Flow<List<DraftEntity>> = flowOf(inserted.toList())
-    override fun deleteById(id: String): Int = if (inserted.removeAll { it.id == id }) 1 else 0
-    override fun updateStatusConditional(
-        id: String,
-        newStatus: DraftStatus,
-        expectedStatus: DraftStatus,
-    ): Int {
-        val i = inserted.indexOfFirst { it.id == id && it.status == expectedStatus }
-        if (i < 0) return 0
-        inserted[i] = inserted[i].copy(status = newStatus)
-        return 1
-    }
-
-    override fun updatePalette(id: String, name: String?, ts: Long): Int = 0
-    override fun updateSpectrogramGain(id: String, gain: Float?, ts: Long): Int = 0
-}
-
-private class FakeInatDao : InatObservationDao {
-    val rows: MutableList<InatObservationEntity> = mutableListOf()
-    private var nextId = 1L
-    override fun insert(row: InatObservationEntity): Long {
-        val id = nextId++
-        rows += row.copy(id = id)
-        return id
-    }
-    override fun listForDraft(draftId: String): List<InatObservationEntity> =
-        rows.filter { it.draftId == draftId }
-    override fun findForDraftAndSpecies(draftId: String, species: String): InatObservationEntity? =
-        rows.firstOrNull { it.draftId == draftId && it.taxonScientificName == species }
-    override fun observeForDraft(draftId: String): Flow<List<InatObservationEntity>> =
-        flowOf(listForDraft(draftId))
-    override fun deleteForDraft(draftId: String): Int =
-        if (rows.removeAll { it.draftId == draftId }) 1 else 0
-    override fun observeCountsByDraft(): Flow<List<com.sound2inat.storage.DraftObservationCount>> =
-        flowOf(
-            rows.groupBy { it.draftId }
-                .map { (id, list) -> com.sound2inat.storage.DraftObservationCount(id, list.size) },
-        )
 }

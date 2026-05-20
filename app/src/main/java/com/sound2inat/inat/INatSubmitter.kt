@@ -27,10 +27,12 @@ import java.util.TimeZone
  *
  * For each selected detection:
  *   1. Resolve scientific name → iNat taxon id.
- *   2. Slice the WAV around that species' detected windows
- *      (`firstSeenMs..lastSeenMs` ± [PADDING_MS]) into a per-species temp file.
+ *   2. Plan upload clips via [ClipPlanner] (clustered by time gap, capped at
+ *      5 clips × 60 s each) and write each clip + its PNG spectrogram into a
+ *      per-species temp file set.
  *   3. POST /observations with the resolved taxon, GPS, and observed_on.
- *   4. POST /observation_sounds attaching the per-species clip.
+ *   4. POST /observation_sounds for each clip and POST /observation_photos
+ *      for each matching spectrogram.
  *   5. PUT /observations/{uuid} on the v2 API to apply the stable app tag.
  *   6. Persist a row in `inat_observations`.
  *
@@ -78,7 +80,6 @@ class INatSubmitter(
         draft: DraftWithDetections,
         habitatPhotos: List<File> = emptyList(),
         includeHabitatPhotoByTaxon: Map<String, Boolean> = emptyMap(),
-        spectrogramPhoto: File? = null,
         sourceAudioOverride: File? = null,
     ): Result = withContext(ioDispatcher) {
         if (token.isBlank()) return@withContext Result.Failure("No iNaturalist token in Settings")
@@ -97,7 +98,6 @@ class INatSubmitter(
                 selected,
                 habitatPhotos,
                 includeHabitatPhotoByTaxon,
-                spectrogramPhoto
             )
         } finally {
             runCatching { cropDir.deleteRecursively() }
@@ -113,7 +113,6 @@ class INatSubmitter(
         selected: List<DetectionEntity>,
         habitatPhotos: List<File>,
         includeHabitatPhotoByTaxon: Map<String, Boolean>,
-        spectrogramPhoto: File?,
     ): Result {
         val pendingRows = mutableListOf<InatObservationEntity>()
         val createdPairs = mutableListOf<Pair<SubmittedObs, DetectionEntity>>()
@@ -129,7 +128,6 @@ class INatSubmitter(
                     det,
                     habitatPhotos,
                     includeHabitatPhotoByTaxon,
-                    spectrogramPhoto,
                 )
             }
             outcome.onSuccess { submitted ->
@@ -151,9 +149,9 @@ class INatSubmitter(
                 android.util.Log.w(LOG_TAG, "Submit failed for ${det.taxonScientificName}", e)
                 failures += "${det.taxonScientificName}: ${e.message}"
             }
-            // Per-species crop is consumed; clean up so we don't pile MB
-            // of WAVs in cache between sessions.
-            runCatching { File(cropDir, cropFileName(draft.draft.id, det)).delete() }
+            // Per-species crops are consumed; the whole `cropDir` is wiped in
+            // the surrounding `finally` block of [submit], so no per-iteration
+            // cleanup is needed here.
         }
 
         if (pendingRows.isEmpty()) {
@@ -256,7 +254,7 @@ class INatSubmitter(
      * a [SubmittedObs] wrapping the entity and the iNat UUID, or null if the
      * taxon name didn't match anything on iNat.
      */
-    @Suppress("TooGenericExceptionCaught")
+    @Suppress("TooGenericExceptionCaught", "LongMethod")
     private suspend fun submitOne(
         token: String,
         draft: DraftWithDetections,
@@ -265,7 +263,6 @@ class INatSubmitter(
         det: DetectionEntity,
         habitatPhotos: List<File> = emptyList(),
         includeHabitatPhotoByTaxon: Map<String, Boolean> = emptyMap(),
-        spectrogramPhoto: File? = null,
     ): SubmittedObs? {
         // Idempotency pre-check: if a prior submission attempt already created
         // an observation for this (draftId, species) on iNat but crashed before
@@ -296,8 +293,11 @@ class INatSubmitter(
             inatObservations.deleteForDraft(draft.draft.id)
         }
         val genusId = client.resolveGenus(det.taxonScientificName, token) ?: return null
-        val cropFile = File(cropDir, cropFileName(draft.draft.id, det))
-        cropPerSpecies(srcAudio, det, draft.draft.durationMs, cropFile)
+        val clips = materialiseClips(srcAudio, det, draft.draft.durationMs, cropDir)
+        check(clips.isNotEmpty()) {
+            "All WAV trims failed for ${det.taxonScientificName} — disk full or audio corrupted?"
+        }
+
         val obsBody = ObservationBody(
             observedAtIso = formatIso(draft.draft.recordedAtUtcMs),
             latitude = draft.draft.latitude,
@@ -313,25 +313,58 @@ class INatSubmitter(
         check(created.uuid.isNotBlank()) {
             "iNat /observations did not return a uuid; cannot link sound (id=${created.id})"
         }
-        // Sound upload is the most fragile step (multipart on a v2 endpoint).
-        // If it fails we delete the just-created observation so the user's
-        // iNat account doesn't accumulate empty records on retry.
+        // Sound upload of the FIRST clip is the most fragile step (multipart
+        // on a v2 endpoint). If even this fails we delete the just-created
+        // observation so the user's iNat account doesn't accumulate empty
+        // records on retry.
+        val firstClip = clips.first()
         try {
-            withRetry { client.uploadSound(token, created.uuid, cropFile) }
+            withRetry { client.uploadSound(token, created.uuid, firstClip.wav) }
         } catch (t: Throwable) {
             runCatching { client.deleteObservation(token, created.id) }
                 .onFailure { android.util.Log.w(LOG_TAG, "Cleanup failed for ${created.id}", it) }
             throw t
         }
-        if (spectrogramPhoto != null && spectrogramPhoto.exists() && spectrogramPhoto.length() > 0L) {
-            runCatching { client.uploadObservationPhoto(token, created.id, spectrogramPhoto) }
+        // Upload the first clip's spectrogram (best-effort).
+        firstClip.spectrogramPng?.let { png ->
+            runCatching { client.uploadObservationPhoto(token, created.id, png) }
                 .onFailure {
                     android.util.Log.w(
                         LOG_TAG,
-                        "Spectrogram photo upload failed for ${created.id}",
+                        "Spectrogram photo upload failed for ${created.id} (clip 0)",
                         it,
                     )
                 }
+        }
+        // Remaining clips: best-effort. Failures don't roll back — the
+        // observation already has at least one playable sound.
+        //
+        // Known limitation (per-clip idempotency): if doSubmit crashes after
+        // some extra clips uploaded but before persistAndMarkUploaded, a retry
+        // of this species via Task B's incremental flow is skipped entirely by
+        // findForDraftAndSpecies (the observation row exists). The extra clips
+        // stay where they landed, no duplicates created. Per-clip Room state
+        // is deferred to a follow-up.
+        for ((idx, clip) in clips.withIndex()) {
+            if (idx == 0) continue
+            runCatching { withRetry { client.uploadSound(token, created.uuid, clip.wav) } }
+                .onFailure {
+                    android.util.Log.w(
+                        LOG_TAG,
+                        "Extra sound upload failed for ${created.id} (clip $idx)",
+                        it,
+                    )
+                }
+            clip.spectrogramPng?.let { png ->
+                runCatching { client.uploadObservationPhoto(token, created.id, png) }
+                    .onFailure {
+                        android.util.Log.w(
+                            LOG_TAG,
+                            "Spectrogram photo upload failed for ${created.id} (clip $idx)",
+                            it,
+                        )
+                    }
+            }
         }
         runCatching {
             client.updateObservationTags(token, created.uuid, APP_TAG)
@@ -378,23 +411,51 @@ class INatSubmitter(
         return SubmittedObs(entity, created.uuid)
     }
 
-    private fun cropPerSpecies(
-        src: File,
+    private data class ClipArtifacts(val wav: File, val spectrogramPng: File?)
+
+    /**
+     * Builds the WAV crops + per-clip spectrograms for a single species'
+     * detections according to [ClipPlanner]. Individual clip failures are
+     * logged and skipped; the caller is expected to handle an empty list.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun materialiseClips(
+        srcAudio: File,
         det: DetectionEntity,
         draftDurationMs: Long,
-        dst: File,
-    ) {
-        // BirdNET window length is 3 s; with PADDING_MS=1000 ms we end up with
-        // a clip around 5 s minimum, which is plenty of context for a reviewer.
-        val start = (det.firstSeenMs - PADDING_MS).coerceAtLeast(0L)
-        val end = (det.lastSeenMs + PADDING_MS).coerceAtMost(draftDurationMs)
-        WavTrimmer.trimMono16(src.absolutePath, dst, start, end)
+        cropDir: File,
+    ): List<ClipArtifacts> = withContext(ioDispatcher) {
+        val ranges = com.sound2inat.inference.FragmentRanges.decode(det.fragmentRanges)
+        val clips = ClipPlanner.plan(
+            fragmentRanges = ranges,
+            firstSeenMs = det.firstSeenMs,
+            lastSeenMs = det.lastSeenMs,
+            recordingDurationMs = draftDurationMs,
+        )
+        clips.mapIndexedNotNull { idx, range ->
+            val wavOut = File(cropDir, clipFileName(det, idx, ext = "wav"))
+            runCatching { WavTrimmer.trimMono16(srcAudio.absolutePath, wavOut, range.startMs, range.endMs) }
+                .getOrElse {
+                    android.util.Log.w(LOG_TAG, "trim failed for ${det.taxonScientificName} clip $idx", it)
+                    return@mapIndexedNotNull null
+                }
+            val pngOut = File(cropDir, clipFileName(det, idx, ext = "png"))
+            val png = runCatching { renderClipSpectrogramPng(wavOut, pngOut) }
+                .getOrElse {
+                    android.util.Log.w(
+                        LOG_TAG,
+                        "spectrogram render failed for ${det.taxonScientificName} clip $idx",
+                        it,
+                    )
+                    null
+                }
+            ClipArtifacts(wav = wavOut, spectrogramPng = png)
+        }
     }
 
-    private fun cropFileName(draftId: String, det: DetectionEntity): String {
-        // Stable but uncollidable across species in the same draft.
+    private fun clipFileName(det: DetectionEntity, index: Int, ext: String): String {
         val safe = det.taxonScientificName.replace("[^A-Za-z0-9]+".toRegex(), "_")
-        return "${draftId}__$safe.wav"
+        return "${det.draftId}__${safe}__$index.$ext"
     }
 
     private fun baseDescription(det: DetectionEntity): String {
@@ -534,7 +595,6 @@ class INatSubmitter(
     }
 
     companion object {
-        private const val PADDING_MS = 1_000L
         private const val MS = 1000L
         private const val PCT = 100f
         private const val LOG_TAG = "INatSubmitter"

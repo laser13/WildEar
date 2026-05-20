@@ -3,16 +3,10 @@ package com.sound2inat.inat
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.recorder.WavWriter
 import com.sound2inat.storage.DetectionEntity
-import com.sound2inat.storage.DraftDao
 import com.sound2inat.storage.DraftEntity
-import com.sound2inat.storage.DraftObservationCount
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.DraftWithDetections
-import com.sound2inat.storage.InatObservationDao
-import com.sound2inat.storage.InatObservationEntity
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
@@ -94,8 +88,8 @@ class INatSubmitterPhotoTest {
 
     private fun makeSubmitter(
         client: INaturalistClient,
-        draftDao: LocalFakeDraftDao,
-        inatDao: LocalFakeInatDao,
+        draftDao: InMemoryDraftDao,
+        inatDao: InMemoryInatObservationDao,
         cacheFolder: File,
     ) = INatSubmitter(
         client = client,
@@ -169,8 +163,8 @@ class INatSubmitterPhotoTest {
     fun `photo uploaded for species where includeHabitatPhoto is true`() = runTest {
         val taxon = "Parus major"
         val trackingClient = makeTrackingClient()
-        val draftDao = LocalFakeDraftDao()
-        val submitter = makeSubmitter(trackingClient, draftDao, LocalFakeInatDao(), tmp.newFolder("cache-1"))
+        val draftDao = InMemoryDraftDao()
+        val submitter = makeSubmitter(trackingClient, draftDao, InMemoryInatObservationDao(), tmp.newFolder("cache-1"))
 
         enqueueSuccessfulSubmit(uuid = "u-photo-1")
 
@@ -183,16 +177,22 @@ class INatSubmitterPhotoTest {
         )
 
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
-        assertThat(trackingClient.uploadedPhotos).hasSize(1)
-        assertThat(trackingClient.uploadedPhotos.first().first).isEqualTo(900L)
-        assertThat(trackingClient.uploadedPhotos.first().second).isEqualTo(photoFile)
+        // Submitter now uploads one per-clip spectrogram + the habitat photo.
+        val habitatUploads = trackingClient.uploadedPhotos.filter { it.second == photoFile }
+        assertThat(habitatUploads).hasSize(1)
+        assertThat(habitatUploads.first().first).isEqualTo(900L)
     }
 
     @Test
-    fun `photo NOT uploaded when includeHabitatPhoto is false`() = runTest {
+    fun `habitat photo NOT uploaded when includeHabitatPhoto is false`() = runTest {
         val taxon = "Parus major"
         val trackingClient = makeTrackingClient()
-        val submitter = makeSubmitter(trackingClient, LocalFakeDraftDao(), LocalFakeInatDao(), tmp.newFolder("cache-2"))
+        val submitter = makeSubmitter(
+            trackingClient,
+            InMemoryDraftDao(),
+            InMemoryInatObservationDao(),
+            tmp.newFolder("cache-2"),
+        )
 
         enqueueSuccessfulSubmit()
 
@@ -205,14 +205,20 @@ class INatSubmitterPhotoTest {
         )
 
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
-        assertThat(trackingClient.uploadedPhotos).isEmpty()
+        val habitatUploads = trackingClient.uploadedPhotos.filter { it.second == photoFile }
+        assertThat(habitatUploads).isEmpty()
     }
 
     @Test
-    fun `photo NOT uploaded when taxon absent from includeHabitatPhotoByTaxon map`() = runTest {
+    fun `habitat photo NOT uploaded when taxon absent from includeHabitatPhotoByTaxon map`() = runTest {
         val taxon = "Parus major"
         val trackingClient = makeTrackingClient()
-        val submitter = makeSubmitter(trackingClient, LocalFakeDraftDao(), LocalFakeInatDao(), tmp.newFolder("cache-3"))
+        val submitter = makeSubmitter(
+            trackingClient,
+            InMemoryDraftDao(),
+            InMemoryInatObservationDao(),
+            tmp.newFolder("cache-3"),
+        )
 
         enqueueSuccessfulSubmit()
 
@@ -225,14 +231,20 @@ class INatSubmitterPhotoTest {
         )
 
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
-        assertThat(trackingClient.uploadedPhotos).isEmpty()
+        val habitatUploads = trackingClient.uploadedPhotos.filter { it.second == photoFile }
+        assertThat(habitatUploads).isEmpty()
     }
 
     @Test
-    fun `multiple photos uploaded when flag is true`() = runTest {
+    fun `multiple habitat photos uploaded when flag is true`() = runTest {
         val taxon = "Parus major"
         val trackingClient = makeTrackingClient()
-        val submitter = makeSubmitter(trackingClient, LocalFakeDraftDao(), LocalFakeInatDao(), tmp.newFolder("cache-4"))
+        val submitter = makeSubmitter(
+            trackingClient,
+            InMemoryDraftDao(),
+            InMemoryInatObservationDao(),
+            tmp.newFolder("cache-4"),
+        )
 
         enqueueSuccessfulSubmit()
 
@@ -246,123 +258,58 @@ class INatSubmitterPhotoTest {
         )
 
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
-        assertThat(trackingClient.uploadedPhotos).hasSize(2)
+        val habitatUploads = trackingClient.uploadedPhotos
+            .filter { it.second == photo1 || it.second == photo2 }
+        assertThat(habitatUploads).hasSize(2)
     }
 
     @Test
-    fun `spectrogram photo uploads for every species in the batch`() = runTest {
+    fun `per-clip spectrogram photo uploads for every species in the batch`() = runTest {
         val trackingClient = makeTrackingClient()
-        val draftDao = LocalFakeDraftDao()
-        val submitter = makeSubmitter(trackingClient, draftDao, LocalFakeInatDao(), tmp.newFolder("cache-5"))
+        val draftDao = InMemoryDraftDao()
+        val submitter = makeSubmitter(trackingClient, draftDao, InMemoryInatObservationDao(), tmp.newFolder("cache-5"))
 
         enqueueSuccessfulSubmit(uuid = "u-spec-1", observationId = 910L)
         enqueueSuccessfulSubmit(uuid = "u-spec-2", observationId = 911L)
-        server.enqueue(MockResponse().setBody("""{"id":700}"""))
-        server.enqueue(MockResponse().setBody("""{"id":701}"""))
-        server.enqueue(MockResponse().setBody("""{"id":702}"""))
-        server.enqueue(MockResponse().setBody("""{"id":703}"""))
 
-        val spectrogram = tmp.newFile("spectrogram.png").apply {
-            writeBytes(ByteArray(128) { 0x7F.toByte() })
-        }
         val result = submitter.submit(
             token = "jwt",
             draft = draftWith(listOf("Parus major", "Sylvia"), draftId = "d-spec-1"),
-            spectrogramPhoto = spectrogram,
         )
 
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
+        // One spectrogram per clip, one clip per species (legacy fragmentRanges
+        // empty -> single clip). Two species => two photo uploads.
         assertThat(trackingClient.uploadedPhotos).hasSize(2)
-        assertThat(trackingClient.uploadedPhotos[0].first).isEqualTo(910L)
-        assertThat(trackingClient.uploadedPhotos[0].second).isEqualTo(spectrogram)
-        assertThat(trackingClient.uploadedPhotos[1].first).isEqualTo(911L)
-        assertThat(trackingClient.uploadedPhotos[1].second).isEqualTo(spectrogram)
+        val perObservationIds = trackingClient.uploadedPhotos.map { it.first }.toSet()
+        assertThat(perObservationIds).containsExactly(910L, 911L)
     }
 
     @Test
-    fun `spectrogram photo failure does not fail overall submission`() = runTest {
+    fun `per-clip spectrogram failure does not fail overall submission`() = runTest {
         val trackingClient = makeTrackingClient().apply {
             failPhotoUploads = true
         }
-        val submitter = makeSubmitter(trackingClient, LocalFakeDraftDao(), LocalFakeInatDao(), tmp.newFolder("cache-6"))
+        val submitter = makeSubmitter(
+            trackingClient,
+            InMemoryDraftDao(),
+            InMemoryInatObservationDao(),
+            tmp.newFolder("cache-6"),
+        )
 
         enqueueSuccessfulSubmit(uuid = "u-spec-fail-1", observationId = 920L)
         enqueueSuccessfulSubmit(uuid = "u-spec-fail-2", observationId = 921L)
-        server.enqueue(MockResponse().setBody("""{"id":704}"""))
-        server.enqueue(MockResponse().setBody("""{"id":705}"""))
-        server.enqueue(MockResponse().setBody("""{"id":706}"""))
-        server.enqueue(MockResponse().setBody("""{"id":707}"""))
 
-        val spectrogram = tmp.newFile("spectrogram-fail.png").apply {
-            writeBytes(ByteArray(64) { 0x5A.toByte() })
-        }
         val result = submitter.submit(
             token = "jwt",
             draft = draftWith(listOf("Parus major", "Sylvia"), draftId = "d-spec-2"),
-            spectrogramPhoto = spectrogram,
         )
 
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
-        // Failure-tracking is best-effort and per-observation; both species
-        // still attempt upload, but neither failure rolls back the overall
-        // submission.
+        // Per-clip spectrogram uploads are best-effort; even when every photo
+        // upload throws, the submission completes successfully.
         assertThat(trackingClient.uploadedPhotos).hasSize(2)
-        assertThat(trackingClient.uploadedPhotos[0].first).isEqualTo(920L)
-        assertThat(trackingClient.uploadedPhotos[1].first).isEqualTo(921L)
+        val perObservationIds = trackingClient.uploadedPhotos.map { it.first }.toSet()
+        assertThat(perObservationIds).containsExactly(920L, 921L)
     }
-}
-
-// -------------------------------------------------------------------------
-// Local fake DAOs (package-private so the file above can reference them).
-// The private FakeDraftDao / FakeInatDao in INatSubmitterTest.kt are not
-// accessible here — we keep these as minimal duplicates.
-// -------------------------------------------------------------------------
-
-private class LocalFakeDraftDao : DraftDao {
-    val inserted: MutableList<DraftEntity> = mutableListOf()
-    override fun insert(d: DraftEntity) { inserted += d }
-    override fun update(d: DraftEntity) {
-        val i = inserted.indexOfFirst { it.id == d.id }
-        if (i >= 0) inserted[i] = d else inserted += d
-    }
-    override fun delete(d: DraftEntity) { inserted.removeAll { it.id == d.id } }
-    override fun getById(id: String): DraftEntity? = inserted.firstOrNull { it.id == id }
-    override fun observeAll(): Flow<List<DraftEntity>> = flowOf(inserted.toList())
-    override fun deleteById(id: String): Int = if (inserted.removeAll { it.id == id }) 1 else 0
-    override fun updateStatusConditional(
-        id: String,
-        newStatus: DraftStatus,
-        expectedStatus: DraftStatus,
-    ): Int {
-        val i = inserted.indexOfFirst { it.id == id && it.status == expectedStatus }
-        if (i < 0) return 0
-        inserted[i] = inserted[i].copy(status = newStatus)
-        return 1
-    }
-
-    override fun updatePalette(id: String, name: String?, ts: Long): Int = 0
-    override fun updateSpectrogramGain(id: String, gain: Float?, ts: Long): Int = 0
-}
-
-private class LocalFakeInatDao : InatObservationDao {
-    val rows: MutableList<InatObservationEntity> = mutableListOf()
-    private var nextId = 1L
-    override fun insert(row: InatObservationEntity): Long {
-        val id = nextId++
-        rows += row.copy(id = id)
-        return id
-    }
-    override fun listForDraft(draftId: String): List<InatObservationEntity> =
-        rows.filter { it.draftId == draftId }
-    override fun findForDraftAndSpecies(draftId: String, species: String): InatObservationEntity? =
-        rows.firstOrNull { it.draftId == draftId && it.taxonScientificName == species }
-    override fun observeForDraft(draftId: String): Flow<List<InatObservationEntity>> =
-        flowOf(listForDraft(draftId))
-    override fun deleteForDraft(draftId: String): Int =
-        if (rows.removeAll { it.draftId == draftId }) 1 else 0
-    override fun observeCountsByDraft(): Flow<List<DraftObservationCount>> =
-        flowOf(
-            rows.groupBy { it.draftId }
-                .map { (id, list) -> DraftObservationCount(id, list.size) },
-        )
 }

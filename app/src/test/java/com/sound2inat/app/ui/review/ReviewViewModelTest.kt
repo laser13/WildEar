@@ -521,16 +521,18 @@ class ReviewViewModelTest {
             assertThat(magenta.waveformPeaks).isNotEmpty()
         }
 
+    /**
+     * Spectrograms are now built per-clip inside [INatSubmitter] rather than
+     * by the ViewModel, so this test just checks that submission still fires
+     * with the species selection unchanged.
+     */
     @Test
-    fun `submitToINaturalist forwards the spectrogram PNG to submission`() =
+    fun `submitToINaturalist invokes the submission job with selected species`() =
         runTest(UnconfinedTestDispatcher()) {
             val draftId = "d7_submit"
             val draftDao = FakeDraftDao().apply {
                 insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
             }
-            // submitToINaturalist now gates on "at least one selected species
-            // without a row in inat_observations" — seed a selected detection
-            // so the submission actually runs.
             val detectionDao = FakeDetectionDao().apply {
                 insertAll(
                     listOf(
@@ -550,10 +552,9 @@ class ReviewViewModelTest {
             }
             val repo = repo(draftDao, detectionDao)
             val queue = makeQueue(draftRepo = repo)
-            var capturedSpectrogram: File? = null
-            var pngWrites = 0
-            val submission = InatSubmissionJob { _, _, _, _, spectrogramPhoto, _ ->
-                capturedSpectrogram = spectrogramPhoto
+            var submitCalls = 0
+            val submission = InatSubmissionJob { _, _, _, _, _ ->
+                submitCalls++
                 InatSubmissionOutcome.Success(emptyList())
             }
             val vm = ReviewViewModel(
@@ -574,11 +575,6 @@ class ReviewViewModelTest {
                 },
                 submission = submission,
                 tokenProvider = { "jwt" },
-                spectrogramPngWriter = SpectrogramPngWriter { _, target ->
-                    pngWrites++
-                    target.parentFile?.mkdirs()
-                    target.writeBytes(byteArrayOf(1, 2, 3))
-                },
                 queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
@@ -589,9 +585,7 @@ class ReviewViewModelTest {
             vm.submitToINaturalist()
             advanceUntilIdle()
 
-            assertThat(pngWrites).isEqualTo(1)
-            assertThat(capturedSpectrogram).isNotNull()
-            assertThat(capturedSpectrogram!!.exists()).isTrue()
+            assertThat(submitCalls).isEqualTo(1)
         }
 
     /**
@@ -653,7 +647,7 @@ class ReviewViewModelTest {
                 )
             )
             var submitCalls = 0
-            val submission = InatSubmissionJob { _, _, _, _, _, _ ->
+            val submission = InatSubmissionJob { _, _, _, _, _ ->
                 submitCalls++
                 InatSubmissionOutcome.Success(listOf("https://www.inaturalist.org/observations/901"))
             }
@@ -728,7 +722,7 @@ class ReviewViewModelTest {
                 ),
             )
             var submitCalls = 0
-            val submission = InatSubmissionJob { _, _, _, _, _, _ ->
+            val submission = InatSubmissionJob { _, _, _, _, _ ->
                 submitCalls++
                 InatSubmissionOutcome.Success(emptyList())
             }
