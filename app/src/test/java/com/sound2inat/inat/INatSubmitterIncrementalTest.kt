@@ -339,6 +339,62 @@ class INatSubmitterIncrementalTest {
         val updatedIds = client.descriptionUpdates.map { it.observationId }.toSet()
         assertThat(updatedIds).containsExactly(900L, 901L, 902L)
     }
+
+    @Test
+    fun `malformed row for one species does not wipe sibling rows`() = runTest {
+        // Two species already on iNat for the same draft: Parus major has a
+        // malformed row (blank URL, zero id) that the idempotency check must
+        // discard, and Apus apus has a valid row. The submitter must wipe only
+        // the malformed row — not the sibling — so Task B's union-row
+        // persistence still sees the carried-over valid sibling.
+        val draftWithDetections = makeDraftWithDetections(
+            speciesNames = listOf("Parus major"),
+            draftId = "d-malformed-1",
+        )
+        val client = makeClient()
+        val drafts = InMemoryDraftDao().apply { inserted += draftWithDetections.draft }
+        val inatObs = InMemoryInatObservationDao().apply {
+            rows += InatObservationEntity(
+                id = 1L,
+                draftId = draftWithDetections.draft.id,
+                taxonScientificName = "Parus major",
+                taxonInatId = 1L,
+                observationId = 0L, // malformed: zero id
+                observationUrl = "", // malformed: blank url
+                createdAtUtcMs = 0L,
+            )
+            rows += InatObservationEntity(
+                id = 2L,
+                draftId = draftWithDetections.draft.id,
+                taxonScientificName = "Apus apus",
+                taxonInatId = 2L,
+                observationId = 901L,
+                observationUrl = "https://www.inaturalist.org/observations/901",
+                createdAtUtcMs = 0L,
+            )
+        }
+        val submitter = makeSubmitter(
+            client = client,
+            draftDao = drafts,
+            inatDao = inatObs,
+            cacheFolder = tmp.newFolder("cache-malformed"),
+        )
+
+        // Parus major: full resolve/create/sound/tag/annotations/identification path.
+        enqueueSuccess(uuid = "u-malformed", observationId = 902L, taxonId = 1L)
+
+        val result = submitter.submit(token = "jwt", draft = draftWithDetections)
+        assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
+
+        // After the run: malformed Parus major row replaced by a fresh one with
+        // observationId=902, and the sibling Apus apus row must still be present.
+        val remainingSpecies = inatObs.rows.map { it.taxonScientificName }
+        assertThat(remainingSpecies).contains("Apus apus")
+        // Sanity: the malformed row (observationId=0) is gone, the fresh
+        // observation (902) and the carried-over Apus row (901) survive.
+        val remainingObservationIds = inatObs.rows.map { it.observationId }.toSet()
+        assertThat(remainingObservationIds).containsExactly(902L, 901L)
+    }
 }
 
 private data class DescriptionUpdate(val observationId: Long, val description: String)

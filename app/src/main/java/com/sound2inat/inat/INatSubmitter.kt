@@ -288,9 +288,11 @@ class INatSubmitter(
                 "Discarding malformed inat_observations row for ${det.taxonScientificName}" +
                     " (id=${existing.observationId}, url='${existing.observationUrl}') — will recreate",
             )
-            // Wipe the corrupt row so we don't loop on retry. Consistent with
-            // the atomic wipe-and-replace in persistAndMarkUploaded.
-            inatObservations.deleteForDraft(draft.draft.id)
+            // Targeted delete: do NOT use deleteForDraft here — that would
+            // wipe sibling species' rows that are still valid, and Task B's
+            // union-row persistence relies on those staying present until
+            // persistAndMarkUploaded runs.
+            inatObservations.deleteForDraftAndSpecies(draft.draft.id, det.taxonScientificName)
         }
         val genusId = client.resolveGenus(det.taxonScientificName, token) ?: return null
         val clips = materialiseClips(srcAudio, det, draft.draft.durationMs, cropDir)

@@ -33,6 +33,18 @@ interface InatObservationDao {
     fun deleteForDraft(draftId: String): Int
 
     /**
+     * Targeted delete for a single (draftId, species) pair. Used by
+     * [com.sound2inat.inat.INatSubmitter] to wipe a malformed idempotency
+     * row for one species without touching sibling rows belonging to other
+     * species of the same draft (which the incremental flow depends on).
+     */
+    @Query(
+        "DELETE FROM inat_observations WHERE draftId = :draftId " +
+            "AND taxonScientificName = :species",
+    )
+    fun deleteForDraftAndSpecies(draftId: String, species: String): Int
+
+    /**
      * Per-draft observation counts, refreshed whenever any row in the table
      * changes. Drafts with zero observations are absent from the result —
      * UI callers default to `0` for missing keys.
