@@ -7,6 +7,14 @@ internal const val MAX_CLIP_S = 60L
 internal const val MAX_CLIPS_PER_OBSERVATION = 5
 internal const val CLIP_PADDING_MS = 1_000L
 
+/**
+ * Maximum spectrogram window length (seconds). `LiveStyleReviewRenderer`
+ * emits ~94 columns/second, so a 10 s window yields a ~940 px wide PNG —
+ * compact enough that iNat's `large` thumbnail (max 1024 px) keeps full
+ * resolution without horizontal squashing.
+ */
+internal const val MAX_SPECTROGRAM_S = 10L
+
 /** A single sound clip range to upload, in millisecond offsets into the source WAV. */
 data class ClipRange(val startMs: Long, val endMs: Long) {
     init {
@@ -84,6 +92,59 @@ object ClipPlanner {
                 .take(MAX_CLIPS_PER_OBSERVATION)
         }
         return kept.map { it.clip }.sortedBy { it.startMs }
+    }
+
+    /**
+     * Picks the densest sub-window of [clipRange] to render the spectrogram
+     * PNG from, using [fragmentRanges] (in absolute WAV milliseconds) as the
+     * density signal. Returns at most [MAX_SPECTROGRAM_S] seconds of audio
+     * centred on the highest-density region of the clip; if [clipRange] is
+     * already shorter than the cap, returns it unchanged.
+     *
+     * When no entry of [fragmentRanges] intersects [clipRange] (e.g. legacy
+     * detections), falls back to the clip's midpoint as the centre.
+     *
+     * **Tiebreak on density:** when multiple candidate windows hit the same
+     * range count, the centre is taken from the **median-by-position** tied
+     * candidate, so the window straddles the cluster's geometric centre
+     * rather than hugging one edge. This guarantees that a cluster wider than
+     * `maxMs / 2` (i.e. detections spread across more than 5 s in a 10 s
+     * spectrogram window) still gets a window covering the whole cluster
+     * where possible, not one that clips the tail off.
+     */
+    fun peakSpectrogramWindow(
+        clipRange: ClipRange,
+        fragmentRanges: List<FragmentRange>,
+    ): ClipRange {
+        val maxMs = MAX_SPECTROGRAM_S * 1000L
+        if (clipRange.durationMs <= maxMs) return clipRange
+        val inClip = fragmentRanges.filter {
+            it.endMs > clipRange.startMs && it.startMs < clipRange.endMs
+        }
+        val centre: Long = if (inClip.isEmpty()) {
+            (clipRange.startMs + clipRange.endMs) / 2L
+        } else {
+            // Score each candidate by the count of inClip ranges intersecting
+            // the window centred on its midpoint, clamped to clipRange.
+            data class Scored(val centreMs: Long, val density: Int, val orderIdx: Int)
+            val candidates = inClip.mapIndexed { idx, r ->
+                val cMid = (r.startMs + r.endMs) / 2L
+                val winStart = (cMid - maxMs / 2L).coerceAtLeast(clipRange.startMs)
+                val winEnd = (winStart + maxMs).coerceAtMost(clipRange.endMs)
+                val actualStart = (winEnd - maxMs).coerceAtLeast(clipRange.startMs)
+                val density = inClip.count { it.endMs > actualStart && it.startMs < winEnd }
+                Scored(centreMs = (actualStart + winEnd) / 2L, density = density, orderIdx = idx)
+            }
+            val maxDensity = candidates.maxOf { it.density }
+            val tied = candidates.filter { it.density == maxDensity }.sortedBy { it.centreMs }
+            // Median by position among ties — straddles the cluster's centre.
+            tied[tied.size / 2].centreMs
+        }
+        val half = maxMs / 2L
+        val rawStart = (centre - half).coerceAtLeast(clipRange.startMs)
+        val rawEnd = (rawStart + maxMs).coerceAtMost(clipRange.endMs)
+        val finalStart = (rawEnd - maxMs).coerceAtLeast(clipRange.startMs)
+        return ClipRange(startMs = finalStart, endMs = rawEnd)
     }
 
     // invariant: midMs in raw.startMs..raw.endMs

@@ -102,4 +102,42 @@ class ClipPlannerTest {
         val starts = plan.map { it.startMs }.sorted()
         assertEquals(listOf(179_000L, 239_000L, 299_000L, 359_000L, 419_000L), starts)
     }
+
+    // peakSpectrogramWindow
+
+    @Test
+    fun `peakSpectrogramWindow returns full clip when clip is shorter than MAX_SPECTROGRAM_S`() {
+        val clip = ClipRange(0L, 8_000L)
+        val ranges = listOf(FragmentRange(2_000L, 5_000L))
+        assertEquals(clip, ClipPlanner.peakSpectrogramWindow(clip, ranges))
+    }
+
+    @Test
+    fun `peakSpectrogramWindow returns clip-centred 10s window when no fragment ranges intersect`() {
+        val clip = ClipRange(0L, 60_000L)
+        val result = ClipPlanner.peakSpectrogramWindow(clip, fragmentRanges = emptyList())
+        assertEquals(10_000L, result.durationMs)
+        assertEquals(25_000L, result.startMs)
+        assertEquals(35_000L, result.endMs)
+    }
+
+    @Test
+    fun `peakSpectrogramWindow centres on densest 10s region`() {
+        // 60 s clip with one outlier at t≈6 s and five tightly-packed ranges
+        // spanning 42–49 s. The 10 s window must cover the whole 42–49 s
+        // cluster (median tiebreak straddles its geometric centre).
+        val clip = ClipRange(0L, 60_000L)
+        val ranges = listOf(
+            FragmentRange(5_000L, 8_000L), // outlier
+            FragmentRange(42_000L, 45_000L), // dense cluster start
+            FragmentRange(45_000L, 48_000L),
+            FragmentRange(43_000L, 46_000L),
+            FragmentRange(44_000L, 47_000L),
+            FragmentRange(46_000L, 49_000L),
+        )
+        val result = ClipPlanner.peakSpectrogramWindow(clip, ranges)
+        assertEquals(10_000L, result.durationMs)
+        assertTrue("window starts no later than 42 s", result.startMs <= 42_000L)
+        assertTrue("window ends no earlier than 49 s", result.endMs >= 49_000L)
+    }
 }

@@ -62,6 +62,13 @@ class INatSubmitterMultiClipTest {
         val soundUploads = mutableListOf<Pair<String, File>>()
         val photoUploads = mutableListOf<Pair<Long, File>>()
 
+        /**
+         * PNG widths captured at upload time. [INatSubmitter] wipes `cropDir`
+         * in its `finally` block, so the PNG files are gone by the time the
+         * test asserts — we must record the width while the file is live.
+         */
+        val photoWidths = mutableListOf<Int>()
+
         override suspend fun uploadSound(
             token: String,
             observationUuid: String,
@@ -78,6 +85,7 @@ class INatSubmitterMultiClipTest {
             mimeType: String,
         ): Long {
             photoUploads += observationId to photoFile
+            photoWidths += readPngWidth(photoFile)
             return photoUploads.size.toLong()
         }
     }
@@ -202,5 +210,24 @@ class INatSubmitterMultiClipTest {
         val soundIndices = client.soundUploads.map { it.second.nameWithoutExtension }
         val photoIndices = client.photoUploads.map { it.second.nameWithoutExtension }
         assertThat(soundIndices.toSet()).isEqualTo(photoIndices.toSet())
+        // PNGs are smart-cropped to ≤ MAX_SPECTROGRAM_S worth of columns so iNat
+        // thumbnails render legibly. At ~94 columns/sec for 10 s, expect ≤ ~1100 px.
+        // (Each cluster in the fixture is one 3 s fragment, so the spectrogram
+        // window is shorter than the clip itself and gets cropped to the peak.)
+        client.photoWidths.forEach { width ->
+            assertThat(width).isAtMost(1100)
+        }
     }
+}
+
+/** Reads a PNG's IHDR width (big-endian uint32 at byte offset 16). */
+private fun readPngWidth(png: File): Int {
+    require(png.exists() && png.length() >= 24) { "Not a usable PNG: $png" }
+    val header = png.inputStream().use { it.readNBytes(24) }
+    // PNG signature is 8 bytes; IHDR length+type is 8 more; width is the next 4.
+    val o = 16
+    return ((header[o].toInt() and 0xFF) shl 24) or
+        ((header[o + 1].toInt() and 0xFF) shl 16) or
+        ((header[o + 2].toInt() and 0xFF) shl 8) or
+        (header[o + 3].toInt() and 0xFF)
 }

@@ -441,8 +441,17 @@ class INatSubmitter(
                     android.util.Log.w(LOG_TAG, "trim failed for ${det.taxonScientificName} clip $idx", it)
                     return@mapIndexedNotNull null
                 }
+            // The spectrogram is drawn only for the densest sub-window of the
+            // clip (capped at MAX_SPECTROGRAM_S) so iNat thumbnails stay
+            // readable. Audio upload still uses the full WAV.
+            val peakAbs = ClipPlanner.peakSpectrogramWindow(range, ranges)
+            val peakOffsetMs: LongRange? = if (peakAbs == range) {
+                null
+            } else {
+                (peakAbs.startMs - range.startMs)..(peakAbs.endMs - range.startMs)
+            }
             val pngOut = File(cropDir, clipFileName(det, idx, ext = "png"))
-            val png = runCatching { renderClipSpectrogramPng(wavOut, pngOut) }
+            val png = runCatching { renderClipSpectrogramPng(wavOut, pngOut, peakOffsetMs = peakOffsetMs) }
                 .getOrElse {
                     android.util.Log.w(
                         LOG_TAG,
