@@ -212,4 +212,31 @@
         <item quantity="one">Submit 1 more species</item>
         <item quantity="other">Submit %1$d more species</item>
     </plurals>
+
+    <!-- iNat submission progress checklist -->
+    <string name="review_submit_progress_title">Uploading to iNaturalist</string>
+    <!-- Sub-status lines: keep short enough to fit one line on a phone -->
+    <string name="review_submit_step_resolving">Resolving taxon…</string>
+    <string name="review_submit_step_creating">Creating observation…</string>
+    <string name="review_submit_step_audio_primary">Uploading audio…</string>
+    <string name="review_submit_step_audio_extra">Uploading extra audio…</string>
+    <string name="review_submit_step_spectrogram">Uploading spectrogram…</string>
+    <string name="review_submit_step_tag">Applying tags…</string>
+    <string name="review_submit_step_annotations">Applying annotations…</string>
+    <string name="review_submit_step_identification">Adding identification…</string>
+    <string name="review_submit_step_habitat">Uploading habitat photos…</string>
+    <string name="review_submit_step_persisting">Saving…</string>
+    <string name="review_submit_step_crosslink">Linking observations…</string>
+
+    <!-- Incomplete observations banner -->
+    <string name="incomplete_obs_banner_title">Incomplete observations on iNaturalist</string>
+    <string name="incomplete_obs_banner_subtitle">The upload was interrupted. These observations exist on iNaturalist but may be missing audio, photos, or tags. Recreate them to fix.</string>
+    <string name="incomplete_obs_action_recreate">Delete and recreate</string>
+    <string name="incomplete_obs_recreating">Recreating…</string>
+
+    <!-- Recreate confirmation dialog -->
+    <string name="dialog_recreate_title">Recreate observation?</string>
+    <!-- %1$s = scientific name -->
+    <string name="dialog_recreate_body">This will delete the observation for %1$s on iNaturalist. Tap Submit again to recreate it.</string>
+    <string name="btn_recreate">Recreate</string>
 </resources>

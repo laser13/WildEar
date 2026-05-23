@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -34,12 +35,17 @@ import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.CameraAlt
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.MicNone
 import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -297,6 +303,16 @@ private fun ReviewPage(
             // visuals, banner, Submit and species list all scroll together so the
             // species list is no longer pinned in a tiny inner viewport.
             LazyColumn(modifier = Modifier.fillMaxSize()) {
+                if (state.incompleteObservations.isNotEmpty()) {
+                    item("incomplete-banner") {
+                        IncompleteObservationsBanner(
+                            rows = state.incompleteObservations,
+                            retrying = state.retryingIncomplete,
+                            lastError = state.retryIncompleteError,
+                            onRecreate = { row -> vm.retryIncomplete(row.rowId, row.observationId) },
+                        )
+                    }
+                }
                 item {
                     PlayerControls(
                         state = state,
@@ -650,7 +666,7 @@ private fun InferenceProgressBlock(progress: Float) {
     }
 }
 
-@Suppress("FunctionNaming")
+@Suppress("FunctionNaming", "LongMethod")
 @Composable
 private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
     val selectedCount = state.species.count { it.isSelected }
@@ -672,7 +688,7 @@ private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
 
     val label = when {
         awaitingLogin -> stringResource(R.string.review_submit_signing_in)
-        state.inatSubmission is InatSubmissionState.InProgress -> stringResource(R.string.review_submit_uploading)
+        inProgress -> stringResource(R.string.review_submit_uploading)
         alreadyUploaded -> stringResource(R.string.review_submit_already_uploaded)
         selectedCount == 0 -> stringResource(R.string.review_submit_select_species)
         alreadyHasObservations -> pluralStringResource(
@@ -690,6 +706,14 @@ private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (inProgress) {
+                SubmissionProgressChecklist(
+                    pendingSpecies = state.species
+                        .filter { it.isSelected && it.taxonScientificName !in existingNames }
+                        .map { it.taxonScientificName },
+                    progress = state.submissionProgress,
+                )
+            }
             Button(
                 onClick = { vm.submitToINaturalist() },
                 enabled = canSubmit,
@@ -698,6 +722,205 @@ private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
                 Text(label)
             }
         }
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun SubmissionProgressChecklist(
+    pendingSpecies: List<String>,
+    progress: com.sound2inat.inat.SubmissionProgress?,
+) {
+    val current = progress as? com.sound2inat.inat.SubmissionProgress.Species
+    val crossLinking = progress is com.sound2inat.inat.SubmissionProgress.CrossLinking
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            stringResource(R.string.review_submit_progress_title),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        pendingSpecies.forEachIndexed { index, name ->
+            val rowState = when {
+                current == null -> ProgressRowState.Pending
+                index + 1 < current.speciesIndex -> ProgressRowState.Done
+                index + 1 == current.speciesIndex -> when (current.step) {
+                    com.sound2inat.inat.SubmissionProgress.Step.DoneOk -> ProgressRowState.Done
+                    com.sound2inat.inat.SubmissionProgress.Step.DoneFailed -> ProgressRowState.Failed
+                    else -> ProgressRowState.InProgress
+                }
+                else -> ProgressRowState.Pending
+            }
+            ProgressRow(
+                name = name,
+                state = rowState,
+                subStatus = if (rowState == ProgressRowState.InProgress) {
+                    stepLabel(current?.step)
+                } else {
+                    null
+                },
+            )
+        }
+        if (crossLinking) {
+            ProgressRow(
+                name = stringResource(R.string.review_submit_step_crosslink),
+                state = ProgressRowState.InProgress,
+                subStatus = null,
+            )
+        }
+    }
+}
+
+private enum class ProgressRowState { Pending, InProgress, Done, Failed }
+
+@Suppress("FunctionNaming")
+@Composable
+private fun ProgressRow(name: String, state: ProgressRowState, subStatus: String?) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        val icon = when (state) {
+            ProgressRowState.Pending -> Icons.Outlined.RadioButtonUnchecked
+            ProgressRowState.InProgress -> Icons.Outlined.Sync
+            ProgressRowState.Done -> Icons.Outlined.CheckCircle
+            ProgressRowState.Failed -> Icons.Outlined.ErrorOutline
+        }
+        val tint = when (state) {
+            ProgressRowState.Pending -> MaterialTheme.colorScheme.outline
+            ProgressRowState.InProgress, ProgressRowState.Done -> MaterialTheme.colorScheme.primary
+            ProgressRowState.Failed -> MaterialTheme.colorScheme.error
+        }
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Column {
+            Text(name, style = MaterialTheme.typography.bodyMedium)
+            if (subStatus != null) {
+                Text(
+                    subStatus,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun stepLabel(step: com.sound2inat.inat.SubmissionProgress.Step?): String? = when (step) {
+    com.sound2inat.inat.SubmissionProgress.Step.ResolvingTaxon ->
+        stringResource(R.string.review_submit_step_resolving)
+    com.sound2inat.inat.SubmissionProgress.Step.CreatingObservation ->
+        stringResource(R.string.review_submit_step_creating)
+    com.sound2inat.inat.SubmissionProgress.Step.UploadingPrimaryAudio ->
+        stringResource(R.string.review_submit_step_audio_primary)
+    com.sound2inat.inat.SubmissionProgress.Step.UploadingExtraAudio ->
+        stringResource(R.string.review_submit_step_audio_extra)
+    com.sound2inat.inat.SubmissionProgress.Step.UploadingSpectrogram ->
+        stringResource(R.string.review_submit_step_spectrogram)
+    com.sound2inat.inat.SubmissionProgress.Step.ApplyingTag ->
+        stringResource(R.string.review_submit_step_tag)
+    com.sound2inat.inat.SubmissionProgress.Step.ApplyingAnnotations ->
+        stringResource(R.string.review_submit_step_annotations)
+    com.sound2inat.inat.SubmissionProgress.Step.AddingIdentification ->
+        stringResource(R.string.review_submit_step_identification)
+    com.sound2inat.inat.SubmissionProgress.Step.UploadingHabitatPhotos ->
+        stringResource(R.string.review_submit_step_habitat)
+    com.sound2inat.inat.SubmissionProgress.Step.Persisting ->
+        stringResource(R.string.review_submit_step_persisting)
+    com.sound2inat.inat.SubmissionProgress.Step.DoneOk,
+    com.sound2inat.inat.SubmissionProgress.Step.DoneFailed,
+    null -> null
+}
+
+@Suppress("FunctionNaming", "LongMethod")
+@Composable
+private fun IncompleteObservationsBanner(
+    rows: List<IncompleteObsEntry>,
+    retrying: Set<Long>,
+    lastError: String?,
+    onRecreate: (IncompleteObsEntry) -> Unit,
+) {
+    if (rows.isEmpty()) return
+    val uriHandler = LocalUriHandler.current
+    var confirmTarget by remember { mutableStateOf<IncompleteObsEntry?>(null) }
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.WarningAmber,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    stringResource(R.string.incomplete_obs_banner_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+            Text(
+                stringResource(R.string.incomplete_obs_banner_subtitle),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (lastError != null) {
+                Text(
+                    lastError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            rows.forEach { row ->
+                val isRetrying = row.rowId in retrying
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        row.scientificName,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp),
+                    )
+                    TextButton(onClick = { uriHandler.openUri(row.url) }) {
+                        Text(stringResource(R.string.btn_view))
+                    }
+                    TextButton(
+                        onClick = { confirmTarget = row },
+                        enabled = !isRetrying,
+                    ) {
+                        Text(
+                            if (isRetrying) {
+                                stringResource(R.string.incomplete_obs_recreating)
+                            } else {
+                                stringResource(R.string.incomplete_obs_action_recreate)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+    confirmTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { confirmTarget = null },
+            title = { Text(stringResource(R.string.dialog_recreate_title)) },
+            text = { Text(stringResource(R.string.dialog_recreate_body, target.scientificName)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onRecreate(target)
+                    confirmTarget = null
+                }) { Text(stringResource(R.string.btn_recreate)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmTarget = null }) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
+            },
+        )
     }
 }
 
