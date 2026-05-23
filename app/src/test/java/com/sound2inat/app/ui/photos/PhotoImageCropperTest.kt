@@ -55,4 +55,17 @@ class PhotoImageCropperTest {
         assertThat(dialogSource).contains("contentScale = ContentScale.Crop")
         assertThat(dialogSource).doesNotContain("contentScale = ContentScale.Fit")
     }
+
+    @Test
+    fun `crop dialog keeps controls compact and removes read-only metadata chips`() {
+        val source = File("src/main/java/com/sound2inat/app/ui/photos/PhotoReviewScreen.kt").readText()
+        val dialogStart = source.indexOf("private fun PhotoImageDialog")
+        val dialogEnd = source.indexOf("private val UTC_FORMATTER")
+        val dialogSource = source.substring(dialogStart, dialogEnd)
+
+        assertThat(dialogSource).doesNotContain("The source keeps its original shape")
+        assertThat(dialogSource).doesNotContain("Frame 1:1")
+        assertThat(dialogSource).doesNotContain("formatCropSourceLabel")
+        assertThat(dialogSource).doesNotContain("AssistChip(")
+    }
 }

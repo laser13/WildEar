@@ -8,7 +8,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -84,7 +83,6 @@ import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import kotlin.math.absoluteValue
 
 @Suppress("FunctionNaming")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -807,20 +805,9 @@ private fun PhotoImageDialog(
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("Crop to square", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "The source keeps its original shape. Only the square crop frame is saved.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    OutlinedIconButton(onClick = onClose) {
-                        Icon(Icons.Outlined.Close, contentDescription = "Close preview")
-                    }
+                    Text("Crop", style = MaterialTheme.typography.titleMedium)
                 }
 
                 Box(
@@ -891,31 +878,10 @@ private fun PhotoImageDialog(
                     }
                 }
 
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    AssistChip(
-                        onClick = {},
-                        enabled = false,
-                        label = { Text(formatCropSourceLabel(image, imageBounds)) },
-                    )
-                    AssistChip(
-                        onClick = {},
-                        enabled = false,
-                        label = { Text("Frame 1:1") },
-                    )
-                    AssistChip(
-                        onClick = {},
-                        enabled = false,
-                        label = { Text(image.mimeType.uppercase()) },
-                    )
-                }
-
-                FlowRow(
+                Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     PhotoActionTile(
                         icon = Icons.Outlined.Crop,
@@ -934,6 +900,11 @@ private fun PhotoImageDialog(
                         icon = Icons.Outlined.Delete,
                         label = "Delete",
                         onClick = onDelete,
+                    )
+                    PhotoActionTile(
+                        icon = Icons.Outlined.Close,
+                        label = "Close preview",
+                        onClick = onClose,
                     )
                 }
             }
@@ -956,44 +927,4 @@ private fun formatCoordinates(
     val lon = longitude?.let { "%.5f".format(it) } ?: return "Unknown"
     val accuracy = accuracyMeters?.let { " • ±${it.toInt()}m" }.orEmpty()
     return "$lat, $lon$accuracy"
-}
-
-private fun formatResolution(width: Int?, height: Int?): String {
-    if (width == null || height == null) return "Unknown"
-    return "$width×${height}px"
-}
-
-private fun formatCropSourceLabel(
-    image: com.sound2inat.storage.PhotoDraftImageEntity,
-    sourceBounds: PhotoImageBounds?,
-): String {
-    val resolution = sourceBounds?.let { formatResolution(it.width, it.height) }
-        ?: formatResolution(image.width, image.height).takeIf { it != "Unknown" }
-        ?: "Unknown"
-    val ratio = sourceBounds?.let { formatAspectRatio(it.width, it.height) }
-        ?: formatAspectRatio(image.width, image.height)
-    return if (ratio == null) {
-        "Source $resolution"
-    } else {
-        "Source $resolution • $ratio"
-    }
-}
-
-private fun formatAspectRatio(width: Int?, height: Int?): String? {
-    val w = width ?: return null
-    val h = height ?: return null
-    if (w <= 0 || h <= 0) return null
-    val divisor = gcd(w, h).coerceAtLeast(1)
-    return "${w / divisor}:${h / divisor}"
-}
-
-private fun gcd(first: Int, second: Int): Int {
-    var a = first
-    var b = second
-    while (b != 0) {
-        val remainder = a % b
-        a = b
-        b = remainder
-    }
-    return a.absoluteValue
 }
