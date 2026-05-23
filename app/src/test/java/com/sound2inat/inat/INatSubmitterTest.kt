@@ -748,6 +748,7 @@ class INatSubmitterTest {
         advanceUntilIdle()
 
         assertThat(caught).isNotNull()
+        assertThat(inatDao.rows).hasSize(1)
         val row = inatDao.rows.single()
         assertThat(row.uploadStatus).isEqualTo(InatUploadStatus.INCOMPLETE)
         assertThat(row.observationId).isEqualTo(900L)

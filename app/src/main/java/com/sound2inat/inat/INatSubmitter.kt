@@ -534,15 +534,14 @@ class INatSubmitter(
             }
             val description = baseDescription(det) +
                 "\n\nSibling observations from the same recording:\n$siblings"
-            runCatching {
+            runCatchingNonCancellation {
                 client.updateObservationDescription(token, submitted.entity.observationId, description)
             }.onFailure { e ->
-                if (e is kotlinx.coroutines.CancellationException) throw e
                 android.util.Log.w(LOG_TAG, "Description update failed for ${submitted.entity.observationId}", e)
             }
             if (submitted.uuid.isNotBlank()) {
                 val siblingUrls = others.joinToString(" ") { it.first.entity.observationUrl }
-                runCatching {
+                runCatchingNonCancellation {
                     client.createObservationFieldValue(
                         token,
                         submitted.uuid,
@@ -550,7 +549,6 @@ class INatSubmitter(
                         siblingUrls,
                     )
                 }.onFailure { e ->
-                    if (e is kotlinx.coroutines.CancellationException) throw e
                     android.util.Log.w(
                         LOG_TAG,
                         "Linked Observation field on ${submitted.entity.observationId} failed",
