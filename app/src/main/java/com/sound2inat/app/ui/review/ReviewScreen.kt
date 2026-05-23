@@ -44,7 +44,6 @@ import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
-import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -100,6 +99,7 @@ import com.sound2inat.app.ui.theme.detectionCardUnlikelyDark
 import com.sound2inat.app.ui.theme.detectionCardUnlikelyLight
 import com.sound2inat.app.ui.theme.iNatGreen
 import com.sound2inat.inat.INatWebLoginActivity
+import com.sound2inat.inat.SubmissionProgress
 import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.DraftStatus
@@ -707,10 +707,13 @@ private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (inProgress) {
-                SubmissionProgressChecklist(
-                    pendingSpecies = state.species
+                val pendingSnapshot = remember(inProgress) {
+                    state.species
                         .filter { it.isSelected && it.taxonScientificName !in existingNames }
-                        .map { it.taxonScientificName },
+                        .map { it.taxonScientificName }
+                }
+                SubmissionProgressChecklist(
+                    pendingSpecies = pendingSnapshot,
                     progress = state.submissionProgress,
                 )
             }
@@ -729,10 +732,10 @@ private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
 @Composable
 private fun SubmissionProgressChecklist(
     pendingSpecies: List<String>,
-    progress: com.sound2inat.inat.SubmissionProgress?,
+    progress: SubmissionProgress?,
 ) {
-    val current = progress as? com.sound2inat.inat.SubmissionProgress.Species
-    val crossLinking = progress is com.sound2inat.inat.SubmissionProgress.CrossLinking
+    val current = progress as? SubmissionProgress.Species
+    val crossLinking = progress is SubmissionProgress.CrossLinking
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             stringResource(R.string.review_submit_progress_title),
@@ -744,8 +747,8 @@ private fun SubmissionProgressChecklist(
                 current == null -> ProgressRowState.Pending
                 index + 1 < current.speciesIndex -> ProgressRowState.Done
                 index + 1 == current.speciesIndex -> when (current.step) {
-                    com.sound2inat.inat.SubmissionProgress.Step.DoneOk -> ProgressRowState.Done
-                    com.sound2inat.inat.SubmissionProgress.Step.DoneFailed -> ProgressRowState.Failed
+                    SubmissionProgress.Step.DoneOk -> ProgressRowState.Done
+                    SubmissionProgress.Step.DoneFailed -> ProgressRowState.Failed
                     else -> ProgressRowState.InProgress
                 }
                 else -> ProgressRowState.Pending
@@ -776,18 +779,30 @@ private enum class ProgressRowState { Pending, InProgress, Done, Failed }
 @Composable
 private fun ProgressRow(name: String, state: ProgressRowState, subStatus: String?) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        val icon = when (state) {
-            ProgressRowState.Pending -> Icons.Outlined.RadioButtonUnchecked
-            ProgressRowState.InProgress -> Icons.Outlined.Sync
-            ProgressRowState.Done -> Icons.Outlined.CheckCircle
-            ProgressRowState.Failed -> Icons.Outlined.ErrorOutline
+        when (state) {
+            ProgressRowState.InProgress -> {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            else -> {
+                val icon = when (state) {
+                    ProgressRowState.Pending -> Icons.Outlined.RadioButtonUnchecked
+                    ProgressRowState.Done -> Icons.Outlined.CheckCircle
+                    ProgressRowState.Failed -> Icons.Outlined.ErrorOutline
+                    ProgressRowState.InProgress -> error("unreachable")
+                }
+                val tint = when (state) {
+                    ProgressRowState.Pending -> MaterialTheme.colorScheme.outline
+                    ProgressRowState.Done -> MaterialTheme.colorScheme.primary
+                    ProgressRowState.Failed -> MaterialTheme.colorScheme.error
+                    ProgressRowState.InProgress -> error("unreachable")
+                }
+                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+            }
         }
-        val tint = when (state) {
-            ProgressRowState.Pending -> MaterialTheme.colorScheme.outline
-            ProgressRowState.InProgress, ProgressRowState.Done -> MaterialTheme.colorScheme.primary
-            ProgressRowState.Failed -> MaterialTheme.colorScheme.error
-        }
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(8.dp))
         Column {
             Text(name, style = MaterialTheme.typography.bodyMedium)
@@ -803,29 +818,29 @@ private fun ProgressRow(name: String, state: ProgressRowState, subStatus: String
 }
 
 @Composable
-private fun stepLabel(step: com.sound2inat.inat.SubmissionProgress.Step?): String? = when (step) {
-    com.sound2inat.inat.SubmissionProgress.Step.ResolvingTaxon ->
+private fun stepLabel(step: SubmissionProgress.Step?): String? = when (step) {
+    SubmissionProgress.Step.ResolvingTaxon ->
         stringResource(R.string.review_submit_step_resolving)
-    com.sound2inat.inat.SubmissionProgress.Step.CreatingObservation ->
+    SubmissionProgress.Step.CreatingObservation ->
         stringResource(R.string.review_submit_step_creating)
-    com.sound2inat.inat.SubmissionProgress.Step.UploadingPrimaryAudio ->
+    SubmissionProgress.Step.UploadingPrimaryAudio ->
         stringResource(R.string.review_submit_step_audio_primary)
-    com.sound2inat.inat.SubmissionProgress.Step.UploadingExtraAudio ->
+    SubmissionProgress.Step.UploadingExtraAudio ->
         stringResource(R.string.review_submit_step_audio_extra)
-    com.sound2inat.inat.SubmissionProgress.Step.UploadingSpectrogram ->
+    SubmissionProgress.Step.UploadingSpectrogram ->
         stringResource(R.string.review_submit_step_spectrogram)
-    com.sound2inat.inat.SubmissionProgress.Step.ApplyingTag ->
+    SubmissionProgress.Step.ApplyingTag ->
         stringResource(R.string.review_submit_step_tag)
-    com.sound2inat.inat.SubmissionProgress.Step.ApplyingAnnotations ->
+    SubmissionProgress.Step.ApplyingAnnotations ->
         stringResource(R.string.review_submit_step_annotations)
-    com.sound2inat.inat.SubmissionProgress.Step.AddingIdentification ->
+    SubmissionProgress.Step.AddingIdentification ->
         stringResource(R.string.review_submit_step_identification)
-    com.sound2inat.inat.SubmissionProgress.Step.UploadingHabitatPhotos ->
+    SubmissionProgress.Step.UploadingHabitatPhotos ->
         stringResource(R.string.review_submit_step_habitat)
-    com.sound2inat.inat.SubmissionProgress.Step.Persisting ->
+    SubmissionProgress.Step.Persisting ->
         stringResource(R.string.review_submit_step_persisting)
-    com.sound2inat.inat.SubmissionProgress.Step.DoneOk,
-    com.sound2inat.inat.SubmissionProgress.Step.DoneFailed,
+    SubmissionProgress.Step.DoneOk,
+    SubmissionProgress.Step.DoneFailed,
     null -> null
 }
 
@@ -911,7 +926,8 @@ private fun IncompleteObservationsBanner(
             text = { Text(stringResource(R.string.dialog_recreate_body, target.scientificName)) },
             confirmButton = {
                 TextButton(onClick = {
-                    onRecreate(target)
+                    val stillPresent = rows.any { it.rowId == target.rowId }
+                    if (stillPresent) onRecreate(target)
                     confirmTarget = null
                 }) { Text(stringResource(R.string.btn_recreate)) }
             },
