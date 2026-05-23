@@ -835,7 +835,7 @@ private fun PhotoImageDialog(
                         AsyncImage(
                             model = File(sourcePath),
                             contentDescription = "Selected photo",
-                            contentScale = ContentScale.Fit,
+                            contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .pointerInput(image.id, cropFrameSizePx, imageBounds) {

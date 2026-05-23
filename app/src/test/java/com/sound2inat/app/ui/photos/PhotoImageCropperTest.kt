@@ -2,6 +2,7 @@ package com.sound2inat.app.ui.photos
 
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
+import java.io.File
 
 class PhotoImageCropperTest {
     @Test
@@ -42,5 +43,16 @@ class PhotoImageCropperTest {
                 size = 2,
             ),
         )
+    }
+
+    @Test
+    fun `crop dialog renders with the same cover model used by crop math`() {
+        val source = File("src/main/java/com/sound2inat/app/ui/photos/PhotoReviewScreen.kt").readText()
+        val dialogStart = source.indexOf("private fun PhotoImageDialog")
+        val dialogEnd = source.indexOf("private val UTC_FORMATTER")
+        val dialogSource = source.substring(dialogStart, dialogEnd)
+
+        assertThat(dialogSource).contains("contentScale = ContentScale.Crop")
+        assertThat(dialogSource).doesNotContain("contentScale = ContentScale.Fit")
     }
 }
