@@ -35,6 +35,18 @@ data class InatObsEntry(
     val url: String,
 )
 
+/**
+ * Observation row that exists on iNat but has not been marked COMPLETE
+ * in the local DB. Surfaced in [IncompleteObservationsBanner] (Compose,
+ * Task 4) on the Review screen with a "Delete on iNat and recreate" action.
+ */
+data class IncompleteObsEntry(
+    val rowId: Long,
+    val observationId: Long,
+    val scientificName: String,
+    val url: String,
+)
+
 data class ReviewUiState(
     val draftId: String,
     val status: DraftStatus = DraftStatus.PENDING_INFERENCE,
@@ -53,6 +65,12 @@ data class ReviewUiState(
     /** Persisted observations attached to this draft from prior submissions. */
     val inatObservations: List<InatObsEntry> = emptyList(),
     val inatSubmission: InatSubmissionState = InatSubmissionState.Idle,
+    val submissionProgress: com.sound2inat.inat.SubmissionProgress? = null,
+    val incompleteObservations: List<IncompleteObsEntry> = emptyList(),
+    /** Observation row ids currently being deleted by [ReviewViewModel.retryIncomplete]. */
+    val retryingIncomplete: Set<Long> = emptySet(),
+    /** Last failure message from [ReviewViewModel.retryIncomplete]; cleared on next attempt. */
+    val retryIncompleteError: String? = null,
     /**
      * True when the Perch model artifact is installed (Ready). Drives whether
      * the "Perch" option in the pull-to-refresh model picker is enabled —

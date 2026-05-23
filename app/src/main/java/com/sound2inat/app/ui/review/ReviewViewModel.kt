@@ -38,6 +38,7 @@ import com.sound2inat.storage.DraftPhotoEntity
 import com.sound2inat.storage.DraftRepository
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.InatObservationDao
+import com.sound2inat.storage.InatUploadStatus
 import com.sound2inat.storage.PhotoFileStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -129,6 +130,7 @@ fun interface InatSubmissionJob {
         habitatPhotos: List<File>,
         includeHabitatPhotoByTaxon: Map<String, Boolean>,
         sourceAudioOverride: File?,
+        onProgress: (com.sound2inat.inat.SubmissionProgress) -> Unit,
     ): InatSubmissionOutcome
 }
 
@@ -156,7 +158,7 @@ class ReviewViewModel(
     private val inference: InferenceJob,
     private val visuals: VisualsProvider = NoopVisualsProvider,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val submission: InatSubmissionJob = InatSubmissionJob { _, _, _, _, _ ->
+    private val submission: InatSubmissionJob = InatSubmissionJob { _, _, _, _, _, _ ->
         InatSubmissionOutcome.Failure("No iNaturalist submitter configured")
     },
     private val tokenProvider: suspend () -> String? = { null },
@@ -169,6 +171,16 @@ class ReviewViewModel(
     private val acceptInatToken: suspend (String) -> Unit = { },
     private val inatObservationsFlow: kotlinx.coroutines.flow.Flow<List<InatObsEntry>> =
         kotlinx.coroutines.flow.flowOf(emptyList()),
+    private val incompleteObservationsFlow: kotlinx.coroutines.flow.Flow<List<IncompleteObsEntry>> =
+        kotlinx.coroutines.flow.flowOf(emptyList()),
+    /**
+     * Deletes the observation on iNaturalist FIRST; on success deletes the
+     * local row. Must throw on any failure (no token, network, HTTP error)
+     * so the row stays visible in the banner for retry. Default is a no-op
+     * to keep most tests minimal.
+     */
+    private val deleteIncompleteOnInat: suspend (rowId: Long, observationId: Long) -> Unit =
+        { _, _ -> },
     /** Returns the iNaturalist default photo medium_url for a scientific name, or null. */
     private val photoFetcher: suspend (String) -> String? = { null },
     private val perchAnalysis: PerchAnalysisJob = PerchAnalysisJob { _, _, _, _, _ ->
@@ -325,6 +337,11 @@ class ReviewViewModel(
         scope.launch {
             inatObservationsFlow.collect { rows ->
                 _state.update { it.copy(inatObservations = rows) }
+            }
+        }
+        scope.launch {
+            incompleteObservationsFlow.collect { rows ->
+                _state.update { it.copy(incompleteObservations = rows) }
             }
         }
         scope.launch {
@@ -834,6 +851,9 @@ class ReviewViewModel(
                 habitatPhotos = photos,
                 includeHabitatPhotoByTaxon = includeByTaxon,
                 sourceAudioOverride = sourceAudioOverride,
+                onProgress = { p ->
+                    _state.update { it.copy(submissionProgress = p) }
+                },
             )
             // Settle terminal state; clear the re-login guard so a fresh
             // Submit tap later can request interactive login again.
@@ -844,6 +864,39 @@ class ReviewViewModel(
                         is InatSubmissionOutcome.Success -> InatSubmissionState.Done(outcome.urls)
                         is InatSubmissionOutcome.Failure -> InatSubmissionState.Failed(outcome.message)
                     },
+                    submissionProgress = null,
+                )
+            }
+        }
+    }
+
+    /**
+     * Deletes a stuck INCOMPLETE observation on iNaturalist and removes its
+     * local row. The user must then tap Submit again to recreate the
+     * observation from scratch — recovery is intentionally not automatic, so
+     * the user can spot anything else that looks off before re-submitting.
+     *
+     * If the remote DELETE fails (no token, network down, 5xx), the local
+     * row stays untouched and [ReviewUiState.retryIncompleteError] is populated for the UI.
+     */
+    fun retryIncomplete(rowId: Long, observationId: Long) {
+        if (rowId in _state.value.retryingIncomplete) return
+        _state.update {
+            it.copy(
+                retryingIncomplete = it.retryingIncomplete + rowId,
+                retryIncompleteError = null,
+            )
+        }
+        scope.launch {
+            val outcome = runCatching { deleteIncompleteOnInat(rowId, observationId) }
+            outcome.onFailure { e ->
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.w("ReviewViewModel", "retryIncomplete failed for $observationId", e)
+            }
+            _state.update {
+                it.copy(
+                    retryingIncomplete = it.retryingIncomplete - rowId,
+                    retryIncompleteError = outcome.exceptionOrNull()?.message,
                 )
             }
         }
@@ -1445,7 +1498,7 @@ class ReviewViewModelFactory @Inject constructor(
         player = MediaPlayerAudioPlayer(),
         inference = inferenceUseCase.inference,
         visuals = ProductionVisualsProvider(),
-        submission = InatSubmissionJob { token, id, photoFiles, includeByTaxon, sourceAudioOverride ->
+        submission = InatSubmissionJob { token, id, photoFiles, includeByTaxon, sourceAudioOverride, onProgress ->
             // Pulling the freshest draft + detections so the submitter sees the
             // user's current selection, not a stale snapshot.
             val dwd = repo.observeWithDetections(id).first()
@@ -1456,6 +1509,7 @@ class ReviewViewModelFactory @Inject constructor(
                     habitatPhotos = photoFiles,
                     includeHabitatPhotoByTaxon = includeByTaxon,
                     sourceAudioOverride = sourceAudioOverride,
+                    onProgress = onProgress,
                 )
             ) {
                 is INatSubmitter.Result.Ok -> InatSubmissionOutcome.Success(r.urls)
@@ -1465,7 +1519,33 @@ class ReviewViewModelFactory @Inject constructor(
         tokenProvider = { inatAuth.getValidToken() },
         acceptInatToken = { inatAuth.acceptCapturedToken(it) },
         inatObservationsFlow = inatObservationsDao.observeForDraft(draftId)
-            .map { rows -> rows.map { InatObsEntry(it.taxonScientificName, it.observationId, it.observationUrl) } },
+            .map { rows ->
+                rows.filter { it.uploadStatus == InatUploadStatus.COMPLETE }
+                    .map { InatObsEntry(it.taxonScientificName, it.observationId, it.observationUrl) }
+            },
+        incompleteObservationsFlow = inatObservationsDao.observeIncompleteForDraft(draftId)
+            .map { rows ->
+                rows.map {
+                    IncompleteObsEntry(
+                        rowId = it.id,
+                        observationId = it.observationId,
+                        scientificName = it.taxonScientificName,
+                        url = it.observationUrl,
+                    )
+                }
+            },
+        deleteIncompleteOnInat = { rowId, observationId ->
+            // Order matters: delete on iNat FIRST. If it fails we re-throw so the
+            // banner re-offers the action — silently dropping the local row would
+            // orphan the observation on iNat with no way for the app to recover it.
+            val token = inatAuth.getValidToken()
+                ?: throw com.sound2inat.inat.INatException(
+                    code = -1,
+                    message = "iNaturalist session expired — sign in again from Settings to retry",
+                )
+            inatClient.deleteObservation(token, observationId)
+            inatObservationsDao.deleteById(rowId)
+        },
         photoFetcher = { name -> inatClient.fetchTaxonPhotoUrl(name) },
         perchAnalysis = inferenceUseCase.perchAnalysis,
         inferenceReanalysis = inferenceUseCase.inferenceReanalysis,

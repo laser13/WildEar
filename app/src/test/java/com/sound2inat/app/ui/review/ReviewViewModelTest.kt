@@ -553,7 +553,7 @@ class ReviewViewModelTest {
             val repo = repo(draftDao, detectionDao)
             val queue = makeQueue(draftRepo = repo)
             var submitCalls = 0
-            val submission = InatSubmissionJob { _, _, _, _, _ ->
+            val submission = InatSubmissionJob { _, _, _, _, _, _ ->
                 submitCalls++
                 InatSubmissionOutcome.Success(emptyList())
             }
@@ -647,7 +647,7 @@ class ReviewViewModelTest {
                 )
             )
             var submitCalls = 0
-            val submission = InatSubmissionJob { _, _, _, _, _ ->
+            val submission = InatSubmissionJob { _, _, _, _, _, _ ->
                 submitCalls++
                 InatSubmissionOutcome.Success(listOf("https://www.inaturalist.org/observations/901"))
             }
@@ -722,7 +722,7 @@ class ReviewViewModelTest {
                 ),
             )
             var submitCalls = 0
-            val submission = InatSubmissionJob { _, _, _, _, _ ->
+            val submission = InatSubmissionJob { _, _, _, _, _, _ ->
                 submitCalls++
                 InatSubmissionOutcome.Success(emptyList())
             }
@@ -1960,6 +1960,143 @@ class ReviewViewModelTest {
             val rowAfterCollapse = vm.state.value.species.first { it.detectionId == 33L }
             assertThat(rowAfterCollapse.observationDetailState)
                 .isEqualTo(ObservationDetailLoadState.NotLoaded)
+        }
+
+    @Test
+    fun `submit threads onProgress events and clears progress when done`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "d_progress"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 1L,
+                            draftId = draftId,
+                            taxonScientificName = "Parus major",
+                            taxonCommonName = null,
+                            maxConfidence = 0.9f,
+                            detectedWindows = 3,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 3_000L,
+                            isSelectedByUser = true,
+                        ),
+                        DetectionEntity(
+                            id = 2L,
+                            draftId = draftId,
+                            taxonScientificName = "Turdus merula",
+                            taxonCommonName = null,
+                            maxConfidence = 0.7f,
+                            detectedWindows = 2,
+                            firstSeenMs = 1_000L,
+                            lastSeenMs = 2_000L,
+                            isSelectedByUser = true,
+                        ),
+                    ),
+                )
+            }
+            val repo = repo(draftDao, detectionDao)
+            val queue = makeQueue(draftRepo = repo)
+            val submission = InatSubmissionJob { _, _, _, _, _, onProgress ->
+                onProgress(
+                    com.sound2inat.inat.SubmissionProgress.Species(
+                        speciesIndex = 1,
+                        totalSpecies = 2,
+                        taxonScientificName = "Parus major",
+                        step = com.sound2inat.inat.SubmissionProgress.Step.CreatingObservation,
+                    )
+                )
+                onProgress(
+                    com.sound2inat.inat.SubmissionProgress.Species(
+                        speciesIndex = 2,
+                        totalSpecies = 2,
+                        taxonScientificName = "Turdus merula",
+                        step = com.sound2inat.inat.SubmissionProgress.Step.DoneOk,
+                    )
+                )
+                InatSubmissionOutcome.Success(
+                    listOf("https://www.inaturalist.org/observations/1", "https://www.inaturalist.org/observations/2")
+                )
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                submission = submission,
+                tokenProvider = { "jwt" },
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            advanceUntilIdle()
+
+            vm.submitToINaturalist()
+            advanceUntilIdle()
+
+            assertThat(vm.state.value.submissionProgress).isNull()
+            assertThat(vm.state.value.inatSubmission)
+                .isInstanceOf(InatSubmissionState.Done::class.java)
+        }
+
+    @Test
+    fun `retryIncomplete invokes deleter then clears retry flag`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "d_retry_ok"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(draftRepo = repo)
+            val calls = mutableListOf<Pair<Long, Long>>()
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                deleteIncompleteOnInat = { rowId, obsId -> calls += rowId to obsId },
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            advanceUntilIdle()
+
+            vm.retryIncomplete(rowId = 7L, observationId = 42L)
+            advanceUntilIdle()
+
+            assertThat(calls).containsExactly(7L to 42L)
+            assertThat(vm.state.value.retryingIncomplete).isEmpty()
+            assertThat(vm.state.value.retryIncompleteError).isNull()
+        }
+
+    @Test
+    fun `retryIncomplete surfaces error when deleter throws`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "d_retry_fail"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(draftRepo = repo)
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                deleteIncompleteOnInat = { _, _ -> throw IllegalStateException("boom") },
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            advanceUntilIdle()
+
+            vm.retryIncomplete(rowId = 1L, observationId = 99L)
+            advanceUntilIdle()
+
+            assertThat(vm.state.value.retryingIncomplete).isEmpty()
+            assertThat(vm.state.value.retryIncompleteError).isEqualTo("boom")
         }
 }
 
