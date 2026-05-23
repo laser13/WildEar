@@ -8,6 +8,7 @@ import com.sound2inat.storage.DetectionEntity
 import com.sound2inat.storage.DraftEntity
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.DraftWithDetections
+import com.sound2inat.storage.InatUploadStatus
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -191,6 +192,8 @@ class INatSubmitterMultiClipTest {
         val result = submitter.submit(token = "jwt", draft = draft)
 
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
+        assertThat(inatDao.rows.map { it.uploadStatus })
+            .containsExactly(InatUploadStatus.COMPLETE)
         // Three clusters -> three sound uploads, all on the same observation UUID.
         assertThat(client.soundUploads).hasSize(3)
         assertThat(client.soundUploads.map { it.first }.toSet()).containsExactly("u-mc-1")

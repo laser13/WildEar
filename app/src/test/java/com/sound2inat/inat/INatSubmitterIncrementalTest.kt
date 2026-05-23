@@ -7,6 +7,7 @@ import com.sound2inat.storage.DraftEntity
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.DraftWithDetections
 import com.sound2inat.storage.InatObservationEntity
+import com.sound2inat.storage.InatUploadStatus
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -239,6 +240,8 @@ class INatSubmitterIncrementalTest {
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
         val ok = result as INatSubmitter.Result.Ok
         assertThat(ok.urls).hasSize(1)
+        assertThat(inatObs.rows.map { it.uploadStatus })
+            .containsExactly(InatUploadStatus.COMPLETE)
 
         // Draft must NOT be UPLOADED — the user has a pending species to retry.
         val saved = drafts.inserted.first()

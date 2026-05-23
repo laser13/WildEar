@@ -10,6 +10,7 @@ import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.DraftWithDetections
 import com.sound2inat.storage.InatObservationDao
 import com.sound2inat.storage.InatObservationEntity
+import com.sound2inat.storage.InatUploadStatus
 import com.sound2inat.storage.Sound2iNatDb
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -166,6 +167,8 @@ class INatSubmitterTest {
         assertThat(inatDao.rows).hasSize(1)
         assertThat(inatDao.rows.first().taxonScientificName).isEqualTo("Parus major")
         assertThat(inatDao.rows.first().observationId).isEqualTo(900L)
+        assertThat(inatDao.rows.map { it.uploadStatus })
+            .containsExactly(InatUploadStatus.COMPLETE)
 
         // resolve + create + sound + tag + 2 annotations + identification = 7.
         assertThat(server.requestCount).isEqualTo(7)
@@ -185,6 +188,8 @@ class INatSubmitterTest {
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
         assertThat(dao.inserted.first().status).isEqualTo(DraftStatus.UPLOADED)
         assertThat(inatDao.rows).hasSize(1)
+        assertThat(inatDao.rows.map { it.uploadStatus })
+            .containsExactly(InatUploadStatus.COMPLETE)
         assertThat(server.requestCount).isEqualTo(7)
     }
 
@@ -229,6 +234,8 @@ class INatSubmitterTest {
         val ok = result as INatSubmitter.Result.Ok
         assertThat(ok.urls).hasSize(2)
         assertThat(inatDao.rows).hasSize(2)
+        assertThat(inatDao.rows.map { it.uploadStatus })
+            .containsExactly(InatUploadStatus.COMPLETE, InatUploadStatus.COMPLETE)
 
         // Drain the first 14 requests (resolve/create/upload/tag + 2 annotations + identification × 2).
         repeat(14) { server.takeRequest() }
@@ -499,14 +506,16 @@ class INatSubmitterTest {
     }
 
     /**
-     * Verifies that when [Sound2iNatDb] is injected, the delete+insertAll is
-     * wrapped in a single transaction: if insert throws mid-way the prior rows
-     * must be rolled back and preserved.
+     * Per-row early-persist contract (replaces the old "bulk wipe-and-replace
+     * was atomic" test). When a single species' INSERT throws mid-submission,
+     * the failure is contained to that species: prior rows for the draft stay
+     * intact (no deleteForDraft anymore), and sibling species that were
+     * successfully persisted before the throw remain in the DB.
      *
-     * Uses an in-memory Room DB and a DAO decorator that throws on the second
-     * insert, simulating a partial-write failure.
+     * Uses an in-memory Room DB and a DAO decorator that throws on its second
+     * `insert` call, simulating a partial-write failure on the second species.
      */
-    @Test fun `persistObservations is atomic — insert failure preserves prior rows`() = runTest {
+    @Test fun `per-row persist — insert failure on one species preserves siblings and prior rows`() = runTest {
         val db = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext(),
             Sound2iNatDb::class.java,
@@ -517,7 +526,7 @@ class INatSubmitterTest {
         val draft = draftWith(listOf("Parus major", "Sylvia"))
         db.drafts().insert(draft.draft)
 
-        // Pre-seed two "old" observation rows that must survive a failed re-submit.
+        // Pre-seed two "old" observation rows that must survive a partial-failure re-submit.
         val oldA = InatObservationEntity(
             draftId = draft.draft.id,
             taxonScientificName = "Old A",
@@ -535,7 +544,8 @@ class INatSubmitterTest {
         db.inatObservations().insert(oldB)
         assertThat(db.inatObservations().listForDraft(draft.draft.id)).hasSize(2)
 
-        // DAO wrapper that throws on the second insert call.
+        // DAO wrapper that throws on the second submitter-driven insert call
+        // (i.e. when persisting the Sylvia row).
         val throwingDao = object : InatObservationDao by db.inatObservations() {
             var callCount = 0
             override fun insert(row: InatObservationEntity): Long {
@@ -551,10 +561,10 @@ class INatSubmitterTest {
             tmpRoot = tmp.newFolder("cache2"),
             ioDispatcher = UnconfinedTestDispatcher(),
             nowMs = { 0L },
-            db = db,
         )
 
-        // Two HTTP species so two inserts are attempted.
+        // Parus (success path): resolve + create + sound + spectrogram (mocked
+        // to no-op) + tag + 2 annotations + identification = 7 HTTP responses.
         server.enqueue(MockResponse().setBody("""{"results":[{"id":1,"iconic_taxon_name":"Aves"}]}"""))
         server.enqueue(MockResponse().setBody("""{"id":700,"uuid":"u-A"}"""))
         server.enqueue(MockResponse().setBody("""{"results":[{"id":555}]}"""))
@@ -562,23 +572,37 @@ class INatSubmitterTest {
         server.enqueue(MockResponse().setBody("""{"id":11}"""))
         server.enqueue(MockResponse().setBody("""{"id":12}"""))
         server.enqueue(MockResponse().setBody("""{"id":21}"""))
+        // Sylvia: only resolve + create + sound succeed; INSERT throws right
+        // after, so the remaining best-effort responses are never consumed.
         server.enqueue(MockResponse().setBody("""{"results":[{"id":2,"iconic_taxon_name":"Aves"}]}"""))
         server.enqueue(MockResponse().setBody("""{"id":701,"uuid":"u-B"}"""))
         server.enqueue(MockResponse().setBody("""{"results":[{"id":556}]}"""))
-        server.enqueue(MockResponse().setBody("""{"id":10}"""))
-        server.enqueue(MockResponse().setBody("""{"id":13}"""))
-        server.enqueue(MockResponse().setBody("""{"id":14}"""))
-        server.enqueue(MockResponse().setBody("""{"id":22}"""))
 
-        val result = runCatching {
-            throwingSubmitter.submit("jwt", draft)
-        }
+        val result = throwingSubmitter.submit("jwt", draft)
 
-        // The transaction must roll back, preserving the original two rows.
-        assertThat(result.isFailure).isTrue()
+        // Parus succeeded, Sylvia failed → partial-success Ok with the draft
+        // staying REVIEWED so the user can address the failure.
+        assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
+        val ok = result as INatSubmitter.Result.Ok
+        // Prior Old A / Old B plus the freshly-persisted Parus row → 3 URLs.
+        assertThat(ok.urls).hasSize(3)
+
         val remaining = db.inatObservations().listForDraft(draft.draft.id)
-        assertThat(remaining).hasSize(2)
-        assertThat(remaining.map { it.taxonScientificName }).containsExactly("Old A", "Old B")
+        // Three rows in total: prior Old A, prior Old B, freshly-persisted Parus.
+        // Sylvia's row was never inserted (the throw aborted it).
+        assertThat(remaining.map { it.taxonScientificName })
+            .containsExactly("Old A", "Old B", "Parus major")
+        // All three are COMPLETE (Old A/B by default; Parus via markComplete).
+        assertThat(remaining.map { it.uploadStatus })
+            .containsExactly(
+                InatUploadStatus.COMPLETE,
+                InatUploadStatus.COMPLETE,
+                InatUploadStatus.COMPLETE,
+            )
+        // Draft stays REVIEWED with Sylvia's error captured for the UI banner.
+        val savedDraft = db.drafts().getById(draft.draft.id)!!
+        assertThat(savedDraft.status).isEqualTo(DraftStatus.REVIEWED)
+        assertThat(savedDraft.inatLastError).contains("Sylvia")
 
         db.close()
     }
@@ -629,6 +653,8 @@ class INatSubmitterTest {
         val ok = result as INatSubmitter.Result.Ok
         assertThat(ok.primaryUrl).isEqualTo("https://www.inaturalist.org/observations/900")
         assertThat(inatDao.rows).hasSize(1)
+        assertThat(inatDao.rows.map { it.uploadStatus })
+            .containsExactly(InatUploadStatus.COMPLETE)
         // resolve + create + uploadSound×2 + tag + 2 annotations + identification = 8
         assertThat(server.requestCount).isEqualTo(8)
         // Confirm both sound upload requests hit the correct endpoint.
@@ -670,6 +696,62 @@ class INatSubmitterTest {
         assertThat(result).isInstanceOf(INatSubmitter.Result.Failure::class.java)
         assertThat(dao.inserted.first().status).isEqualTo(DraftStatus.REVIEWED)
         assertThat(inatDao.rows).isEmpty()
+    }
+
+    /**
+     * Cancellation in the middle of a multi-step submission (e.g. user
+     * navigates away during the post-INSERT side-effect phase) must leave
+     * the just-INSERTed row in [InatUploadStatus.INCOMPLETE] so the UI can
+     * surface a "delete-and-recreate" recovery banner.
+     *
+     * The throw is injected at the first `uploadObservationPhoto` call —
+     * by that point in `submitOne` we've already INSERTed the row (with
+     * INCOMPLETE) but not yet called `markComplete`. The best-effort
+     * `runCatchingNonCancellation` wrapper around that call must rethrow
+     * `CancellationException` so structured concurrency propagates it out
+     * of `submit`; the row remains INCOMPLETE.
+     */
+    @Test fun `cancellation after first sound upload leaves an INCOMPLETE row`() = runTest {
+        val cancellingClient = object : INaturalistClient(
+            OkHttpClient(),
+            baseUrl = server.url("/v1").toString().trimEnd('/'),
+            ioDispatcher = UnconfinedTestDispatcher(),
+        ) {
+            override suspend fun uploadObservationPhoto(
+                token: String,
+                observationId: Long,
+                photoFile: File,
+                mimeType: String,
+            ): Long = throw kotlinx.coroutines.CancellationException("test cancel")
+        }
+        val cancellingSubmitter = INatSubmitter(
+            client = cancellingClient,
+            drafts = dao,
+            inatObservations = inatDao,
+            tmpRoot = tmp.newFolder("cache-cancel"),
+            ioDispatcher = UnconfinedTestDispatcher(),
+            nowMs = { 0L },
+        )
+        // resolveGenus
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":12345,"iconic_taxon_name":"Aves"}]}"""))
+        // createObservation
+        server.enqueue(MockResponse().setBody("""{"id":900,"uuid":"u-1"}"""))
+        // uploadSound — the primary clip lands successfully so the row gets INSERTed.
+        server.enqueue(MockResponse().setBody("""{"results":[{"id":1}]}"""))
+
+        var caught: kotlinx.coroutines.CancellationException? = null
+        try {
+            cancellingSubmitter.submit(token = "jwt", draft = draftWith(listOf("Parus major")))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            caught = e
+        }
+        advanceUntilIdle()
+
+        assertThat(caught).isNotNull()
+        val row = inatDao.rows.single()
+        assertThat(row.uploadStatus).isEqualTo(InatUploadStatus.INCOMPLETE)
+        assertThat(row.observationId).isEqualTo(900L)
+        assertThat(row.observationUrl).isNotEmpty()
     }
 
     private fun createConstantWav(

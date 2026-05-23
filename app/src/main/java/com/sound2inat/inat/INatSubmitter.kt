@@ -1,17 +1,16 @@
 package com.sound2inat.inat
 
-import androidx.room.withTransaction
 import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
 import com.sound2inat.inference.SourceStats
 import com.sound2inat.modelmanager.KnownModels
 import com.sound2inat.storage.DetectionEntity
 import com.sound2inat.storage.DraftDao
-import com.sound2inat.storage.DraftEntity
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.DraftWithDetections
 import com.sound2inat.storage.InatObservationDao
 import com.sound2inat.storage.InatObservationEntity
-import com.sound2inat.storage.Sound2iNatDb
+import com.sound2inat.storage.InatUploadStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -57,7 +56,6 @@ class INatSubmitter(
     private val tmpRoot: File,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
-    private val db: Sound2iNatDb? = null,
 ) {
 
     sealed interface Result {
@@ -82,6 +80,7 @@ class INatSubmitter(
         habitatPhotos: List<File> = emptyList(),
         includeHabitatPhotoByTaxon: Map<String, Boolean> = emptyMap(),
         sourceAudioOverride: File? = null,
+        onProgress: (SubmissionProgress) -> Unit = {},
     ): Result = withContext(ioDispatcher) {
         if (token.isBlank()) return@withContext Result.Failure("No iNaturalist token in Settings")
         val selected = draft.detections.filter { it.isSelectedByUser }
@@ -99,10 +98,25 @@ class INatSubmitter(
                 selected,
                 habitatPhotos,
                 includeHabitatPhotoByTaxon,
+                onProgress,
             )
         } finally {
             runCatching { cropDir.deleteRecursively() }
         }
+    }
+
+    /**
+     * Like [runCatching], but rethrows [CancellationException] so structured
+     * concurrency works correctly. We swallow other throwables on purpose —
+     * per-species failures are reported via [failures] and must not abort
+     * the whole submission loop.
+     */
+    private inline fun <R> runCatchingNonCancellation(block: () -> R): kotlin.Result<R> = try {
+        kotlin.Result.success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (t: Throwable) {
+        kotlin.Result.failure(t)
     }
 
     @Suppress("ReturnCount", "LongMethod", "TooGenericExceptionCaught")
@@ -114,21 +128,24 @@ class INatSubmitter(
         selected: List<DetectionEntity>,
         habitatPhotos: List<File>,
         includeHabitatPhotoByTaxon: Map<String, Boolean>,
+        onProgress: (SubmissionProgress) -> Unit,
     ): Result {
-        val pendingRows = mutableListOf<InatObservationEntity>()
         val createdPairs = mutableListOf<Pair<SubmittedObs, DetectionEntity>>()
         val failures = mutableListOf<String>()
 
-        for (det in selected) {
-            val outcome = runCatching {
+        selected.forEachIndexed { idx, det ->
+            val outcome = runCatchingNonCancellation {
                 submitOne(
                     token,
                     draft,
                     srcAudio,
                     cropDir,
                     det,
+                    speciesIndex = idx + 1,
+                    totalSpecies = selected.size,
                     habitatPhotos,
                     includeHabitatPhotoByTaxon,
+                    onProgress,
                 )
             }
             outcome.onSuccess { submitted ->
@@ -137,25 +154,43 @@ class INatSubmitter(
                         LOG_TAG,
                         "Uploaded ${det.taxonScientificName} -> ${submitted.entity.observationUrl}",
                     )
-                    pendingRows += submitted.entity
                     createdPairs += submitted to det
+                    onProgress(
+                        SubmissionProgress.Species(
+                            idx + 1,
+                            selected.size,
+                            det.taxonScientificName,
+                            SubmissionProgress.Step.DoneOk,
+                        ),
+                    )
                 } else {
                     android.util.Log.w(LOG_TAG, "No iNat match for ${det.taxonScientificName}")
                     failures += "${det.taxonScientificName}: no iNat match"
+                    onProgress(
+                        SubmissionProgress.Species(
+                            idx + 1,
+                            selected.size,
+                            det.taxonScientificName,
+                            SubmissionProgress.Step.DoneFailed,
+                        ),
+                    )
                 }
             }
             outcome.onFailure { e ->
-                // Full stack into logcat; only a clamped, HTML-stripped
-                // message bubbles up to the UI via INatException.
                 android.util.Log.w(LOG_TAG, "Submit failed for ${det.taxonScientificName}", e)
                 failures += "${det.taxonScientificName}: ${e.message}"
+                onProgress(
+                    SubmissionProgress.Species(
+                        idx + 1,
+                        selected.size,
+                        det.taxonScientificName,
+                        SubmissionProgress.Step.DoneFailed,
+                    ),
+                )
             }
-            // Per-species crops are consumed; the whole `cropDir` is wiped in
-            // the surrounding `finally` block of [submit], so no per-iteration
-            // cleanup is needed here.
         }
 
-        if (pendingRows.isEmpty()) {
+        if (createdPairs.isEmpty()) {
             val msg = "All species failed: ${failures.joinToString(" | ")}"
             drafts.update(
                 draft.draft.copy(inatLastError = msg, updatedAtUtcMs = nowMs()),
@@ -163,91 +198,30 @@ class INatSubmitter(
             return Result.Failure(msg)
         }
 
-        // Cross-link pass — best-effort; failures don't unwind the upload.
-        // Always run when ANY species is in scope (prior or fresh), so prior
-        // sibling observations get their description PUT-updated to reference
-        // newly-added species too.
-        if (createdPairs.isNotEmpty()) {
-            crossLink(token, draft, createdPairs)
-        }
+        onProgress(SubmissionProgress.CrossLinking)
+        crossLink(token, draft, createdPairs)
 
-        // Atomic wipe-and-replace + status flip: delete any prior rows for
-        // this draft, insert the union of (rows carried over from prior runs
-        // for species NOT submitted in this run) + (rows freshly created
-        // here), and update the draft's status — all in a SINGLE transaction.
-        //
-        // The union step is what makes the flow incrementally re-runnable:
-        // wiping-and-replacing with only `pendingRows` would orphan local
-        // copies of observations from a previous successful submit (they'd
-        // still exist on iNat but the app would forget about them), causing
-        // `pendingCount` in ReviewViewModel to re-count them as pending and
-        // the UploadedBanner to lose its links. The idempotency pre-check
-        // in `submitOne` covers the narrower window between createObservation
-        // and persist; this union covers the cross-run window.
-        //
-        // Status logic: the draft only flips to UPLOADED when every selected
-        // species was successfully persisted AND no per-species failure was
-        // recorded. Otherwise it stays in REVIEWED so the user can re-run
-        // submit to retry the missing species (the idempotency pre-check
-        // skips the already-persisted ones).
         val totalSelected = selected.size
-        val succeeded = pendingRows.size
+        val succeeded = createdPairs.size
         val anyFailure = failures.isNotEmpty()
         val nextStatus = if (succeeded == totalSelected && !anyFailure) {
             DraftStatus.UPLOADED
         } else {
             DraftStatus.REVIEWED
         }
-        val updatedDraft = draft.draft.copy(
-            status = nextStatus,
-            inatLastError = if (failures.isEmpty()) null else failures.joinToString(" | "),
-            updatedAtUtcMs = nowMs(),
+        drafts.update(
+            draft.draft.copy(
+                status = nextStatus,
+                inatLastError = if (failures.isEmpty()) null else failures.joinToString(" | "),
+                updatedAtUtcMs = nowMs(),
+            ),
         )
-        // Build the full row set to persist: carry over any prior rows whose
-        // observation isn't being re-inserted by this run, then append the
-        // freshly-created rows. Re-reading priorRows here (after crossLink
-        // already read them) is cheap and keeps the persist step self-
-        // contained — the DAO is local and the read is cheap.
-        val priorRows = inatObservations.listForDraft(draft.draft.id)
-        val newIds = pendingRows.mapTo(mutableSetOf()) { it.observationId }
-        val carriedOver = priorRows.filter { it.observationId !in newIds }
-        val allRows = carriedOver + pendingRows
-        val savedRows = persistAndMarkUploaded(draft.draft.id, allRows, updatedDraft)
-        // The user's expectation when (re-)submitting is to see the URL of a
-        // species they just uploaded, not a carried-over one. The freshly-
-        // inserted rows appear at the tail of `savedRows` (we appended them
-        // above), so take the first row from that tail as the primary URL.
-        // `pendingRows` is guaranteed non-empty here (the early-return above
-        // covers the no-fresh-uploads case).
-        val freshlyInsertedUrls = savedRows.takeLast(pendingRows.size).map { it.observationUrl }
-        val primary = freshlyInsertedUrls.first()
-        return Result.Ok(primary, savedRows.map { it.observationUrl })
-    }
 
-    /**
-     * Atomically deletes all prior iNat observation rows for [draftId],
-     * inserts [rows] (the caller passes the FULL set to keep — carried-over
-     * prior rows + freshly-created rows for this run), and flips the draft
-     * to its [updatedDraft] state. When a [Sound2iNatDb] reference is
-     * available all three operations run inside a single [withTransaction]
-     * block; otherwise they execute sequentially (test paths with fake DAOs
-     * that have no transactional guarantee).
-     */
-    private suspend fun persistAndMarkUploaded(
-        draftId: String,
-        rows: List<InatObservationEntity>,
-        updatedDraft: DraftEntity,
-    ): List<InatObservationEntity> {
-        fun doPersist(): List<InatObservationEntity> {
-            inatObservations.deleteForDraft(draftId)
-            val saved = rows.map { row ->
-                val savedId = inatObservations.insert(row)
-                row.copy(id = savedId)
-            }
-            drafts.update(updatedDraft)
-            return saved
-        }
-        return if (db != null) db.withTransaction { doPersist() } else doPersist()
+        val primary = createdPairs.first().first.entity.observationUrl
+        val allCompleteUrls = inatObservations.listForDraft(draft.draft.id)
+            .filter { it.uploadStatus == InatUploadStatus.COMPLETE }
+            .map { it.observationUrl }
+        return Result.Ok(primary, allCompleteUrls)
     }
 
     /**
@@ -255,47 +229,62 @@ class INatSubmitter(
      * a [SubmittedObs] wrapping the entity and the iNat UUID, or null if the
      * taxon name didn't match anything on iNat.
      */
-    @Suppress("TooGenericExceptionCaught", "LongMethod")
+    @Suppress("TooGenericExceptionCaught", "LongMethod", "LongParameterList", "ReturnCount")
     private suspend fun submitOne(
         token: String,
         draft: DraftWithDetections,
         srcAudio: File,
         cropDir: File,
         det: DetectionEntity,
-        habitatPhotos: List<File> = emptyList(),
-        includeHabitatPhotoByTaxon: Map<String, Boolean> = emptyMap(),
+        speciesIndex: Int,
+        totalSpecies: Int,
+        habitatPhotos: List<File>,
+        includeHabitatPhotoByTaxon: Map<String, Boolean>,
+        onProgress: (SubmissionProgress) -> Unit,
     ): SubmittedObs? {
-        // Idempotency pre-check: if a prior submission attempt already created
-        // an observation for this (draftId, species) on iNat but crashed before
-        // persisting the corresponding inat_observations row, reuse the saved
-        // entity instead of POSTing /observations a second time. The empty
-        // uuid is a sentinel — we never persisted the original UUID, so
-        // crossLink must skip uuid-dependent calls for reused entities.
-        val existing = inatObservations.findForDraftAndSpecies(
-            draft.draft.id,
-            det.taxonScientificName,
-        )
-        if (existing != null && existing.observationUrl.isNotBlank() && existing.observationId > 0L) {
+        val name = det.taxonScientificName
+        fun emit(step: SubmissionProgress.Step) =
+            onProgress(SubmissionProgress.Species(speciesIndex, totalSpecies, name, step))
+
+        val existing = inatObservations.findForDraftAndSpecies(draft.draft.id, name)
+        val isCompleteAndValid = existing != null &&
+            existing.uploadStatus == InatUploadStatus.COMPLETE &&
+            existing.observationUrl.isNotBlank() &&
+            existing.observationId > 0L
+        if (isCompleteAndValid) {
             android.util.Log.d(
                 LOG_TAG,
-                "Reusing existing iNat observation ${existing.observationId}" +
-                    " for ${det.taxonScientificName}",
+                "Reusing COMPLETE iNat row ${existing!!.observationId} for $name",
             )
+            emit(SubmissionProgress.Step.DoneOk)
             return SubmittedObs(existing, uuid = "")
         }
-        if (existing != null) {
+        if (existing != null && existing.uploadStatus == InatUploadStatus.INCOMPLETE) {
             android.util.Log.w(
                 LOG_TAG,
-                "Discarding malformed inat_observations row for ${det.taxonScientificName}" +
+                "Refusing to resubmit $name — INCOMPLETE row exists" +
+                    " (observationId=${existing.observationId}). Use the banner's" +
+                    " Delete-and-recreate action first.",
+            )
+            emit(SubmissionProgress.Step.DoneFailed)
+            error("$name has an incomplete observation on iNaturalist — recreate it from the banner first")
+        }
+        if (existing != null) {
+            // Malformed COMPLETE row (zero id / blank url) — legacy data that
+            // pre-dates the INCOMPLETE column. Targeted delete only, so
+            // sibling species' rows survive.
+            android.util.Log.w(
+                LOG_TAG,
+                "Discarding malformed inat_observations row for $name" +
                     " (id=${existing.observationId}, url='${existing.observationUrl}') — will recreate",
             )
-            // Targeted delete: do NOT use deleteForDraft here — that would
-            // wipe sibling species' rows that are still valid, and Task B's
-            // union-row persistence relies on those staying present until
-            // persistAndMarkUploaded runs.
-            inatObservations.deleteForDraftAndSpecies(draft.draft.id, det.taxonScientificName)
+            inatObservations.deleteForDraftAndSpecies(draft.draft.id, name)
         }
-        val genusId = client.resolveGenus(det.taxonScientificName, token) ?: return null
+
+        emit(SubmissionProgress.Step.ResolvingTaxon)
+        val genusId = client.resolveGenus(name, token) ?: return null
+
+        emit(SubmissionProgress.Step.CreatingObservation)
         val clips = materialiseClips(
             srcAudio = srcAudio,
             det = det,
@@ -305,16 +294,13 @@ class INatSubmitter(
             contrastDb = draft.draft.spectrogramGainDb ?: 0f,
         )
         check(clips.isNotEmpty()) {
-            "All WAV trims failed for ${det.taxonScientificName} — disk full or audio corrupted?"
+            "All WAV trims failed for $name — disk full or audio corrupted?"
         }
-
         val obsBody = ObservationBody(
             observedAtIso = formatIso(draft.draft.recordedAtUtcMs),
             latitude = draft.draft.latitude,
             longitude = draft.draft.longitude,
             positionalAccuracy = draft.draft.locationAccuracyMeters,
-            // taxonId is intentionally null here: we first create the observation,
-            // then add a separate identification for each selected species.
             taxonId = null,
             description = baseDescription(det),
             licenseCode = "cc-by-nc",
@@ -323,10 +309,8 @@ class INatSubmitter(
         check(created.uuid.isNotBlank()) {
             "iNat /observations did not return a uuid; cannot link sound (id=${created.id})"
         }
-        // Sound upload of the FIRST clip is the most fragile step (multipart
-        // on a v2 endpoint). If even this fails we delete the just-created
-        // observation so the user's iNat account doesn't accumulate empty
-        // records on retry.
+
+        emit(SubmissionProgress.Step.UploadingPrimaryAudio)
         val firstClip = clips.first()
         try {
             withRetry { client.uploadSound(token, created.uuid, firstClip.wav) }
@@ -335,90 +319,76 @@ class INatSubmitter(
                 .onFailure { android.util.Log.w(LOG_TAG, "Cleanup failed for ${created.id}", it) }
             throw t
         }
-        // Upload the first clip's spectrogram (best-effort).
+
+        // From this point on the row is recoverable.
+        emit(SubmissionProgress.Step.Persisting)
+        val row = InatObservationEntity(
+            draftId = draft.draft.id,
+            taxonScientificName = name,
+            taxonInatId = genusId,
+            observationId = created.id,
+            observationUrl = created.url,
+            createdAtUtcMs = nowMs(),
+            uploadStatus = InatUploadStatus.INCOMPLETE,
+        )
+        val rowId = inatObservations.insert(row)
+
+        emit(SubmissionProgress.Step.UploadingSpectrogram)
         firstClip.spectrogramPng?.let { png ->
-            runCatching { client.uploadObservationPhoto(token, created.id, png) }
+            runCatchingNonCancellation { client.uploadObservationPhoto(token, created.id, png) }
                 .onFailure {
-                    android.util.Log.w(
-                        LOG_TAG,
-                        "Spectrogram photo upload failed for ${created.id} (clip 0)",
-                        it,
-                    )
+                    android.util.Log.w(LOG_TAG, "Spectrogram photo upload failed clip 0", it)
                 }
         }
-        // Remaining clips: best-effort. Failures don't roll back — the
-        // observation already has at least one playable sound.
-        //
-        // Known limitation (per-clip idempotency): if doSubmit crashes after
-        // some extra clips uploaded but before persistAndMarkUploaded, a retry
-        // of this species via Task B's incremental flow is skipped entirely by
-        // findForDraftAndSpecies (the observation row exists). The extra clips
-        // stay where they landed, no duplicates created. Per-clip Room state
-        // is deferred to a follow-up.
-        for ((idx, clip) in clips.withIndex()) {
-            if (idx == 0) continue
-            runCatching { withRetry { client.uploadSound(token, created.uuid, clip.wav) } }
+        clips.drop(1).forEachIndexed { extraIdx, clip ->
+            emit(SubmissionProgress.Step.UploadingExtraAudio)
+            runCatchingNonCancellation { withRetry { client.uploadSound(token, created.uuid, clip.wav) } }
                 .onFailure {
-                    android.util.Log.w(
-                        LOG_TAG,
-                        "Extra sound upload failed for ${created.id} (clip $idx)",
-                        it,
-                    )
+                    android.util.Log.w(LOG_TAG, "Extra sound upload failed clip ${extraIdx + 1}", it)
                 }
             clip.spectrogramPng?.let { png ->
-                runCatching { client.uploadObservationPhoto(token, created.id, png) }
+                emit(SubmissionProgress.Step.UploadingSpectrogram)
+                runCatchingNonCancellation { client.uploadObservationPhoto(token, created.id, png) }
                     .onFailure {
-                        android.util.Log.w(
-                            LOG_TAG,
-                            "Spectrogram photo upload failed for ${created.id} (clip $idx)",
-                            it,
-                        )
+                        android.util.Log.w(LOG_TAG, "Spectrogram photo upload failed clip ${extraIdx + 1}", it)
                     }
             }
         }
-        runCatching {
-            client.updateObservationTags(token, created.uuid, APP_TAG)
-        }.onFailure {
-            android.util.Log.w(LOG_TAG, "Tag update failed for ${created.id}", it)
-        }
-        // Best-effort iNaturalist annotations: every recorded vocalisation is
-        // by definition a living organism, so we set "Alive or Dead = Alive"
-        // and "Evidence of Presence = Organism" without any species-level
-        // gating. A 4xx here doesn't roll back the upload — annotations are
-        // metadata polish, not core data.
+
+        emit(SubmissionProgress.Step.ApplyingTag)
+        runCatchingNonCancellation { client.updateObservationTags(token, created.uuid, APP_TAG) }
+            .onFailure { android.util.Log.w(LOG_TAG, "Tag update failed for ${created.id}", it) }
+
+        emit(SubmissionProgress.Step.ApplyingAnnotations)
         for ((attr, value) in DEFAULT_ANNOTATIONS) {
-            runCatching { client.createAnnotation(token, created.uuid, attr, value) }
+            runCatchingNonCancellation { client.createAnnotation(token, created.uuid, attr, value) }
                 .onFailure {
-                    android.util.Log.w(
-                        LOG_TAG,
-                        "Annotation attr=$attr value=$value on ${created.id} failed",
-                        it,
-                    )
+                    android.util.Log.w(LOG_TAG, "Annotation attr=$attr on ${created.id} failed", it)
                 }
         }
-        runCatching {
+
+        emit(SubmissionProgress.Step.AddingIdentification)
+        runCatchingNonCancellation {
             client.addIdentification(token, created.id, genusId, identificationComment(det))
         }.onFailure {
             android.util.Log.w(LOG_TAG, "addIdentification on ${created.id} failed", it)
         }
-        // Best-effort habitat photo upload — failure doesn't roll back the observation.
-        if (includeHabitatPhotoByTaxon[det.taxonScientificName] == true) {
+
+        if (includeHabitatPhotoByTaxon[name] == true && habitatPhotos.isNotEmpty()) {
+            emit(SubmissionProgress.Step.UploadingHabitatPhotos)
             for (photo in habitatPhotos.filter { it.exists() }) {
-                runCatching { client.uploadObservationPhoto(token, created.id, photo) }
+                runCatchingNonCancellation { client.uploadObservationPhoto(token, created.id, photo) }
                     .onFailure {
                         android.util.Log.w(LOG_TAG, "Photo upload failed for ${created.id}", it)
                     }
             }
         }
-        val entity = InatObservationEntity(
-            draftId = draft.draft.id,
-            taxonScientificName = det.taxonScientificName,
-            taxonInatId = genusId,
-            observationId = created.id,
-            observationUrl = created.url,
-            createdAtUtcMs = nowMs(),
+
+        inatObservations.markComplete(rowId)
+        return SubmittedObs(
+            entity = row.copy(id = rowId, uploadStatus = InatUploadStatus.COMPLETE),
+            uuid = created.uuid,
         )
-        return SubmittedObs(entity, created.uuid)
     }
 
     private data class ClipArtifacts(val wav: File, val spectrogramPng: File?)
@@ -545,6 +515,7 @@ class INatSubmitter(
         // in a SubmittedObs with an empty uuid — uuid-dependent calls
         // (createObservationFieldValue) skip them.
         val priorRows = inatObservations.listForDraft(draft.draft.id)
+            .filter { it.uploadStatus == InatUploadStatus.COMPLETE }
         val detectionByName = draft.detections.associateBy { it.taxonScientificName }
         val newIds = createdPairs.mapTo(mutableSetOf()) { it.first.entity.observationId }
         val priorPairs = priorRows

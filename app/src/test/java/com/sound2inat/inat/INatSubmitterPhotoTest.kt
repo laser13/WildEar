@@ -6,6 +6,7 @@ import com.sound2inat.storage.DetectionEntity
 import com.sound2inat.storage.DraftEntity
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.DraftWithDetections
+import com.sound2inat.storage.InatUploadStatus
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -164,7 +165,8 @@ class INatSubmitterPhotoTest {
         val taxon = "Parus major"
         val trackingClient = makeTrackingClient()
         val draftDao = InMemoryDraftDao()
-        val submitter = makeSubmitter(trackingClient, draftDao, InMemoryInatObservationDao(), tmp.newFolder("cache-1"))
+        val inatDao = InMemoryInatObservationDao()
+        val submitter = makeSubmitter(trackingClient, draftDao, inatDao, tmp.newFolder("cache-1"))
 
         enqueueSuccessfulSubmit(uuid = "u-photo-1")
 
@@ -177,6 +179,8 @@ class INatSubmitterPhotoTest {
         )
 
         assertThat(result).isInstanceOf(INatSubmitter.Result.Ok::class.java)
+        assertThat(inatDao.rows.map { it.uploadStatus })
+            .containsExactly(InatUploadStatus.COMPLETE)
         // Submitter now uploads one per-clip spectrogram + the habitat photo.
         val habitatUploads = trackingClient.uploadedPhotos.filter { it.second == photoFile }
         assertThat(habitatUploads).hasSize(1)

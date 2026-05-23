@@ -67,6 +67,10 @@ internal class InMemoryInatObservationDao : InatObservationDao {
     private var nextId = 1L
 
     override fun insert(row: InatObservationEntity): Long {
+        // Match Room's auto-increment: never collide with rows already in the
+        // list (tests sometimes pre-seed via `rows += entity.copy(id = N)`).
+        val seededMax = rows.maxOfOrNull { it.id } ?: 0L
+        if (seededMax >= nextId) nextId = seededMax + 1L
         val id = nextId++
         rows += row.copy(id = id)
         return id
