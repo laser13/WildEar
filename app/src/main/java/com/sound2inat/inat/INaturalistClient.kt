@@ -353,9 +353,10 @@ open class INaturalistClient(
                 .header("Accept", "application/json")
                 .delete()
                 .build()
-            // 204 No Content has empty body; we don't need to parse anything.
             http.newCall(req).execute().use { resp ->
-                logHttp(req, resp.code, resp.body?.string().orEmpty())
+                val raw = resp.body?.string().orEmpty()
+                logHttp(req, resp.code, raw)
+                if (!resp.isSuccessful) throw INatException(resp.code, summarize(resp.code, raw))
             }
             Unit
         }

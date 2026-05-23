@@ -311,6 +311,31 @@ class PhotoReviewViewModelTest {
     }
 
     @Test
+    fun `retryIncomplete delete failure preserves row and surfaces error`() = runTest {
+        val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
+        repo.markIncompleteUpload(
+            draftId = draftId,
+            observationId = 42L,
+            observationUuid = "uuid-42",
+            observationUrl = "https://www.inaturalist.org/observations/42",
+        )
+        server.enqueue(observationDetailResponse())
+        server.enqueue(MockResponse().setResponseCode(500).setBody("""{"error":"boom"}"""))
+        val vm = viewModel(
+            draftId = draftId,
+            auth = fakeAuth(token = null, validToken = "fresh-token"),
+        )
+
+        vm.retryIncomplete()
+
+        val request = generateSequence { server.takeRequest(1, TimeUnit.SECONDS) }
+            .firstOrNull { it.method == "DELETE" }
+        assertThat(request?.path).isEqualTo("/v1/observations/42")
+        assertThat(repo.observeIncomplete(draftId).first()).isNotNull()
+        assertThat(vm.state.value.retryIncompleteError).isNotNull()
+    }
+
+    @Test
     fun `load vision suggestions and apply species via fake use cases`() = runTest {
         val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
         repo.markIncompleteUpload(

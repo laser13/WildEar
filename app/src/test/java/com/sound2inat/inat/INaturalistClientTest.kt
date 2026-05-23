@@ -134,6 +134,18 @@ class INaturalistClientTest {
         assertThat(body).contains("\"tag_list\":\"WildEar\"")
     }
 
+    @Test fun `deleteObservation throws INatException on non-success response`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(500).setBody("""{"error":"boom"}"""))
+
+        val ex = runCatching { client.deleteObservation("jwt", observationId = 42L) }.exceptionOrNull()
+
+        assertThat(ex).isInstanceOf(INatException::class.java)
+        assertThat((ex as INatException).code).isEqualTo(500)
+        val req = server.takeRequest()
+        assertThat(req.method).isEqualTo("DELETE")
+        assertThat(req.path).isEqualTo("/v1/observations/42")
+    }
+
     @Test fun `uploadSound posts multipart to v2 with file field and uuid`() = runTest {
         val wav = tmp.newFile("clip.wav").apply { writeBytes(ByteArray(64)) }
         // v2 wraps single resources in { results: [...] }.
