@@ -81,8 +81,11 @@ internal class InMemoryInatObservationDao : InatObservationDao {
     override fun observeForDraft(draftId: String): Flow<List<InatObservationEntity>> =
         flowOf(listForDraft(draftId))
 
-    override fun deleteForDraft(draftId: String): Int =
-        if (rows.removeAll { it.draftId == draftId }) 1 else 0
+    override fun deleteForDraft(draftId: String): Int {
+        val before = rows.size
+        rows.removeAll { it.draftId == draftId }
+        return before - rows.size
+    }
 
     override fun deleteForDraftAndSpecies(draftId: String, species: String): Int {
         val before = rows.size

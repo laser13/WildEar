@@ -18,8 +18,9 @@ class Converters {
     @TypeConverter
     fun fromInatUploadStatus(value: InatUploadStatus): String = value.name
 
+    // Unknown stored value → fall back to INCOMPLETE so recovery UI surfaces the row instead of silently treating it as fully uploaded.
     @TypeConverter
     fun toInatUploadStatus(value: String): InatUploadStatus =
         runCatching { InatUploadStatus.valueOf(value) }
-            .getOrDefault(InatUploadStatus.COMPLETE)
+            .getOrDefault(InatUploadStatus.INCOMPLETE)
 }

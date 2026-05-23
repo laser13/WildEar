@@ -362,7 +362,7 @@ class MigrationTest {
     }
 
     @Test
-    fun migrate11To12_addsUploadStatusColumnDefaultingToComplete() {
+    fun `migrate 11 to 12 adds uploadStatus column defaulting to COMPLETE`() {
         val dbName = "migration-test-11-to-12"
         helper.createDatabase(dbName, 11).use { db ->
             db.execSQL(
