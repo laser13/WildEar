@@ -27,4 +27,17 @@ interface PhotoDraftDao {
 
     @Query("DELETE FROM photo_drafts WHERE id = :id")
     fun deleteById(id: String): Int
+
+    @Query("UPDATE photo_drafts SET uploadStatus = 'COMPLETE' WHERE id = :draftId")
+    fun markPhotoUploadComplete(draftId: String): Int
+
+    @Query("SELECT * FROM photo_drafts WHERE id = :draftId AND uploadStatus = 'INCOMPLETE' LIMIT 1")
+    fun observeIncomplete(draftId: String): Flow<PhotoDraftEntity?>
+
+    @Query(
+        "UPDATE photo_drafts SET uploadStatus = NULL, inatObservationId = NULL, " +
+            "inatObservationUuid = NULL, inatObservationUrl = NULL, inatLastError = NULL, " +
+            "status = 'REVIEWED', updatedAtUtcMs = :now WHERE id = :draftId",
+    )
+    fun clearIncompleteUpload(draftId: String, now: Long): Int
 }

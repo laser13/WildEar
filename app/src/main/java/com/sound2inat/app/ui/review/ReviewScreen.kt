@@ -822,6 +822,11 @@ private fun stepLabel(step: SubmissionProgress.Step?): String? = when (step) {
         stringResource(R.string.review_submit_step_audio_primary)
     SubmissionProgress.Step.UploadingExtraAudio ->
         stringResource(R.string.review_submit_step_audio_extra)
+    // Photo submission steps reuse the audio-review screen if surfaced; the
+    // audio-only Review never emits these, but the `when` must be exhaustive.
+    SubmissionProgress.Step.UploadingPrimaryPhoto,
+    SubmissionProgress.Step.UploadingExtraPhoto ->
+        stringResource(R.string.review_submit_step_habitat)
     SubmissionProgress.Step.UploadingSpectrogram ->
         stringResource(R.string.review_submit_step_spectrogram)
     SubmissionProgress.Step.ApplyingTag ->

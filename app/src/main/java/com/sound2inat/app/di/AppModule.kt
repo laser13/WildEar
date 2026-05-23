@@ -69,6 +69,7 @@ object AppModule {
                 Sound2iNatDb.MIGRATION_9_10,
                 Sound2iNatDb.MIGRATION_10_11,
                 Sound2iNatDb.MIGRATION_11_12,
+                Sound2iNatDb.MIGRATION_12_13,
             )
             .build()
 

@@ -4,7 +4,9 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.storage.PhotoDraftRepository
+import com.sound2inat.storage.PhotoDraftStatus
 import com.sound2inat.storage.PhotoObservationFileStore
+import com.sound2inat.storage.PhotoUploadStatus
 import com.sound2inat.storage.Sound2iNatDb
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -19,6 +21,7 @@ import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 
 @Config(sdk = [33])
 @RunWith(RobolectricTestRunner::class)
@@ -82,6 +85,8 @@ class PhotoSubmitterTest {
         assertThat(saved.inatObservationId).isEqualTo(900L)
         assertThat(saved.inatObservationUuid).isEqualTo("u-1")
         assertThat(saved.inatObservationUrl).isEqualTo("https://www.inaturalist.org/observations/900")
+        assertThat(saved.uploadStatus).isEqualTo(PhotoUploadStatus.COMPLETE)
+        assertThat(saved.status).isEqualTo(PhotoDraftStatus.UPLOADED)
         assertThat(server.takeRequest().path).isEqualTo("/v1/observations")
         assertThat(server.takeRequest().path).isEqualTo("/v1/observation_photos")
         assertThat(server.takeRequest().path).isEqualTo("/v1/observation_photos")
@@ -101,21 +106,91 @@ class PhotoSubmitterTest {
     }
 
     @Test
-    fun `all photo upload failures clean up created observation`() = runTest {
+    fun `primary photo upload failure rolls back observation and leaves no INCOMPLETE row`() = runTest {
         val draftId = draftWithImages(1)
+        // createObservation
         server.enqueue(MockResponse().setBody("""{"id":900,"uuid":"u-1"}"""))
+        // first photo upload — fails
         server.enqueue(MockResponse().setResponseCode(500).setBody("""{"error":"boom"}"""))
-        server.enqueue(MockResponse().setBody("""{}"""))
+        // delete observation cleanup
         server.enqueue(MockResponse().setResponseCode(204))
 
         val result = submitter.submit("jwt", draftId)
 
         assertThat(result).isInstanceOf(PhotoSubmitResult.Failure::class.java)
-        assertThat(db.photoDrafts().getById(draftId)!!.inatLastError).contains("All photo uploads failed")
+        val saved = db.photoDrafts().getById(draftId)!!
+        assertThat(saved.inatLastError).contains("First photo upload failed")
+        assertThat(saved.uploadStatus).isNull()
+        assertThat(saved.inatObservationId).isNull()
         assertThat(server.takeRequest().path).isEqualTo("/v1/observations")
         assertThat(server.takeRequest().path).isEqualTo("/v1/observation_photos")
-        assertThat(server.takeRequest().path).isEqualTo("/v2/observations/u-1")
         assertThat(server.takeRequest().path).isEqualTo("/v1/observations/900")
+    }
+
+    @Test
+    fun `incomplete row is refused on resubmit until banner-driven recreate`() = runTest {
+        val draftId = draftWithImages(1)
+        // Seed: simulate a previous half-finished upload.
+        repo.markIncompleteUpload(
+            draftId = draftId,
+            observationId = 42L,
+            observationUuid = "u-prev",
+            observationUrl = "https://www.inaturalist.org/observations/42",
+        )
+
+        val result = submitter.submit("jwt", draftId)
+
+        assertThat(result).isInstanceOf(PhotoSubmitResult.Failure::class.java)
+        assertThat((result as PhotoSubmitResult.Failure).message).contains("incomplete upload")
+        assertThat(server.requestCount).isEqualTo(0)
+        // Row still INCOMPLETE — recovery action hasn't been taken yet.
+        assertThat(db.photoDrafts().getById(draftId)!!.uploadStatus).isEqualTo(PhotoUploadStatus.INCOMPLETE)
+    }
+
+    @Test
+    fun `cancellation after first photo upload leaves an INCOMPLETE row`() = runTest {
+        val draftId = draftWithImages(2)
+        // createObservation lands; first photo upload lands; second photo cancels.
+        server.enqueue(MockResponse().setBody("""{"id":900,"uuid":"u-1"}"""))
+        var photoCount = 0
+        val cancellingClient = object : INaturalistClient(
+            OkHttpClient(),
+            baseUrl = server.url("/v1").toString().removeSuffix("/"),
+            ioDispatcher = UnconfinedTestDispatcher(),
+        ) {
+            override suspend fun uploadObservationPhoto(
+                token: String,
+                observationId: Long,
+                photoFile: File,
+                mimeType: String,
+            ): Long {
+                photoCount++
+                if (photoCount >= 2) {
+                    throw kotlinx.coroutines.CancellationException("test cancel")
+                }
+                return 1L
+            }
+        }
+        val cancellingSubmitter = PhotoSubmitter(
+            client = cancellingClient,
+            repo = repo,
+            ioDispatcher = UnconfinedTestDispatcher(),
+        )
+
+        var caught: kotlinx.coroutines.CancellationException? = null
+        try {
+            cancellingSubmitter.submit("jwt", draftId)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            caught = e
+        }
+
+        assertThat(caught).isNotNull()
+        val saved = db.photoDrafts().getById(draftId)!!
+        // markPhotoUploadComplete must NOT have run — uploadStatus stays
+        // INCOMPLETE and the draft's status stays whatever it was pre-submit.
+        assertThat(saved.uploadStatus).isEqualTo(PhotoUploadStatus.INCOMPLETE)
+        assertThat(saved.inatObservationId).isEqualTo(900L)
+        assertThat(saved.status).isNotEqualTo(PhotoDraftStatus.UPLOADED)
     }
 
     private suspend fun draftWithImages(count: Int): String {

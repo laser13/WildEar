@@ -200,4 +200,60 @@ class PhotoDraftRepository(
         val draft = draftDao.getById(draftId) ?: error("photo draft $draftId missing")
         draftDao.update(draft.copy(updatedAtUtcMs = nowMs(), inatLastError = message))
     }
+
+    /**
+     * Called immediately after iNat returns success from createObservation +
+     * the first uploadObservationPhoto. Persists the iNat ids with
+     * [PhotoUploadStatus.INCOMPLETE] so the row is recoverable if any later
+     * step fails. Note that the draft's [PhotoDraftStatus] stays at REVIEWED —
+     * UPLOADED transition happens in [markPhotoUploadComplete].
+     */
+    suspend fun markIncompleteUpload(
+        draftId: String,
+        observationId: Long,
+        observationUuid: String,
+        observationUrl: String,
+    ) = withContext(ioDispatcher) {
+        val draft = draftDao.getById(draftId) ?: error("photo draft $draftId missing")
+        draftDao.update(
+            draft.copy(
+                updatedAtUtcMs = nowMs(),
+                inatObservationId = observationId,
+                inatObservationUuid = observationUuid,
+                inatObservationUrl = observationUrl,
+                inatLastError = null,
+                uploadStatus = PhotoUploadStatus.INCOMPLETE,
+            ),
+        )
+    }
+
+    /**
+     * Flips uploadStatus to COMPLETE and the draft's status to UPLOADED.
+     * Called at the very end of [com.sound2inat.inat.PhotoSubmitter.submit]
+     * after every per-observation side-effect has either succeeded or been
+     * logged as a best-effort failure.
+     */
+    suspend fun markPhotoUploadComplete(draftId: String) = withContext(ioDispatcher) {
+        val draft = draftDao.getById(draftId) ?: error("photo draft $draftId missing")
+        draftDao.update(
+            draft.copy(
+                updatedAtUtcMs = nowMs(),
+                status = PhotoDraftStatus.UPLOADED,
+                uploadStatus = PhotoUploadStatus.COMPLETE,
+            ),
+        )
+    }
+
+    /**
+     * Called by the banner-driven "Delete and recreate" action AFTER a
+     * successful DELETE /observations/{id} on iNat. Wipes the iNat ids and
+     * uploadStatus from the local row and resets the draft to REVIEWED so the
+     * user can re-submit cleanly.
+     */
+    suspend fun clearIncompleteUpload(draftId: String) = withContext(ioDispatcher) {
+        draftDao.clearIncompleteUpload(draftId, nowMs())
+    }
+
+    fun observeIncomplete(draftId: String): Flow<PhotoDraftEntity?> =
+        draftDao.observeIncomplete(draftId).flowOn(ioDispatcher)
 }

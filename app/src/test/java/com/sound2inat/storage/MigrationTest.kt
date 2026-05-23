@@ -389,7 +389,28 @@ class MigrationTest {
     }
 
     @Test
-    fun `migrate all versions 1 through 12 preserves seed data`() {
+    fun `migrate 12 to 13 adds nullable uploadStatus column to photo_drafts`() {
+        val dbName = "migration-test-12-to-13"
+        helper.createDatabase(dbName, 12).use { db ->
+            db.execSQL(
+                "INSERT INTO photo_drafts(id, createdAtUtcMs, updatedAtUtcMs, observedAtUtcMs, " +
+                    "status) VALUES ('p1', 0, 0, 0, 'REVIEWED')",
+            )
+        }
+        val migrated = helper.runMigrationsAndValidate(
+            dbName,
+            13,
+            true,
+            Sound2iNatDb.MIGRATION_12_13,
+        )
+        migrated.query("SELECT uploadStatus FROM photo_drafts WHERE id = 'p1'").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.isNull(0)).isTrue()
+        }
+    }
+
+    @Test
+    fun `migrate all versions 1 through 13 preserves seed data`() {
         helper.createDatabase(dbName, 1).use { db ->
             db.execSQL(
                 """INSERT INTO drafts (id, audioPath, recordedAtUtcMs, durationMs,
@@ -408,7 +429,7 @@ class MigrationTest {
         }
 
         val db = helper.runMigrationsAndValidate(
-            dbName, 12, true,
+            dbName, 13, true,
             Sound2iNatDb.MIGRATION_1_2,
             Sound2iNatDb.MIGRATION_2_3,
             Sound2iNatDb.MIGRATION_3_4,
@@ -420,6 +441,7 @@ class MigrationTest {
             Sound2iNatDb.MIGRATION_9_10,
             Sound2iNatDb.MIGRATION_10_11,
             Sound2iNatDb.MIGRATION_11_12,
+            Sound2iNatDb.MIGRATION_12_13,
         )
 
         db.query("SELECT COUNT(*) FROM drafts WHERE id='d5'").use { c ->

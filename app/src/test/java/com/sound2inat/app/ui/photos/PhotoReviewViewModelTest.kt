@@ -422,8 +422,11 @@ class PhotoReviewViewModelTest {
     private fun fakeSubmitter(
         block: suspend (String, String) -> PhotoSubmitResult,
     ): PhotoSubmitter = object : PhotoSubmitter(INaturalistClient(OkHttpClient()), repo) {
-        override suspend fun submit(token: String, draftId: String): PhotoSubmitResult =
-            block(token, draftId)
+        override suspend fun submit(
+            token: String,
+            draftId: String,
+            onProgress: (com.sound2inat.inat.SubmissionProgress) -> Unit,
+        ): PhotoSubmitResult = block(token, draftId)
     }
 
     private fun fakeAuth(

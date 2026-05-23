@@ -23,4 +23,15 @@ class Converters {
     fun toInatUploadStatus(value: String): InatUploadStatus =
         runCatching { InatUploadStatus.valueOf(value) }
             .getOrDefault(InatUploadStatus.INCOMPLETE)
+
+    // Unknown stored value → fall back to INCOMPLETE so recovery UI surfaces
+    // the row instead of silently treating it as fully uploaded.
+    @TypeConverter
+    fun fromPhotoUploadStatus(value: PhotoUploadStatus?): String? = value?.name
+
+    @TypeConverter
+    fun toPhotoUploadStatus(value: String?): PhotoUploadStatus? = value?.let {
+        runCatching { PhotoUploadStatus.valueOf(it) }
+            .getOrDefault(PhotoUploadStatus.INCOMPLETE)
+    }
 }

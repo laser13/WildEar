@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PhotoDraftEntity::class,
         PhotoDraftImageEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -238,6 +238,17 @@ abstract class Sound2iNatDb : RoomDatabase() {
                     "ALTER TABLE inat_observations ADD COLUMN uploadStatus TEXT " +
                         "NOT NULL DEFAULT 'COMPLETE'",
                 )
+            }
+        }
+
+        // v13: nullable uploadStatus on photo_drafts so a half-completed photo
+        // upload (createObservation + first photo succeeded but later steps
+        // failed) can be surfaced to the user for recovery. Pre-existing rows
+        // stay NULL — they predate the column and were only ever inserted on
+        // fully-successful submissions.
+        val MIGRATION_12_13: Migration = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE photo_drafts ADD COLUMN uploadStatus TEXT")
             }
         }
     }

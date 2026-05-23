@@ -10,7 +10,6 @@ import com.sound2inat.storage.DraftWithDetections
 import com.sound2inat.storage.InatObservationDao
 import com.sound2inat.storage.InatObservationEntity
 import com.sound2inat.storage.InatUploadStatus
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -103,20 +102,6 @@ class INatSubmitter(
         } finally {
             runCatching { cropDir.deleteRecursively() }
         }
-    }
-
-    /**
-     * Like [runCatching], but rethrows [CancellationException] so structured
-     * concurrency works correctly. We swallow other throwables on purpose —
-     * per-species failures are reported via [failures] and must not abort
-     * the whole submission loop.
-     */
-    private inline fun <R> runCatchingNonCancellation(block: () -> R): kotlin.Result<R> = try {
-        kotlin.Result.success(block())
-    } catch (e: CancellationException) {
-        throw e
-    } catch (t: Throwable) {
-        kotlin.Result.failure(t)
     }
 
     @Suppress("ReturnCount", "LongMethod", "TooGenericExceptionCaught")

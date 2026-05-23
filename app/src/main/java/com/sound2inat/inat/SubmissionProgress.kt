@@ -32,6 +32,12 @@ sealed interface SubmissionProgress {
 
         /** Additional sound clips (best-effort). */
         UploadingExtraAudio,
+
+        /** First photo upload; failure here rolls back the observation. */
+        UploadingPrimaryPhoto,
+
+        /** Additional photo uploads (best-effort). */
+        UploadingExtraPhoto,
         UploadingSpectrogram,
         ApplyingTag,
         ApplyingAnnotations,
