@@ -174,12 +174,11 @@ class ReviewViewModel(
     private val incompleteObservationsFlow: kotlinx.coroutines.flow.Flow<List<IncompleteObsEntry>> =
         kotlinx.coroutines.flow.flowOf(emptyList()),
     /**
-     * Deletes the observation on iNaturalist FIRST; on success deletes the
-     * local row. Must throw on any failure (no token, network, HTTP error)
-     * so the row stays visible in the banner for retry. Default is a no-op
-     * to keep most tests minimal.
+     * Deletes the observation on iNaturalist FIRST, then deletes the local row
+     * on success. Throws on any failure (no token, network, HTTP error) so the
+     * row stays visible in the banner for retry.
      */
-    private val deleteIncompleteOnInat: suspend (rowId: Long, observationId: Long) -> Unit =
+    private val deleteAndForgetIncomplete: suspend (rowId: Long, observationId: Long) -> Unit =
         { _, _ -> },
     /** Returns the iNaturalist default photo medium_url for a scientific name, or null. */
     private val photoFetcher: suspend (String) -> String? = { null },
@@ -340,7 +339,7 @@ class ReviewViewModel(
             }
         }
         scope.launch {
-            incompleteObservationsFlow.collect { rows ->
+            incompleteObservationsFlow.distinctUntilChanged().collect { rows ->
                 _state.update { it.copy(incompleteObservations = rows) }
             }
         }
@@ -888,7 +887,7 @@ class ReviewViewModel(
             )
         }
         scope.launch {
-            val outcome = runCatching { deleteIncompleteOnInat(rowId, observationId) }
+            val outcome = runCatching { deleteAndForgetIncomplete(rowId, observationId) }
             outcome.onFailure { e ->
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.w("ReviewViewModel", "retryIncomplete failed for $observationId", e)
@@ -896,7 +895,7 @@ class ReviewViewModel(
             _state.update {
                 it.copy(
                     retryingIncomplete = it.retryingIncomplete - rowId,
-                    retryIncompleteError = outcome.exceptionOrNull()?.message,
+                    retryIncompleteError = outcome.exceptionOrNull()?.let { it.message ?: "Unknown error" },
                 )
             }
         }
@@ -1534,7 +1533,7 @@ class ReviewViewModelFactory @Inject constructor(
                     )
                 }
             },
-        deleteIncompleteOnInat = { rowId, observationId ->
+        deleteAndForgetIncomplete = { rowId, observationId ->
             // Order matters: delete on iNat FIRST. If it fails we re-throw so the
             // banner re-offers the action — silently dropping the local row would
             // orphan the observation on iNat with no way for the app to recover it.

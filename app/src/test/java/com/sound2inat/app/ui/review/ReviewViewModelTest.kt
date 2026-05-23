@@ -2056,7 +2056,7 @@ class ReviewViewModelTest {
                 repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
-                deleteIncompleteOnInat = { rowId, obsId -> calls += rowId to obsId },
+                deleteAndForgetIncomplete = { rowId, obsId -> calls += rowId to obsId },
                 queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
@@ -2085,7 +2085,7 @@ class ReviewViewModelTest {
                 repo = repo,
                 player = FakeAudioPlayer(),
                 inference = noopInference(),
-                deleteIncompleteOnInat = { _, _ -> throw IllegalStateException("boom") },
+                deleteAndForgetIncomplete = { _, _ -> throw IllegalStateException("boom") },
                 queue = queue,
                 ioDispatcher = UnconfinedTestDispatcher(testScheduler),
                 externalScope = backgroundScope,
@@ -2097,6 +2097,42 @@ class ReviewViewModelTest {
 
             assertThat(vm.state.value.retryingIncomplete).isEmpty()
             assertThat(vm.state.value.retryIncompleteError).isEqualTo("boom")
+        }
+
+    @Test
+    fun `retryIncomplete is idempotent while in flight`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "d_retry_idem"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val repo = repo(draftDao, FakeDetectionDao())
+            val queue = makeQueue(draftRepo = repo)
+            val gate = CompletableDeferred<Unit>()
+            val calls = AtomicInteger(0)
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                deleteAndForgetIncomplete = { _, _ ->
+                    calls.incrementAndGet()
+                    gate.await()
+                },
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            advanceUntilIdle()
+
+            vm.retryIncomplete(rowId = 5L, observationId = 50L)
+            vm.retryIncomplete(rowId = 5L, observationId = 50L)
+
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            assertThat(calls.get()).isEqualTo(1)
+            assertThat(vm.state.value.retryingIncomplete).isEmpty()
         }
 }
 
