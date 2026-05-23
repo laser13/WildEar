@@ -79,7 +79,7 @@ val KnownModels: List<ModelDescriptor> by lazy {
 object PerchV2 {
     val descriptor = ModelDescriptor(
         id = ModelIds.PERCH,
-        displayName = "Perch v2 (Google)",
+        displayName = "Perch v2",
         version = "2",
         modelUrl = "https://huggingface.co/justinchuby/Perch-onnx/resolve/main/perch_v2.tflite",
         labelsUrl = "https://huggingface.co/cgeorgiaw/Perch/resolve/main/assets/labels.csv",

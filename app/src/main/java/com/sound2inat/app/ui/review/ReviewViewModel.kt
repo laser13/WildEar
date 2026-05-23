@@ -1245,7 +1245,7 @@ class ReviewViewModel(
                 val path = _state.value.audioPath
                 val file = if (path != null) File(path) else null
                 require(file != null && file.exists() && file.isFile && file.length() > 0L)
-                audioSaver.saveToDownloads(file, buildDisplayName("recording"))
+                audioSaver.saveToDownloads(file, buildDisplayName("original"))
                 emitEffect(ReviewExportEffect.ShowSnackbar("Audio saved to Downloads"))
             } catch (_: UnsupportedOperationException) {
                 emitEffect(
@@ -1286,7 +1286,7 @@ class ReviewViewModel(
             try {
                 val clip = prepareSpeciesClip(row)
                 val safe = row.taxonScientificName.replace("[^A-Za-z0-9]+".toRegex(), "_")
-                audioSaver.saveToDownloads(clip, buildDisplayName("clip_$safe"))
+                audioSaver.saveToDownloads(clip, buildDisplayName("original_clip_$safe"))
                 emitEffect(ReviewExportEffect.ShowSnackbar("Audio saved to Downloads"))
             } catch (_: UnsupportedOperationException) {
                 emitEffect(
@@ -1347,15 +1347,15 @@ class ReviewViewModel(
         _state.update { it.copy(exportingAction = null) }
     }
 
-    private fun buildDisplayName(prefix: String): String {
+    private fun buildDisplayName(label: String): String {
         val sdf = java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", java.util.Locale.US).apply {
             timeZone = java.util.TimeZone.getTimeZone("UTC")
         }
-        return "${prefix}_${sdf.format(java.util.Date(_state.value.recordedAtUtcMs))}.wav"
+        return "wildear_${label}_${sdf.format(java.util.Date(_state.value.recordedAtUtcMs))}.wav"
     }
 
     private fun buildFullRecordingShareText(snapshot: ReviewUiState): String {
-        val sb = StringBuilder("WildEar recording — ")
+        val sb = StringBuilder("WildEar · Original recording — ")
         sb.append(formatShareDateTime(snapshot.recordedAtUtcMs))
         formatShareCoords(snapshot.latitude, snapshot.longitude)?.let {
             sb.append("\nLocation: ").append(it)
@@ -1369,7 +1369,7 @@ class ReviewViewModel(
     }
 
     private fun buildClipShareText(snapshot: ReviewUiState, row: SpeciesRow): String {
-        val sb = StringBuilder("WildEar — ")
+        val sb = StringBuilder("WildEar · Original clip — ")
         sb.append(formatSpeciesLine(row))
         sb.append("\n").append(formatShareDateTime(snapshot.recordedAtUtcMs))
         formatShareCoords(snapshot.latitude, snapshot.longitude)?.let {

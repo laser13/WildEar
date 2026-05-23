@@ -1393,7 +1393,7 @@ class ReviewViewModelTest {
             vm.onSaveFullRecording()
 
             assertThat(savedFile?.absolutePath).isEqualTo(audioFile.absolutePath)
-            assertThat(savedName).startsWith("recording_")
+            assertThat(savedName).startsWith("wildear_original_")
             assertThat(savedName).endsWith(".wav")
             val effect = vm.state.value.exportEffect
             assertThat(effect).isInstanceOf(ReviewExportEffect.ShowSnackbar::class.java)

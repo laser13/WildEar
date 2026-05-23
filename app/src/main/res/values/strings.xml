@@ -96,10 +96,10 @@
     <string name="inference_queued_position">Queued · position %d · ~%d min</string>
 
     <!-- Audio export / share -->
-    <string name="cd_share_recording">Share recording</string>
-    <string name="cd_save_recording">Save recording to Downloads</string>
-    <string name="btn_share_clip">Share clip</string>
-    <string name="btn_save_clip">Save clip</string>
+    <string name="cd_share_recording">Share original recording</string>
+    <string name="cd_save_recording">Save original recording to Downloads</string>
+    <string name="btn_share_clip">Share original clip</string>
+    <string name="btn_save_clip">Save original clip</string>
 
     <!-- Species details sheet -->
     <string name="sheet_model_scores">Model scores</string>

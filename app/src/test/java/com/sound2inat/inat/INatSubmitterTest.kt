@@ -448,7 +448,7 @@ class INatSubmitterTest {
 
         assertThat(body).contains("Recorded with WildEar.")
         assertThat(body).contains("BirdNET v2.4 detected 3 window(s) between 0–9 s")
-        assertThat(body).contains("Perch v2 (Google) detected 1 window(s) between 3–6 s")
+        assertThat(body).contains("Perch v2 detected 1 window(s) between 3–6 s")
     }
 
     @Test fun `cross-link description contains base description and sibling bullet list`() = runTest {

@@ -1,6 +1,7 @@
 package com.sound2inat.inat
 
 import androidx.room.withTransaction
+import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
 import com.sound2inat.inference.SourceStats
 import com.sound2inat.modelmanager.KnownModels
 import com.sound2inat.storage.DetectionEntity
@@ -295,7 +296,14 @@ class INatSubmitter(
             inatObservations.deleteForDraftAndSpecies(draft.draft.id, det.taxonScientificName)
         }
         val genusId = client.resolveGenus(det.taxonScientificName, token) ?: return null
-        val clips = materialiseClips(srcAudio, det, draft.draft.durationMs, cropDir)
+        val clips = materialiseClips(
+            srcAudio = srcAudio,
+            det = det,
+            draftDurationMs = draft.draft.durationMs,
+            cropDir = cropDir,
+            paletteName = draft.draft.paletteName,
+            contrastDb = draft.draft.spectrogramGainDb ?: 0f,
+        )
         check(clips.isNotEmpty()) {
             "All WAV trims failed for ${det.taxonScientificName} — disk full or audio corrupted?"
         }
@@ -426,6 +434,8 @@ class INatSubmitter(
         det: DetectionEntity,
         draftDurationMs: Long,
         cropDir: File,
+        paletteName: String?,
+        contrastDb: Float,
     ): List<ClipArtifacts> = withContext(ioDispatcher) {
         val ranges = com.sound2inat.inference.FragmentRanges.decode(det.fragmentRanges)
         val clips = ClipPlanner.plan(
@@ -434,6 +444,12 @@ class INatSubmitter(
             lastSeenMs = det.lastSeenMs,
             recordingDurationMs = draftDurationMs,
         )
+        // Mirror the Review UI's palette/contrast fallback so the uploaded PNG
+        // matches what the user saw in the Review screen ([ReviewViewModel]
+        // uses `palette ?: INK` and `gainDb ?: 0f` for the live preview).
+        val palette = paletteName
+            ?.let { runCatching { SpectrogramPalette.valueOf(it) }.getOrNull() }
+            ?: SpectrogramPalette.INK
         clips.mapIndexedNotNull { idx, range ->
             val wavOut = File(cropDir, clipFileName(det, idx, ext = "wav"))
             runCatching { WavTrimmer.trimMono16(srcAudio.absolutePath, wavOut, range.startMs, range.endMs) }
@@ -451,7 +467,15 @@ class INatSubmitter(
                 (peakAbs.startMs - range.startMs)..(peakAbs.endMs - range.startMs)
             }
             val pngOut = File(cropDir, clipFileName(det, idx, ext = "png"))
-            val png = runCatching { renderClipSpectrogramPng(wavOut, pngOut, peakOffsetMs = peakOffsetMs) }
+            val png = runCatching {
+                renderClipSpectrogramPng(
+                    clipWav = wavOut,
+                    destination = pngOut,
+                    peakOffsetMs = peakOffsetMs,
+                    palette = palette,
+                    contrastDb = contrastDb,
+                )
+            }
                 .getOrElse {
                     android.util.Log.w(
                         LOG_TAG,
@@ -470,21 +494,29 @@ class INatSubmitter(
     }
 
     private fun baseDescription(det: DetectionEntity): String {
-        val stats = SourceStats.decode(det.sources)
         val header = "Recorded with WildEar."
+        val species = "Species: ${taxonLabel(det)}."
+        return "$header\n$species\n${detectionLines(det)}"
+    }
+
+    private fun detectionLines(det: DetectionEntity): String {
+        val stats = SourceStats.decode(det.sources)
         return if (stats.isEmpty()) {
-            "$header\nDetected ${det.detectedWindows} window(s)" +
+            "Detected ${det.detectedWindows} window(s)" +
                 " between ${det.firstSeenMs / MS}–${det.lastSeenMs / MS} s," +
                 " max confidence ${"%.0f".format(det.maxConfidence * PCT)}%."
         } else {
-            val lines = stats.entries.sortedBy { it.key }.joinToString("\n") { (src, stat) ->
-                val name = sourceDisplayName(src)
-                "$name detected ${stat.windows} window(s)" +
+            stats.entries.sortedBy { it.key }.joinToString("\n") { (src, stat) ->
+                "${sourceDisplayName(src)} detected ${stat.windows} window(s)" +
                     " between ${stat.firstSeenMs / MS}–${stat.lastSeenMs / MS} s," +
                     " max confidence ${"%.0f".format(stat.maxConf * PCT)}%."
             }
-            "$header\n$lines"
         }
+    }
+
+    private fun taxonLabel(det: DetectionEntity): String {
+        val common = det.taxonCommonName?.takeIf { it.isNotBlank() }
+        return if (common != null) "${det.taxonScientificName} ($common)" else det.taxonScientificName
     }
 
     private fun sourceDisplayName(id: String): String =
@@ -492,13 +524,15 @@ class INatSubmitter(
 
     private fun identificationComment(det: DetectionEntity): String {
         val stats = SourceStats.decodeConfidenceOnly(det.sources)
-        return if (stats.isEmpty()) {
-            "Detected ${det.taxonScientificName} (${"%.0f".format(det.maxConfidence * PCT)}% confidence)"
+        val taxon = taxonLabel(det)
+        val lines = if (stats.isEmpty()) {
+            "${"%.0f".format(det.maxConfidence * PCT)}% confidence"
         } else {
-            stats.entries.sortedBy { it.key }.joinToString("; ") { (src, conf) ->
-                "${sourceDisplayName(src)}: ${det.taxonScientificName} (${"%.0f".format(conf * PCT)}%)"
+            stats.entries.sortedBy { it.key }.joinToString("\n") { (src, conf) ->
+                "${sourceDisplayName(src)}: ${"%.0f".format(conf * PCT)}%"
             }
         }
+        return "$taxon\n$lines"
     }
 
     private suspend fun crossLink(
