@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -119,75 +121,83 @@ fun PhotoReviewScreen(
         onRefresh = { vm.syncObservationDetails(force = true) },
         modifier = Modifier.fillMaxSize(),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            state.incompleteObservation?.let { incomplete ->
-                PhotoIncompleteObservationBanner(
-                    row = incomplete,
-                    retrying = state.retryingIncomplete,
-                    lastError = state.retryIncompleteError,
-                    onView = { uriHandler.openUri(it) },
-                    onRecreate = { vm.retryIncomplete() },
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                    .padding(bottom = 112.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                state.incompleteObservation?.let { incomplete ->
+                    PhotoIncompleteObservationBanner(
+                        row = incomplete,
+                        retrying = state.retryingIncomplete,
+                        lastError = state.retryIncompleteError,
+                        onView = { uriHandler.openUri(it) },
+                        onRecreate = { vm.retryIncomplete() },
+                    )
+                }
+
+                PhotoHeroSection(
+                    images = state.images,
+                    heroImage = heroImage,
+                    onSelectHero = { heroImageId = it.id },
+                    onOpenHero = { image -> selectedImage = image },
+                    onDeleteImage = { imageId -> scope.launch { vm.deleteImage(imageId) } },
+                    onAddMorePhotos = { onAddMorePhotos(state.draftId) },
                 )
-            }
 
-            PhotoHeroSection(
-                images = state.images,
-                heroImage = heroImage,
-                onSelectHero = { heroImageId = it.id },
-                onOpenHero = { image -> selectedImage = image },
-                onDeleteImage = { imageId -> scope.launch { vm.deleteImage(imageId) } },
-                onAddMorePhotos = { onAddMorePhotos(state.draftId) },
-            )
+                IdentificationStatusCard(state = state)
 
-            IdentificationStatusCard(state = state)
-
-            PhotoObservationSyncCard(
-                state = state,
-                onRefresh = { vm.syncObservationDetails(force = true) },
-            )
-
-            val showVisionCard = state.isUploaded || state.vision.isLoading ||
-                state.vision.error != null || state.vision.ladder != null || state.vision.message != null
-            if (showVisionCard) {
-                PhotoVisionSuggestionsCard(
+                PhotoObservationSyncCard(
                     state = state,
-                    onApplySuggestion = { suggestion, label -> vm.applyVisionSuggestion(suggestion, label) },
-                    onRetry = { vm.loadVisionSuggestions() },
+                    onRefresh = { vm.syncObservationDetails(force = true) },
                 )
+
+                val showVisionCard = state.isUploaded || state.vision.isLoading ||
+                    state.vision.error != null || state.vision.ladder != null || state.vision.message != null
+                if (showVisionCard) {
+                    PhotoVisionSuggestionsCard(
+                        state = state,
+                        onApplySuggestion = { suggestion, label -> vm.applyVisionSuggestion(suggestion, label) },
+                        onRetry = { vm.loadVisionSuggestions() },
+                    )
+                }
+
+                PhotoObservationFooter(
+                    state = state,
+                    onOpenObservation = { uriHandler.openUri(it) },
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    PhotoActionTile(
+                        icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                        label = "Back",
+                        onClick = onBack,
+                    )
+                    PhotoActionTile(
+                        icon = Icons.Outlined.Delete,
+                        label = "Delete album",
+                        onClick = {
+                            scope.launch {
+                                vm.deleteAlbum()
+                                onBack()
+                            }
+                        },
+                    )
+                }
             }
 
-            PhotoObservationFooter(
+            PhotoSubmitBottomBar(
                 state = state,
                 onUpload = { vm.submit() },
-                onOpenObservation = { uriHandler.openUri(it) },
+                modifier = Modifier.align(Alignment.BottomCenter),
             )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                PhotoActionTile(
-                    icon = Icons.AutoMirrored.Outlined.ArrowBack,
-                    label = "Back",
-                    onClick = onBack,
-                )
-                PhotoActionTile(
-                    icon = Icons.Outlined.Delete,
-                    label = "Delete album",
-                    onClick = {
-                        scope.launch {
-                            vm.deleteAlbum()
-                            onBack()
-                        }
-                    },
-                )
-            }
         }
     }
 
@@ -333,7 +343,6 @@ private fun PhotoHeroSection(
 @Composable
 private fun PhotoObservationFooter(
     state: PhotoReviewUiState,
-    onUpload: () -> Unit,
     onOpenObservation: (String) -> Unit,
 ) {
     val observationUrl = state.observationUrl
@@ -346,9 +355,6 @@ private fun PhotoObservationFooter(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            if (state.isSubmitting) {
-                PhotoSubmissionProgressChecklist(progress = state.submissionProgress)
-            }
             Text(
                 text = "Observed ${state.observedAtUtcMs?.let(::formatUtc) ?: "Unknown"}",
                 style = MaterialTheme.typography.bodySmall,
@@ -370,9 +376,6 @@ private fun PhotoObservationFooter(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
-                    TextButton(onClick = onUpload, enabled = !state.isSubmitting) {
-                        Text("Upload to iNaturalist")
-                    }
                 }
                 state.isUploaded -> {
                     state.inatObservationId?.let { id ->
@@ -395,10 +398,50 @@ private fun PhotoObservationFooter(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    TextButton(onClick = onUpload, enabled = !state.isSubmitting) {
-                        Text(if (state.isSubmitting) "Uploading…" else "Upload to iNaturalist")
-                    }
                 }
+            }
+        }
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun PhotoSubmitBottomBar(
+    state: PhotoReviewUiState,
+    onUpload: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val canUpload = state.images.isNotEmpty() &&
+        !state.isSubmitting &&
+        !state.isUploaded &&
+        state.incompleteObservation == null
+    val label = when {
+        state.isSubmitting -> "Uploading…"
+        state.isUploaded -> "Already uploaded"
+        state.incompleteObservation != null -> "Recreate incomplete first"
+        state.images.isEmpty() -> "Add photos to upload"
+        else -> "Upload to iNaturalist"
+    }
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shadowElevation = 4.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (state.isSubmitting) {
+                PhotoSubmissionProgressChecklist(progress = state.submissionProgress)
+            }
+            Button(
+                onClick = onUpload,
+                enabled = canUpload,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(label)
             }
         }
     }
