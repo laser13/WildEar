@@ -362,7 +362,34 @@ class MigrationTest {
     }
 
     @Test
-    fun `migrate all versions 1 through 11 preserves seed data`() {
+    fun migrate11To12_addsUploadStatusColumnDefaultingToComplete() {
+        val dbName = "migration-test-11-to-12"
+        helper.createDatabase(dbName, 11).use { db ->
+            db.execSQL(
+                "INSERT INTO drafts(id, audioPath, recordedAtUtcMs, durationMs, status, " +
+                    "createdAtUtcMs, updatedAtUtcMs) VALUES " +
+                    "('d1', '/tmp/a.wav', 0, 0, 'REVIEWED', 0, 0)",
+            )
+            db.execSQL(
+                "INSERT INTO inat_observations(draftId, taxonScientificName, taxonInatId, " +
+                    "observationId, observationUrl, createdAtUtcMs) VALUES " +
+                    "('d1', 'Parus major', 1, 42, 'https://inat/42', 0)",
+            )
+        }
+        val migrated = helper.runMigrationsAndValidate(
+            dbName,
+            12,
+            true,
+            Sound2iNatDb.MIGRATION_11_12,
+        )
+        migrated.query("SELECT uploadStatus FROM inat_observations WHERE observationId = 42").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getString(0)).isEqualTo("COMPLETE")
+        }
+    }
+
+    @Test
+    fun `migrate all versions 1 through 12 preserves seed data`() {
         helper.createDatabase(dbName, 1).use { db ->
             db.execSQL(
                 """INSERT INTO drafts (id, audioPath, recordedAtUtcMs, durationMs,
@@ -381,7 +408,7 @@ class MigrationTest {
         }
 
         val db = helper.runMigrationsAndValidate(
-            dbName, 11, true,
+            dbName, 12, true,
             Sound2iNatDb.MIGRATION_1_2,
             Sound2iNatDb.MIGRATION_2_3,
             Sound2iNatDb.MIGRATION_3_4,
@@ -392,6 +419,7 @@ class MigrationTest {
             Sound2iNatDb.MIGRATION_8_9,
             Sound2iNatDb.MIGRATION_9_10,
             Sound2iNatDb.MIGRATION_10_11,
+            Sound2iNatDb.MIGRATION_11_12,
         )
 
         db.query("SELECT COUNT(*) FROM drafts WHERE id='d5'").use { c ->

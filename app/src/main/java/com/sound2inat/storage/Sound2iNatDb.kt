@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PhotoDraftEntity::class,
         PhotoDraftImageEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -224,6 +224,20 @@ abstract class Sound2iNatDb : RoomDatabase() {
                 db.execSQL("ALTER TABLE drafts ADD COLUMN paletteName TEXT")
                 db.execSQL("ALTER TABLE drafts ADD COLUMN spectrogramGainDb REAL")
                 db.execSQL("ALTER TABLE drafts ADD COLUMN sceneTagsJson TEXT")
+            }
+        }
+
+        // v12: per-row upload status on `inat_observations` so rows persisted
+        // mid-submission (after createObservation + first sound upload but before
+        // per-species follow-ups) are distinguishable from fully-uploaded rows.
+        // Default to COMPLETE for pre-existing data — under v11 a row only landed
+        // after the entire submission succeeded.
+        val MIGRATION_11_12: Migration = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE inat_observations ADD COLUMN uploadStatus TEXT " +
+                        "NOT NULL DEFAULT 'COMPLETE'",
+                )
             }
         }
     }

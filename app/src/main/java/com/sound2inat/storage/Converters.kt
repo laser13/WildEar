@@ -14,4 +14,12 @@ class Converters {
 
     @TypeConverter
     fun toPhotoStatus(v: String): PhotoDraftStatus = PhotoDraftStatus.valueOf(v)
+
+    @TypeConverter
+    fun fromInatUploadStatus(value: InatUploadStatus): String = value.name
+
+    @TypeConverter
+    fun toInatUploadStatus(value: String): InatUploadStatus =
+        runCatching { InatUploadStatus.valueOf(value) }
+            .getOrDefault(InatUploadStatus.COMPLETE)
 }

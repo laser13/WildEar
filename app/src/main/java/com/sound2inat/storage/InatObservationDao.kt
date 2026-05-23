@@ -51,6 +51,21 @@ interface InatObservationDao {
      */
     @Query("SELECT draftId AS draftId, COUNT(*) AS count FROM inat_observations GROUP BY draftId")
     fun observeCountsByDraft(): Flow<List<DraftObservationCount>>
+
+    @Query(
+        "UPDATE inat_observations SET uploadStatus = 'COMPLETE' " +
+            "WHERE id = :rowId",
+    )
+    fun markComplete(rowId: Long): Int
+
+    @Query(
+        "SELECT * FROM inat_observations WHERE draftId = :draftId " +
+            "AND uploadStatus = 'INCOMPLETE' ORDER BY id ASC",
+    )
+    fun observeIncompleteForDraft(draftId: String): Flow<List<InatObservationEntity>>
+
+    @Query("DELETE FROM inat_observations WHERE id = :rowId")
+    fun deleteById(rowId: Long): Int
 }
 
 data class DraftObservationCount(val draftId: String, val count: Int)

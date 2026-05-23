@@ -6,6 +6,7 @@ import com.sound2inat.storage.DraftObservationCount
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.InatObservationDao
 import com.sound2inat.storage.InatObservationEntity
+import com.sound2inat.storage.InatUploadStatus
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
@@ -86,6 +87,22 @@ internal class InMemoryInatObservationDao : InatObservationDao {
     override fun deleteForDraftAndSpecies(draftId: String, species: String): Int {
         val before = rows.size
         rows.removeAll { it.draftId == draftId && it.taxonScientificName == species }
+        return before - rows.size
+    }
+
+    override fun markComplete(rowId: Long): Int {
+        val i = rows.indexOfFirst { it.id == rowId }
+        if (i < 0) return 0
+        rows[i] = rows[i].copy(uploadStatus = InatUploadStatus.COMPLETE)
+        return 1
+    }
+
+    override fun observeIncompleteForDraft(draftId: String): Flow<List<InatObservationEntity>> =
+        flowOf(rows.filter { it.draftId == draftId && it.uploadStatus == InatUploadStatus.INCOMPLETE })
+
+    override fun deleteById(rowId: Long): Int {
+        val before = rows.size
+        rows.removeAll { it.id == rowId }
         return before - rows.size
     }
 
