@@ -10,11 +10,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,12 +24,18 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Crop
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
+import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
@@ -58,6 +66,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -66,6 +75,8 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.sound2inat.app.R
+import com.sound2inat.inat.SubmissionProgress
 import kotlinx.coroutines.launch
 import java.io.File
 import java.time.Instant
@@ -115,6 +126,16 @@ fun PhotoReviewScreen(
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            state.incompleteObservation?.let { incomplete ->
+                PhotoIncompleteObservationBanner(
+                    row = incomplete,
+                    retrying = state.retryingIncomplete,
+                    lastError = state.retryIncompleteError,
+                    onView = { uriHandler.openUri(it) },
+                    onRecreate = { vm.retryIncomplete() },
+                )
+            }
+
             PhotoHeroSection(
                 images = state.images,
                 heroImage = heroImage,
@@ -325,6 +346,9 @@ private fun PhotoObservationFooter(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            if (state.isSubmitting) {
+                PhotoSubmissionProgressChecklist(progress = state.submissionProgress)
+            }
             Text(
                 text = "Observed ${state.observedAtUtcMs?.let(::formatUtc) ?: "Unknown"}",
                 style = MaterialTheme.typography.bodySmall,
@@ -346,7 +370,7 @@ private fun PhotoObservationFooter(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
-                    TextButton(onClick = onUpload) {
+                    TextButton(onClick = onUpload, enabled = !state.isSubmitting) {
                         Text("Upload to iNaturalist")
                     }
                 }
@@ -371,12 +395,194 @@ private fun PhotoObservationFooter(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    TextButton(onClick = onUpload) {
-                        Text("Upload to iNaturalist")
+                    TextButton(onClick = onUpload, enabled = !state.isSubmitting) {
+                        Text(if (state.isSubmitting) "Uploading…" else "Upload to iNaturalist")
                     }
                 }
             }
         }
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun PhotoSubmissionProgressChecklist(progress: SubmissionProgress?) {
+    val step = (progress as? SubmissionProgress.Species)?.step
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            stringResource(R.string.photo_submit_progress_title),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        PhotoProgressRow(
+            label = stringResource(R.string.photo_submit_step_creating),
+            step = step,
+            rowStep = SubmissionProgress.Step.CreatingObservation,
+        )
+        PhotoProgressRow(
+            label = stringResource(R.string.photo_submit_step_photo_primary),
+            step = step,
+            rowStep = SubmissionProgress.Step.UploadingPrimaryPhoto,
+        )
+        PhotoProgressRow(
+            label = stringResource(R.string.photo_submit_step_photo_extra),
+            step = step,
+            rowStep = SubmissionProgress.Step.UploadingExtraPhoto,
+        )
+        PhotoProgressRow(
+            label = stringResource(R.string.photo_submit_step_tag),
+            step = step,
+            rowStep = SubmissionProgress.Step.ApplyingTag,
+        )
+        PhotoProgressRow(
+            label = stringResource(R.string.photo_submit_step_persisting),
+            step = step,
+            rowStep = SubmissionProgress.Step.Persisting,
+        )
+    }
+}
+
+private enum class PhotoProgressRowState { Pending, InProgress, Done, Failed }
+
+@Suppress("FunctionNaming")
+@Composable
+private fun PhotoProgressRow(
+    label: String,
+    step: SubmissionProgress.Step?,
+    rowStep: SubmissionProgress.Step,
+) {
+    val orderedSteps = photoProgressSteps()
+    val rowIndex = orderedSteps.indexOf(rowStep)
+    val currentIndex = orderedSteps.indexOf(step)
+    val state = when {
+        step == SubmissionProgress.Step.DoneOk -> PhotoProgressRowState.Done
+        step == SubmissionProgress.Step.DoneFailed && rowIndex == currentIndex + 1 -> PhotoProgressRowState.Failed
+        step == rowStep -> PhotoProgressRowState.InProgress
+        currentIndex >= 0 && rowIndex < currentIndex -> PhotoProgressRowState.Done
+        else -> PhotoProgressRowState.Pending
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        when (state) {
+            PhotoProgressRowState.InProgress -> CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            else -> {
+                val icon = when (state) {
+                    PhotoProgressRowState.Pending -> Icons.Outlined.RadioButtonUnchecked
+                    PhotoProgressRowState.Done -> Icons.Outlined.CheckCircle
+                    PhotoProgressRowState.Failed -> Icons.Outlined.ErrorOutline
+                    PhotoProgressRowState.InProgress -> error("unreachable")
+                }
+                val tint = when (state) {
+                    PhotoProgressRowState.Pending -> MaterialTheme.colorScheme.outline
+                    PhotoProgressRowState.Done -> MaterialTheme.colorScheme.primary
+                    PhotoProgressRowState.Failed -> MaterialTheme.colorScheme.error
+                    PhotoProgressRowState.InProgress -> error("unreachable")
+                }
+                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(label, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+private fun photoProgressSteps(): List<SubmissionProgress.Step> = listOf(
+    SubmissionProgress.Step.CreatingObservation,
+    SubmissionProgress.Step.UploadingPrimaryPhoto,
+    SubmissionProgress.Step.UploadingExtraPhoto,
+    SubmissionProgress.Step.ApplyingTag,
+    SubmissionProgress.Step.Persisting,
+)
+
+@Suppress("FunctionNaming", "LongMethod")
+@Composable
+private fun PhotoIncompleteObservationBanner(
+    row: IncompletePhotoObservationUi,
+    retrying: Boolean,
+    lastError: String?,
+    onView: (String) -> Unit,
+    onRecreate: () -> Unit,
+) {
+    var confirmOpen by remember { mutableStateOf(false) }
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.WarningAmber,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    stringResource(R.string.photo_incomplete_banner_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+            Text(
+                stringResource(R.string.photo_incomplete_banner_subtitle),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (lastError != null) {
+                Text(
+                    lastError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    row.scientificName,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { onView(row.url) }) {
+                    Text(stringResource(R.string.btn_view))
+                }
+                TextButton(
+                    onClick = { confirmOpen = true },
+                    enabled = !retrying,
+                ) {
+                    Text(
+                        if (retrying) {
+                            stringResource(R.string.incomplete_obs_recreating)
+                        } else {
+                            stringResource(R.string.incomplete_obs_action_recreate)
+                        },
+                    )
+                }
+            }
+        }
+    }
+    if (confirmOpen) {
+        AlertDialog(
+            onDismissRequest = { confirmOpen = false },
+            title = { Text(stringResource(R.string.dialog_recreate_title)) },
+            text = { Text(stringResource(R.string.dialog_recreate_body, row.scientificName)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmOpen = false
+                    onRecreate()
+                }) { Text(stringResource(R.string.btn_recreate)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmOpen = false }) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
+            },
+        )
     }
 }
 

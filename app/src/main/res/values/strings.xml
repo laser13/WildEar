@@ -239,4 +239,16 @@
     <!-- %1$s = scientific name -->
     <string name="dialog_recreate_body">This will delete the observation for %1$s on iNaturalist. Tap Submit again to recreate it.</string>
     <string name="btn_recreate">Recreate</string>
+
+    <!-- Photo iNat submission progress -->
+    <string name="photo_submit_progress_title">Publishing photo observation</string>
+    <string name="photo_submit_step_creating">Creating observation…</string>
+    <string name="photo_submit_step_photo_primary">Uploading first photo…</string>
+    <string name="photo_submit_step_photo_extra">Uploading extra photos…</string>
+    <string name="photo_submit_step_tag">Applying tags…</string>
+    <string name="photo_submit_step_persisting">Saving…</string>
+
+    <!-- Incomplete photo observation banner -->
+    <string name="photo_incomplete_banner_title">Incomplete photo observation on iNaturalist</string>
+    <string name="photo_incomplete_banner_subtitle">The upload was interrupted. The observation exists on iNaturalist but may be missing photos or tags. Recreate it to fix.</string>
 </resources>
