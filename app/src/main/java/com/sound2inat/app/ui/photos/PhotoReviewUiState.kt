@@ -3,6 +3,7 @@ package com.sound2inat.app.ui.photos
 import com.sound2inat.inat.ObservationComment
 import com.sound2inat.inat.PhotoVisionLadder
 import com.sound2inat.inat.PhotoVisionSuggestion
+import com.sound2inat.inat.SubmissionProgress
 import com.sound2inat.storage.PhotoDraftImageEntity
 
 /**
@@ -50,6 +51,16 @@ data class PhotoReviewUiState(
     val syncError: String? = null,
     val observationDetail: PhotoObservationDetailUiState? = null,
     val vision: PhotoVisionPanelUiState = PhotoVisionPanelUiState(),
+    val submissionProgress: SubmissionProgress? = null,
+    val incompleteObservation: IncompletePhotoObservationUi? = null,
+    val retryingIncomplete: Boolean = false,
+    val retryIncompleteError: String? = null,
+)
+
+data class IncompletePhotoObservationUi(
+    val observationId: Long,
+    val scientificName: String,
+    val url: String,
 )
 
 data class PhotoObservationDetailUiState(
@@ -76,7 +87,8 @@ data class PhotoCropRequest(
 )
 
 val PhotoReviewUiState.isUploaded: Boolean
-    get() = inatObservationId != null || inatObservationUrl != null || uploadedUrl != null
+    get() = incompleteObservation == null &&
+        (inatObservationId != null || inatObservationUrl != null || uploadedUrl != null)
 
 val PhotoReviewUiState.observationUrl: String?
     get() = inatObservationUrl ?: uploadedUrl

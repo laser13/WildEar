@@ -13,9 +13,11 @@ import com.sound2inat.inat.PhotoVisionPlanner
 import com.sound2inat.inat.PhotoVisionSuggestion
 import com.sound2inat.inat.PhotoVisionTarget
 import com.sound2inat.inat.PhotoVisionUseCase
+import com.sound2inat.storage.PhotoDraftEntity
 import com.sound2inat.storage.PhotoDraftRepository
 import com.sound2inat.storage.PhotoObservationFileStore
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -122,6 +124,18 @@ class PhotoReviewViewModel(
                                 syncError = current.syncError,
                             )
                         }
+                    }
+                }
+        }
+        scope.launch {
+            repo.observeIncomplete(draftId)
+                .catch { e -> _state.update { it.copy(retryIncompleteError = e.message) } }
+                .collect { draft ->
+                    _state.update { current ->
+                        current.copy(
+                            incompleteObservation = draft?.toIncompleteUi(),
+                            retryIncompleteError = if (draft == null) null else current.retryIncompleteError,
+                        )
                     }
                 }
         }
@@ -364,21 +378,61 @@ class PhotoReviewViewModel(
 
     fun submit() {
         if (_state.value.isSubmitting) return
-        _state.update { it.copy(isSubmitting = true, submitError = null) }
+        _state.update { it.copy(isSubmitting = true, submitError = null, submissionProgress = null) }
         scope.launch {
             val token = auth.getValidToken().orEmpty()
-            when (val result = submitter.submit(token, draftId)) {
+            when (
+                val result = submitter.submit(token, draftId) { progress ->
+                    _state.update { it.copy(submissionProgress = progress) }
+                }
+            ) {
                 is PhotoSubmitResult.Ok -> {
                     _state.update {
                         it.copy(
                             isSubmitting = false,
                             uploadedUrl = result.observationUrl,
                             submitError = result.warnings.joinToString(" | ").takeIf { text -> text.isNotBlank() },
+                            submissionProgress = null,
                         )
                     }
                 }
                 is PhotoSubmitResult.Failure -> {
-                    _state.update { it.copy(isSubmitting = false, submitError = result.message) }
+                    _state.update {
+                        it.copy(
+                            isSubmitting = false,
+                            submitError = result.message,
+                            submissionProgress = null,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun retryIncomplete() {
+        val target = _state.value.incompleteObservation ?: return
+        if (_state.value.retryingIncomplete) return
+        _state.update { it.copy(retryingIncomplete = true, retryIncompleteError = null) }
+        scope.launch {
+            try {
+                val token = auth.getValidToken().orEmpty()
+                if (token.isBlank()) error("No iNaturalist token in Settings")
+                client.deleteObservation(token, target.observationId)
+                repo.clearIncompleteUpload(draftId)
+                _state.update {
+                    it.copy(
+                        retryingIncomplete = false,
+                        retryIncompleteError = null,
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        retryingIncomplete = false,
+                        retryIncompleteError = e.message ?: "Could not recreate observation",
+                    )
                 }
             }
         }
@@ -410,4 +464,14 @@ class PhotoReviewViewModel(
             taxonScientificName = taxonName,
             taxonCommonName = taxonCommonName,
         )
+
+    private fun PhotoDraftEntity.toIncompleteUi(): IncompletePhotoObservationUi? {
+        val id = inatObservationId ?: return null
+        val url = inatObservationUrl ?: return null
+        return IncompletePhotoObservationUi(
+            observationId = id,
+            scientificName = taxonScientificName ?: "Photo observation",
+            url = url,
+        )
+    }
 }

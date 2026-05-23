@@ -17,12 +17,14 @@ import com.sound2inat.inat.PhotoVisionLadder
 import com.sound2inat.inat.PhotoVisionSuggestion
 import com.sound2inat.inat.PhotoVisionTarget
 import com.sound2inat.inat.PhotoVisionUseCase
+import com.sound2inat.inat.SubmissionProgress
 import com.sound2inat.storage.PhotoDraftRepository
 import com.sound2inat.storage.PhotoObservationFileStore
 import com.sound2inat.storage.Sound2iNatDb
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -206,6 +208,106 @@ class PhotoReviewViewModelTest {
         vm.submit()
 
         assertThat(submittedToken).isEqualTo("fresh-jwt")
+    }
+
+    @Test
+    fun `submit threads photo submission progress and clears it when done`() = runTest {
+        val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
+        val releaseUpload = CompletableDeferred<Unit>()
+        val submitter = object : PhotoSubmitter(client, repo, UnconfinedTestDispatcher()) {
+            override suspend fun submit(
+                token: String,
+                draftId: String,
+                onProgress: (SubmissionProgress) -> Unit,
+            ): PhotoSubmitResult {
+                onProgress(
+                    SubmissionProgress.Species(
+                        speciesIndex = 1,
+                        totalSpecies = 1,
+                        taxonScientificName = "Photo observation",
+                        step = SubmissionProgress.Step.UploadingPrimaryPhoto,
+                    ),
+                )
+                releaseUpload.await()
+                return PhotoSubmitResult.Ok("https://inat.test/observations/1")
+            }
+        }
+        val vm = viewModel(draftId, submitter = submitter)
+
+        vm.submit()
+
+        assertThat(vm.state.value.submissionProgress)
+            .isInstanceOf(SubmissionProgress.Species::class.java)
+        assertThat((vm.state.value.submissionProgress as SubmissionProgress.Species).step)
+            .isEqualTo(SubmissionProgress.Step.UploadingPrimaryPhoto)
+
+        releaseUpload.complete(Unit)
+
+        assertThat(vm.state.value.submissionProgress).isNull()
+    }
+
+    @Test
+    fun `loads incomplete photo upload into review state`() = runTest {
+        val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
+        repo.markIncompleteUpload(
+            draftId = draftId,
+            observationId = 42L,
+            observationUuid = "uuid-42",
+            observationUrl = "https://www.inaturalist.org/observations/42",
+        )
+
+        val vm = viewModel(draftId)
+
+        assertThat(vm.state.value.incompleteObservation?.observationId).isEqualTo(42L)
+        assertThat(vm.state.value.incompleteObservation?.url)
+            .isEqualTo("https://www.inaturalist.org/observations/42")
+    }
+
+    @Test
+    fun `retryIncomplete deletes remote observation then clears local incomplete upload`() = runTest {
+        val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
+        repo.markIncompleteUpload(
+            draftId = draftId,
+            observationId = 42L,
+            observationUuid = "uuid-42",
+            observationUrl = "https://www.inaturalist.org/observations/42",
+        )
+        server.enqueue(observationDetailResponse())
+        server.enqueue(MockResponse().setResponseCode(204))
+        val vm = viewModel(
+            draftId = draftId,
+            auth = fakeAuth(token = null, validToken = "fresh-token"),
+        )
+
+        vm.retryIncomplete()
+
+        val request = generateSequence { server.takeRequest(1, TimeUnit.SECONDS) }
+            .firstOrNull { it.method == "DELETE" }
+        assertThat(request?.method).isEqualTo("DELETE")
+        assertThat(request?.path).isEqualTo("/v1/observations/42")
+        assertThat(repo.observeIncomplete(draftId).first()).isNull()
+        assertThat(vm.state.value.retryIncompleteError).isNull()
+    }
+
+    @Test
+    fun `retryIncomplete without token preserves row and surfaces error`() = runTest {
+        val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
+        repo.markIncompleteUpload(
+            draftId = draftId,
+            observationId = 42L,
+            observationUuid = "uuid-42",
+            observationUrl = "https://www.inaturalist.org/observations/42",
+        )
+        server.enqueue(observationDetailResponse())
+        val vm = viewModel(
+            draftId = draftId,
+            auth = fakeAuth(token = null, validToken = null),
+        )
+
+        vm.retryIncomplete()
+
+        assertThat(repo.observeIncomplete(draftId).first()).isNotNull()
+        assertThat(vm.state.value.retryIncompleteError).contains("No iNaturalist token")
     }
 
     @Test
@@ -451,4 +553,20 @@ class PhotoReviewViewModelTest {
         override suspend fun getValidToken(refreshDispatcher: kotlinx.coroutines.CoroutineDispatcher): String? =
             validToken
     }
+
+    private fun observationDetailResponse(): MockResponse =
+        MockResponse().setBody(
+            """{
+              "results": [
+                {
+                  "quality_grade": "needs_id",
+                  "comments_count": 0,
+                  "identifications": [],
+                  "comments": [],
+                  "taxon": null
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
 }
