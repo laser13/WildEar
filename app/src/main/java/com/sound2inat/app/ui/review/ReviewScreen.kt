@@ -707,13 +707,8 @@ private fun SubmitBottomBar(state: ReviewUiState, vm: ReviewViewModel) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (inProgress) {
-                val pendingSnapshot = remember(inProgress) {
-                    state.species
-                        .filter { it.isSelected && it.taxonScientificName !in existingNames }
-                        .map { it.taxonScientificName }
-                }
                 SubmissionProgressChecklist(
-                    pendingSpecies = pendingSnapshot,
+                    pendingSpecies = state.pendingSubmissionSpecies.orEmpty(),
                     progress = state.submissionProgress,
                 )
             }

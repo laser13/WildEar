@@ -2041,6 +2041,94 @@ class ReviewViewModelTest {
                 .isInstanceOf(InatSubmissionState.Done::class.java)
         }
 
+    /**
+     * Regression: the per-species progress checklist must reflect the
+     * selection captured at the moment submission started, not a later
+     * mutation of [SpeciesRow.isSelected]. We freeze [ReviewUiState.pendingSubmissionSpecies]
+     * inside the VM and clear it on terminal success/failure.
+     */
+    @Test
+    fun `submitToINaturalist freezes pendingSubmissionSpecies at start and clears at end`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val draftId = "d_pending_snapshot"
+            val draftDao = FakeDraftDao().apply {
+                insert(draftFor(draftId, status = DraftStatus.PENDING_REVIEW))
+            }
+            val detectionDao = FakeDetectionDao().apply {
+                insertAll(
+                    listOf(
+                        DetectionEntity(
+                            id = 1L,
+                            draftId = draftId,
+                            taxonScientificName = "Parus major",
+                            taxonCommonName = null,
+                            maxConfidence = 0.9f,
+                            detectedWindows = 3,
+                            firstSeenMs = 0L,
+                            lastSeenMs = 3_000L,
+                            isSelectedByUser = true,
+                        ),
+                        DetectionEntity(
+                            id = 2L,
+                            draftId = draftId,
+                            taxonScientificName = "Turdus merula",
+                            taxonCommonName = null,
+                            maxConfidence = 0.7f,
+                            detectedWindows = 2,
+                            firstSeenMs = 1_000L,
+                            lastSeenMs = 2_000L,
+                            isSelectedByUser = true,
+                        ),
+                    ),
+                )
+            }
+            val repo = repo(draftDao, detectionDao)
+            val queue = makeQueue(draftRepo = repo)
+            val gate = CompletableDeferred<Unit>()
+            val submission = InatSubmissionJob { _, _, _, _, _, _ ->
+                gate.await()
+                InatSubmissionOutcome.Success(
+                    listOf("https://www.inaturalist.org/observations/1")
+                )
+            }
+            val vm = ReviewViewModel(
+                draftId = draftId,
+                repo = repo,
+                player = FakeAudioPlayer(),
+                inference = noopInference(),
+                submission = submission,
+                tokenProvider = { "jwt" },
+                queue = queue,
+                ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+                externalScope = backgroundScope,
+            )
+            advanceUntilIdle()
+
+            vm.submitToINaturalist()
+            advanceUntilIdle()
+
+            // Mid-flight: snapshot reflects the two species selected at the
+            // moment submitToINaturalist() ran. Toggling selection now must
+            // not corrupt the displayed checklist.
+            assertThat(vm.state.value.inatSubmission)
+                .isEqualTo(InatSubmissionState.InProgress)
+            assertThat(vm.state.value.pendingSubmissionSpecies)
+                .containsExactly("Parus major", "Turdus merula").inOrder()
+
+            vm.toggle(detectionId = 2L, selected = false)
+            advanceUntilIdle()
+            assertThat(vm.state.value.pendingSubmissionSpecies)
+                .containsExactly("Parus major", "Turdus merula").inOrder()
+
+            // Let the submission complete.
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            assertThat(vm.state.value.inatSubmission)
+                .isInstanceOf(InatSubmissionState.Done::class.java)
+            assertThat(vm.state.value.pendingSubmissionSpecies).isNull()
+        }
+
     @Test
     fun `retryIncomplete invokes deleter then clears retry flag`() =
         runTest(UnconfinedTestDispatcher()) {

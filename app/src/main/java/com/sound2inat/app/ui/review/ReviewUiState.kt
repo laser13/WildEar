@@ -66,6 +66,15 @@ data class ReviewUiState(
     val inatObservations: List<InatObsEntry> = emptyList(),
     val inatSubmission: InatSubmissionState = InatSubmissionState.Idle,
     val submissionProgress: com.sound2inat.inat.SubmissionProgress? = null,
+    /**
+     * Scientific names of the species this submission is uploading, captured
+     * at the moment [ReviewViewModel.submitToINaturalist] starts. The Review
+     * screen renders the per-species progress checklist from this list rather
+     * than from [species], so concurrent edits to the selection during upload
+     * cannot corrupt the displayed row order. Null when no submission is in
+     * flight.
+     */
+    val pendingSubmissionSpecies: List<String>? = null,
     val incompleteObservations: List<IncompleteObsEntry> = emptyList(),
     /** Observation row ids currently being deleted by [ReviewViewModel.retryIncomplete]. */
     val retryingIncomplete: Set<Long> = emptySet(),

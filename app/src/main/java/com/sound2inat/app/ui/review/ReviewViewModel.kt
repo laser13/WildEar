@@ -785,10 +785,10 @@ class ReviewViewModel(
         // selection waiting for a follow-up submit.
         val existingNames = _state.value.inatObservations
             .mapTo(mutableSetOf()) { it.scientificName }
-        val pendingCount = _state.value.species.count {
-            it.isSelected && it.taxonScientificName !in existingNames
-        }
-        if (pendingCount == 0) {
+        val pendingSpeciesNames = _state.value.species
+            .filter { it.isSelected && it.taxonScientificName !in existingNames }
+            .map { it.taxonScientificName }
+        if (pendingSpeciesNames.isEmpty()) {
             android.util.Log.i(
                 "ReviewViewModel",
                 "submitToINaturalist ignored — no pending species (all selected ones already uploaded)",
@@ -800,7 +800,12 @@ class ReviewViewModel(
             "submitToINaturalist invoked",
             Throwable("call site"),
         )
-        _state.update { it.copy(inatSubmission = InatSubmissionState.InProgress) }
+        _state.update {
+            it.copy(
+                inatSubmission = InatSubmissionState.InProgress,
+                pendingSubmissionSpecies = pendingSpeciesNames,
+            )
+        }
         scope.launch {
             val token = tokenProvider()
             if (token.isNullOrBlank()) {
@@ -816,6 +821,8 @@ class ReviewViewModel(
                             inatSubmission = InatSubmissionState.Failed(
                                 "iNaturalist session expired — open Settings and tap Log in again",
                             ),
+                            submissionProgress = null,
+                            pendingSubmissionSpecies = null,
                         )
                     }
                 } else {
@@ -824,7 +831,11 @@ class ReviewViewModel(
                         "submitToINaturalist: token unavailable, requesting interactive login",
                     )
                     _state.update {
-                        it.copy(inatSubmission = InatSubmissionState.NeedsInteractiveLogin)
+                        it.copy(
+                            inatSubmission = InatSubmissionState.NeedsInteractiveLogin,
+                            submissionProgress = null,
+                            pendingSubmissionSpecies = null,
+                        )
                     }
                 }
                 return@launch
@@ -840,6 +851,8 @@ class ReviewViewModel(
                 _state.update {
                     it.copy(
                         inatSubmission = InatSubmissionState.Failed("Processed audio is not ready"),
+                        submissionProgress = null,
+                        pendingSubmissionSpecies = null,
                     )
                 }
                 return@launch
@@ -864,6 +877,7 @@ class ReviewViewModel(
                         is InatSubmissionOutcome.Failure -> InatSubmissionState.Failed(outcome.message)
                     },
                     submissionProgress = null,
+                    pendingSubmissionSpecies = null,
                 )
             }
         }
