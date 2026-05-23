@@ -151,6 +151,11 @@ class PhotoSubmitterTest {
     fun `cancellation after first photo upload leaves an INCOMPLETE row`() = runTest {
         val draftId = draftWithImages(2)
         // createObservation lands; first photo upload lands; second photo cancels.
+        // The cancellingClient override intercepts uploadObservationPhoto starting
+        // from the 1st call, so MockWebServer only needs to answer createObservation.
+        // The first uploadObservationPhoto succeeds (returns 1L via the override),
+        // then the 2nd one throws CancellationException — submit aborts before
+        // updateObservationTags ever runs.
         server.enqueue(MockResponse().setBody("""{"id":900,"uuid":"u-1"}"""))
         var photoCount = 0
         val cancellingClient = object : INaturalistClient(

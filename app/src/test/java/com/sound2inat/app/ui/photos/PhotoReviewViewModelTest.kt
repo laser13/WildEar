@@ -211,12 +211,13 @@ class PhotoReviewViewModelTest {
     @Test
     fun `load vision suggestions and apply species via fake use cases`() = runTest {
         val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
-        repo.markUploaded(
+        repo.markIncompleteUpload(
             draftId,
             observationId = 777L,
             observationUuid = "uuid-777",
             observationUrl = "https://www.inaturalist.org/observations/777",
         )
+        repo.markPhotoUploadComplete(draftId)
         // getObservation is still called via client (syncObservationDetails)
         server.enqueue(
             MockResponse().setBody(
@@ -322,12 +323,13 @@ class PhotoReviewViewModelTest {
     @Test
     fun `opened uploaded draft auto syncs observation details and comments`() = runTest {
         val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
-        repo.markUploaded(
+        repo.markIncompleteUpload(
             draftId,
             observationId = 777L,
             observationUuid = "uuid-777",
             observationUrl = "https://www.inaturalist.org/observations/777",
         )
+        repo.markPhotoUploadComplete(draftId)
         server.enqueue(
             MockResponse().setBody(
                 """{
@@ -376,12 +378,13 @@ class PhotoReviewViewModelTest {
     @Test
     fun `apply vision refuses annotations when observation uuid is missing`() = runTest {
         val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
-        repo.markUploaded(
+        repo.markIncompleteUpload(
             draftId,
             observationId = 777L,
             observationUuid = "",
             observationUrl = "https://www.inaturalist.org/observations/777",
         )
+        repo.markPhotoUploadComplete(draftId)
         val vm = viewModel(draftId)
 
         vm.applyVisionSuggestion(

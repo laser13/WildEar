@@ -12,7 +12,14 @@ package com.sound2inat.inat
  */
 sealed interface SubmissionProgress {
 
-    /** Per-species step inside the main loop. */
+    /**
+     * Per-species step inside the main loop.
+     *
+     * Also used by [PhotoSubmitter] for single-observation photo uploads with
+     * fixed `speciesIndex = 1, totalSpecies = 1, taxonScientificName = displayName`
+     * (the user-facing taxon name, or "Photo observation" when no taxon is set).
+     * Future renames should consider this dual use.
+     */
     data class Species(
         val speciesIndex: Int,
         val totalSpecies: Int,
