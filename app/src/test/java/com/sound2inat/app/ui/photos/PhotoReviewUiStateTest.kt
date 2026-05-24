@@ -143,6 +143,7 @@ class PhotoReviewUiStateTest {
 
         assertThat(cardSource).contains("SingleChoiceSegmentedButtonRow")
         assertThat(cardSource).contains("SegmentedButton(")
+        assertThat(cardSource).contains("icon = {}")
         assertThat(cardSource).doesNotContain("Species only")
         assertThat(cardSource).doesNotContain("Genus only")
         assertThat(cardSource).doesNotContain("Family only")

@@ -433,6 +433,7 @@ fun PhotoVisionSuggestionsCard(
                             index = index,
                             count = PhotoVisionTarget.entries.size,
                         ),
+                        icon = {},
                         label = { Text(target.selectionLabel()) },
                     )
                 }
