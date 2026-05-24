@@ -84,6 +84,7 @@ data class PhotoCropRequest(
     val scale: Float,
     val offsetX: Float,
     val offsetY: Float,
+    val rotationDegrees: Int = 0,
 )
 
 val PhotoReviewUiState.isUploaded: Boolean

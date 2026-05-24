@@ -2,7 +2,6 @@ package com.sound2inat.app.ui.photos
 
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
-import java.io.File
 
 class PhotoImageCropperTest {
     @Test
@@ -46,19 +45,29 @@ class PhotoImageCropperTest {
     }
 
     @Test
+    fun `viewport crop applies requested rotation before calculating the region`() {
+        val rotatedBounds = rotatedPhotoBounds(PhotoImageBounds(width = 2, height = 4), 90)
+
+        assertThat(rotatedBounds).isEqualTo(PhotoImageBounds(width = 4, height = 2))
+        assertThat(normalizeRotationDegrees(-270)).isEqualTo(90)
+    }
+
+    @Test
     fun `crop dialog renders with the same cover model used by crop math`() {
-        val source = File("src/main/java/com/sound2inat/app/ui/photos/PhotoReviewScreen.kt").readText()
+        val source = java.io.File("src/main/java/com/sound2inat/app/ui/photos/PhotoReviewScreen.kt").readText()
         val dialogStart = source.indexOf("private fun PhotoImageDialog")
         val dialogEnd = source.indexOf("private val UTC_FORMATTER")
         val dialogSource = source.substring(dialogStart, dialogEnd)
 
         assertThat(dialogSource).contains("contentScale = ContentScale.Crop")
         assertThat(dialogSource).doesNotContain("contentScale = ContentScale.Fit")
+        assertThat(dialogSource).contains("Rotate left")
+        assertThat(dialogSource).contains("Rotate right")
     }
 
     @Test
     fun `crop dialog keeps controls compact and removes read-only metadata chips`() {
-        val source = File("src/main/java/com/sound2inat/app/ui/photos/PhotoReviewScreen.kt").readText()
+        val source = java.io.File("src/main/java/com/sound2inat/app/ui/photos/PhotoReviewScreen.kt").readText()
         val dialogStart = source.indexOf("private fun PhotoImageDialog")
         val dialogEnd = source.indexOf("private val UTC_FORMATTER")
         val dialogSource = source.substring(dialogStart, dialogEnd)

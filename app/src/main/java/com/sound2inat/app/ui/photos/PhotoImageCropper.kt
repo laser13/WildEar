@@ -1,6 +1,7 @@
 package com.sound2inat.app.ui.photos
 
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -33,7 +34,7 @@ open class PhotoImageCropper @Inject constructor() {
     ): CroppedImageInfo = withContext(Dispatchers.IO) {
         require(source.exists() && source.length() > 0) { "Source photo missing: ${source.absolutePath}" }
         destination.parentFile?.mkdirs()
-        val bitmap = loadBitmap(source)
+        val bitmap = rotateBitmap(loadBitmap(source), request.rotationDegrees)
         val bounds = PhotoImageBounds(width = bitmap.width, height = bitmap.height)
         val region = viewportRegion(bounds, request)
         decodeRegionToFile(
@@ -50,6 +51,19 @@ open class PhotoImageCropper @Inject constructor() {
         maxOf(frameSizePx.toFloat() / imageWidth.toFloat(), frameSizePx.toFloat() / imageHeight.toFloat())
 
     protected open fun loadBitmap(source: File): Bitmap = decodeOrientedBitmap(source.absolutePath)
+
+    private fun rotateBitmap(source: Bitmap, rotationDegrees: Int): Bitmap {
+        val normalized = ((rotationDegrees % 360) + 360) % 360
+        if (normalized == 0) return source
+        val matrix = Matrix().apply {
+            postRotate(normalized.toFloat(), source.width / 2f, source.height / 2f)
+        }
+        val rotated = Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+        if (rotated !== source) {
+            source.recycle()
+        }
+        return rotated
+    }
 
     internal fun centerSquareRegion(bounds: PhotoImageBounds): CropRegion {
         val cropSize = minOf(bounds.width, bounds.height)

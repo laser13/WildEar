@@ -30,6 +30,8 @@ import androidx.compose.material.icons.outlined.Crop
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
+import androidx.compose.material.icons.outlined.RotateLeft
+import androidx.compose.material.icons.outlined.RotateRight
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -718,15 +720,19 @@ private fun PhotoImageDialog(
 ) {
     var cropScale by remember(image.id) { mutableStateOf(1f) }
     var cropOffset by remember(image.id) { mutableStateOf(Offset.Zero) }
+    var cropRotationDegrees by remember(image.id) { mutableStateOf(0) }
     var cropFrameSizePx by remember(image.id) { mutableStateOf(0) }
     var cropInitialized by remember(image.id) { mutableStateOf(false) }
     val sourcePath = remember(image.id, image.originalPhotoPath, image.photoPath) {
         image.originalPhotoPath.takeIf { it.isNotBlank() } ?: image.photoPath
     }
     val imageBounds = remember(sourcePath) { readPhotoImageBounds(sourcePath) }
+    val displayBounds = remember(imageBounds, cropRotationDegrees) {
+        rotatedPhotoBounds(imageBounds, cropRotationDegrees)
+    }
 
     fun clampOffset(offset: Offset, scale: Float): Offset {
-        val bounds = imageBounds ?: return offset
+        val bounds = displayBounds ?: return offset
         if (cropFrameSizePx <= 0) return offset
         val coverScale = maxOf(
             cropFrameSizePx.toFloat() / bounds.width.toFloat(),
@@ -762,7 +768,13 @@ private fun PhotoImageDialog(
             scale = scale,
             offsetX = offsetX,
             offsetY = offsetY,
+            rotationDegrees = cropRotationDegrees,
         )
+    }
+
+    fun rotateCrop(deltaDegrees: Int) {
+        cropRotationDegrees = normalizeRotationDegrees(cropRotationDegrees + deltaDegrees)
+        cropOffset = clampOffset(cropOffset, cropScale)
     }
 
     LaunchedEffect(
@@ -837,6 +849,7 @@ private fun PhotoImageDialog(
                                     scaleY = cropScale
                                     translationX = cropOffset.x
                                     translationY = cropOffset.y
+                                    rotationZ = cropRotationDegrees.toFloat()
                                 },
                         )
                         Canvas(
@@ -879,10 +892,22 @@ private fun PhotoImageDialog(
                 }
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    PhotoActionTile(
+                        icon = Icons.Outlined.RotateLeft,
+                        label = "Rotate left",
+                        onClick = { rotateCrop(-90) },
+                    )
+                    PhotoActionTile(
+                        icon = Icons.Outlined.RotateRight,
+                        label = "Rotate right",
+                        onClick = { rotateCrop(90) },
+                    )
                     PhotoActionTile(
                         icon = Icons.Outlined.Crop,
                         label = "Apply crop",
@@ -892,6 +917,7 @@ private fun PhotoImageDialog(
                                 scale = cropScale,
                                 offsetX = cropOffset.x,
                                 offsetY = cropOffset.y,
+                                rotationDegrees = cropRotationDegrees,
                             )
                             onCropSquare(request)
                         },
@@ -928,3 +954,16 @@ private fun formatCoordinates(
     val accuracy = accuracyMeters?.let { " • ±${it.toInt()}m" }.orEmpty()
     return "$lat, $lon$accuracy"
 }
+
+internal fun rotatedPhotoBounds(bounds: PhotoImageBounds?, rotationDegrees: Int): PhotoImageBounds? {
+    val imageBounds = bounds ?: return null
+    val normalized = normalizeRotationDegrees(rotationDegrees)
+    return if (normalized % 180 == 0) {
+        imageBounds
+    } else {
+        PhotoImageBounds(width = imageBounds.height, height = imageBounds.width)
+    }
+}
+
+internal fun normalizeRotationDegrees(rotationDegrees: Int): Int =
+    ((rotationDegrees % 360) + 360) % 360
