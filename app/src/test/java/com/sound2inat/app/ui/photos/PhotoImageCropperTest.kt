@@ -1,5 +1,6 @@
 package com.sound2inat.app.ui.photos
 
+import androidx.compose.ui.unit.IntSize
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.storage.PhotoDraftImageEntity
 import org.junit.Test
@@ -55,8 +56,10 @@ class PhotoImageCropperTest {
         val region = cropper.viewportRegion(
             bounds = PhotoImageBounds(width = 2, height = 4),
             request = PhotoCropRequest(
-                frameSizePx = 100,
-                frameHeightPx = 200,
+                frameSizePx = 50,
+                frameHeightPx = 100,
+                viewportWidthPx = 100,
+                viewportHeightPx = 100,
                 scale = 1f,
                 offsetX = 0f,
                 offsetY = 0f,
@@ -66,11 +69,28 @@ class PhotoImageCropperTest {
         assertThat(region).isEqualTo(
             CropRegion(
                 left = 0,
-                top = 0,
-                width = 2,
-                height = 4,
+                top = 1,
+                width = 1,
+                height = 2,
             ),
         )
+    }
+
+    @Test
+    fun `crop frame changes shape inside the same original-aspect preview`() {
+        assertThat(
+            cropFrameSize(
+                previewSize = IntSize(width = 300, height = 400),
+                mode = PhotoCropMode.Original,
+            ),
+        ).isEqualTo(IntSize(width = 300, height = 400))
+
+        assertThat(
+            cropFrameSize(
+                previewSize = IntSize(width = 300, height = 400),
+                mode = PhotoCropMode.Square,
+            ),
+        ).isEqualTo(IntSize(width = 300, height = 300))
     }
 
     @Test
@@ -94,7 +114,8 @@ class PhotoImageCropperTest {
         assertThat(dialogSource).contains("clipToBounds()")
         assertThat(dialogSource).contains("ContentScale.Crop")
         assertThat(dialogSource).doesNotContain("ContentScale.Fit")
-        assertThat(dialogSource).contains("coerceIn(0.25f, 6f)")
+        assertThat(dialogSource).contains("coerceIn(1f, 6f)")
+        assertThat(dialogSource).doesNotContain("PhotoCropMode.Square -> 1f")
         assertThat(dialogSource).contains("photo_crop_apply_original")
         assertThat(dialogSource).contains("photo_crop_apply_square")
     }

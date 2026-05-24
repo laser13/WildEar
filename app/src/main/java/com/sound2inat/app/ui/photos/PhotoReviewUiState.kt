@@ -84,6 +84,8 @@ enum class PhotoCropMode { Original, Square }
 data class PhotoCropRequest(
     val frameSizePx: Int,
     val frameHeightPx: Int = frameSizePx,
+    val viewportWidthPx: Int = frameSizePx,
+    val viewportHeightPx: Int = frameHeightPx,
     val scale: Float,
     val offsetX: Float,
     val offsetY: Float,

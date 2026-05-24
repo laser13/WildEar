@@ -111,7 +111,9 @@ open class PhotoImageCropper @Inject constructor() {
     internal fun viewportRegion(bounds: PhotoImageBounds, request: PhotoCropRequest): CropRegion {
         val frameWidth = request.frameSizePx.coerceAtLeast(1)
         val frameHeight = request.frameHeightPx.coerceAtLeast(1)
-        val totalScale = coverScale(bounds.width, bounds.height, frameWidth, frameHeight) *
+        val viewportWidth = request.viewportWidthPx.coerceAtLeast(1)
+        val viewportHeight = request.viewportHeightPx.coerceAtLeast(1)
+        val totalScale = coverScale(bounds.width, bounds.height, viewportWidth, viewportHeight) *
             request.scale.coerceAtLeast(1f)
         val cropWidth = (frameWidth / totalScale).toInt().coerceIn(1, bounds.width)
         val cropHeight = (frameHeight / totalScale).toInt().coerceIn(1, bounds.height)
