@@ -19,12 +19,14 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -420,16 +422,17 @@ fun PhotoVisionSuggestionsCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("iNaturalist suggestions", style = MaterialTheme.typography.titleMedium)
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                PhotoVisionTarget.entries.forEach { target ->
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                PhotoVisionTarget.entries.forEachIndexed { index, target ->
                     val enabled = ladder == null || PhotoVisionPlanner.chooseSuggestion(ladder, target) != null
-                    FilterChip(
+                    SegmentedButton(
                         selected = selectedTarget == target,
                         onClick = { selectedTarget = target },
                         enabled = enabled,
+                        shape = SegmentedButtonDefaults.itemShape(
+                            index = index,
+                            count = PhotoVisionTarget.entries.size,
+                        ),
                         label = { Text(target.selectionLabel()) },
                     )
                 }
@@ -514,9 +517,9 @@ fun PhotoVisionSuggestionsCard(
 }
 
 private fun PhotoVisionTarget.selectionLabel(): String = when (this) {
-    PhotoVisionTarget.SPECIES -> "Species only"
-    PhotoVisionTarget.GENUS -> "Genus only"
-    PhotoVisionTarget.FAMILY -> "Family only"
+    PhotoVisionTarget.SPECIES -> "Species"
+    PhotoVisionTarget.GENUS -> "Genus"
+    PhotoVisionTarget.FAMILY -> "Family"
 }
 
 @Composable

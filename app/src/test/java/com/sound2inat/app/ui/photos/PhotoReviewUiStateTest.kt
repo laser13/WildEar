@@ -133,6 +133,22 @@ class PhotoReviewUiStateTest {
     }
 
     @Test
+    fun `photo vision target selector is a compact segmented control without only labels`() {
+        val source = java.io.File(
+            "src/main/java/com/sound2inat/app/ui/photos/PhotoReviewWorkflowCards.kt"
+        ).readText()
+        val cardStart = source.indexOf("fun PhotoVisionSuggestionsCard")
+        val cardEnd = source.indexOf("fun ObservationSuggestionCard")
+        val cardSource = source.substring(cardStart, cardEnd)
+
+        assertThat(cardSource).contains("SingleChoiceSegmentedButtonRow")
+        assertThat(cardSource).contains("SegmentedButton(")
+        assertThat(cardSource).doesNotContain("Species only")
+        assertThat(cardSource).doesNotContain("Genus only")
+        assertThat(cardSource).doesNotContain("Family only")
+    }
+
+    @Test
     fun `genus target does not fall back to species when genus is unavailable`() {
         val ladder = PhotoVisionLadder(
             topCandidates = listOf(
