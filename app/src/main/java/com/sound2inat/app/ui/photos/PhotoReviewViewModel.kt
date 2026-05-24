@@ -178,17 +178,28 @@ class PhotoReviewViewModel(
         val current = File(image.photoPath)
         val original = ensureOriginalPhoto(image.id, image.photoDraftId, image.originalPhotoPath, current)
         val newPhotoFile = fileStore.newPhotoFile(image.photoDraftId, "${image.id}-${UUID.randomUUID()}")
-        val info = cropper.cropFromViewport(original, newPhotoFile, request)
-        repo.updateImageCrop(
-            imageId = imageId,
-            originalPhotoPath = original.absolutePath,
-            newPhotoPath = newPhotoFile,
-            cropLeftPx = info.cropRegion.left,
-            cropTopPx = info.cropRegion.top,
-            cropSizePx = info.cropRegion.size,
-            width = info.width,
-            height = info.height,
-        )
+        if (request.cropMode == PhotoCropMode.Original) {
+            val info = cropper.cropFromViewport(original, newPhotoFile, request)
+            repo.clearImageCrop(
+                imageId = imageId,
+                originalPhotoPath = original.absolutePath,
+                newPhotoPath = newPhotoFile,
+                width = info.width,
+                height = info.height,
+            )
+        } else {
+            val info = cropper.cropFromViewport(original, newPhotoFile, request)
+            repo.updateImageCrop(
+                imageId = imageId,
+                originalPhotoPath = original.absolutePath,
+                newPhotoPath = newPhotoFile,
+                cropLeftPx = info.cropRegion.left,
+                cropTopPx = info.cropRegion.top,
+                cropSizePx = info.cropRegion.size,
+                width = info.width,
+                height = info.height,
+            )
+        }
     }
 
     suspend fun deleteAlbum() {

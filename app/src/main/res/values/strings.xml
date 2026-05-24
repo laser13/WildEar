@@ -95,6 +95,12 @@
     <string name="inference_queued_next">Next in queue</string>
     <string name="inference_queued_position">Queued · position %d · ~%d min</string>
 
+    <!-- Photo crop dialog -->
+    <string name="photo_crop_mode_original">Original</string>
+    <string name="photo_crop_mode_square">Square</string>
+    <string name="photo_crop_apply_original">Apply crop</string>
+    <string name="photo_crop_apply_square">Apply crop</string>
+
     <!-- Audio export / share -->
     <string name="cd_share_recording">Share original recording</string>
     <string name="cd_save_recording">Save original recording to Downloads</string>

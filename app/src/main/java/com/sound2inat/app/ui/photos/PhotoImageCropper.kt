@@ -22,7 +22,8 @@ open class PhotoImageCropper @Inject constructor() {
                 destination = destination,
                 left = region.left,
                 top = region.top,
-                size = region.size,
+                width = region.width,
+                height = region.height,
                 region = region,
             )
         }
@@ -42,13 +43,48 @@ open class PhotoImageCropper @Inject constructor() {
             destination = destination,
             left = region.left,
             top = region.top,
-            size = region.size,
+            width = region.width,
+            height = region.height,
             region = region,
         )
     }
 
-    private fun coverScale(imageWidth: Int, imageHeight: Int, frameSizePx: Int): Float =
-        maxOf(frameSizePx.toFloat() / imageWidth.toFloat(), frameSizePx.toFloat() / imageHeight.toFloat())
+    suspend fun copyOriented(
+        source: File,
+        destination: File,
+        rotationDegrees: Int = 0,
+    ): CroppedImageInfo = withContext(Dispatchers.IO) {
+        require(source.exists() && source.length() > 0) { "Source photo missing: ${source.absolutePath}" }
+        destination.parentFile?.mkdirs()
+        val bitmap = rotateBitmap(loadBitmap(source), rotationDegrees)
+        FileOutputStream(destination).use { out ->
+            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)) {
+                error("Could not write photo copy to ${destination.absolutePath}")
+            }
+        }
+        val info = CroppedImageInfo(
+            width = bitmap.width,
+            height = bitmap.height,
+            cropRegion = CropRegion(
+                left = 0,
+                top = 0,
+                width = minOf(bitmap.width, bitmap.height),
+                height = minOf(bitmap.width, bitmap.height),
+            ),
+        )
+        bitmap.recycle()
+        info
+    }
+
+    private fun coverScale(
+        imageWidth: Int,
+        imageHeight: Int,
+        frameWidthPx: Int,
+        frameHeightPx: Int,
+    ): Float = maxOf(
+        frameWidthPx.toFloat() / imageWidth.toFloat(),
+        frameHeightPx.toFloat() / imageHeight.toFloat(),
+    )
 
     protected open fun loadBitmap(source: File): Bitmap = decodeOrientedBitmap(source.absolutePath)
 
@@ -69,18 +105,21 @@ open class PhotoImageCropper @Inject constructor() {
         val cropSize = minOf(bounds.width, bounds.height)
         val left = ((bounds.width - cropSize) / 2).coerceAtLeast(0)
         val top = ((bounds.height - cropSize) / 2).coerceAtLeast(0)
-        return CropRegion(left = left, top = top, size = cropSize)
+        return CropRegion(left = left, top = top, width = cropSize, height = cropSize)
     }
 
     internal fun viewportRegion(bounds: PhotoImageBounds, request: PhotoCropRequest): CropRegion {
-        val frameSize = request.frameSizePx.coerceAtLeast(1)
-        val totalScale = coverScale(bounds.width, bounds.height, frameSize) * request.scale.coerceAtLeast(1f)
-        val cropSize = (frameSize / totalScale).toInt().coerceIn(1, minOf(bounds.width, bounds.height))
+        val frameWidth = request.frameSizePx.coerceAtLeast(1)
+        val frameHeight = request.frameHeightPx.coerceAtLeast(1)
+        val totalScale = coverScale(bounds.width, bounds.height, frameWidth, frameHeight) *
+            request.scale.coerceAtLeast(1f)
+        val cropWidth = (frameWidth / totalScale).toInt().coerceIn(1, bounds.width)
+        val cropHeight = (frameHeight / totalScale).toInt().coerceIn(1, bounds.height)
         val centerX = bounds.width / 2f - request.offsetX / totalScale
         val centerY = bounds.height / 2f - request.offsetY / totalScale
-        val left = (centerX - cropSize / 2f).toInt().coerceIn(0, bounds.width - cropSize)
-        val top = (centerY - cropSize / 2f).toInt().coerceIn(0, bounds.height - cropSize)
-        return CropRegion(left = left, top = top, size = cropSize)
+        val left = (centerX - cropWidth / 2f).toInt().coerceIn(0, bounds.width - cropWidth)
+        val top = (centerY - cropHeight / 2f).toInt().coerceIn(0, bounds.height - cropHeight)
+        return CropRegion(left = left, top = top, width = cropWidth, height = cropHeight)
     }
 
     private fun decodeRegionToFile(
@@ -88,10 +127,11 @@ open class PhotoImageCropper @Inject constructor() {
         destination: File,
         left: Int,
         top: Int,
-        size: Int,
+        width: Int,
+        height: Int,
         region: CropRegion,
     ): CroppedImageInfo {
-        val cropped = Bitmap.createBitmap(source, left, top, size, size)
+        val cropped = Bitmap.createBitmap(source, left, top, width, height)
         FileOutputStream(destination).use { out ->
             if (!cropped.compress(Bitmap.CompressFormat.JPEG, 92, out)) {
                 error("Could not write cropped photo to ${destination.absolutePath}")
@@ -109,8 +149,11 @@ open class PhotoImageCropper @Inject constructor() {
 data class CropRegion(
     val left: Int,
     val top: Int,
-    val size: Int,
-)
+    val width: Int,
+    val height: Int,
+) {
+    val size: Int get() = width
+}
 
 data class CroppedImageInfo(
     val width: Int,

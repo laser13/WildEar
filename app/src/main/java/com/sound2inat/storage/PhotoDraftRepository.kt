@@ -172,6 +172,35 @@ class PhotoDraftRepository(
         }
     }
 
+    suspend fun clearImageCrop(
+        imageId: String,
+        originalPhotoPath: String,
+        newPhotoPath: File,
+        width: Int?,
+        height: Int?,
+    ) = withContext(ioDispatcher) {
+        val image = imageDao.getById(imageId) ?: error("photo image $imageId missing")
+        val updated = image.copy(
+            originalPhotoPath = originalPhotoPath,
+            photoPath = newPhotoPath.absolutePath,
+            cropLeftPx = null,
+            cropTopPx = null,
+            cropSizePx = null,
+            width = width,
+            height = height,
+        )
+        runInTransaction {
+            imageDao.update(updated)
+            draftDao.getById(image.photoDraftId)?.let { draft ->
+                draftDao.update(draft.copy(updatedAtUtcMs = nowMs()))
+            }
+        }
+        val previousPath = image.photoPath
+        if (previousPath != newPhotoPath.absolutePath && previousPath != originalPhotoPath) {
+            File(previousPath).delete()
+        }
+    }
+
     suspend fun deleteDraft(draftId: String) = withContext(ioDispatcher) {
         draftDao.deleteById(draftId)
         fileStore.deleteDraftFiles(draftId)

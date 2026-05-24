@@ -173,6 +173,47 @@ class PhotoReviewViewModelTest {
     }
 
     @Test
+    fun `cropping in original mode still applies the viewport crop`() = runTest {
+        val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
+        val original = fileStore.newPhotoFile(draftId, "p1").apply {
+            parentFile?.mkdirs()
+            outputStream().use { out ->
+                Bitmap.createBitmap(4, 2, Bitmap.Config.ARGB_8888)
+                    .compress(Bitmap.CompressFormat.JPEG, 90, out)
+            }
+        }
+        repo.addImage(
+            draftId = draftId,
+            photoId = "p1",
+            imageFile = original,
+            takenAtUtcMs = 2L,
+            width = 4,
+            height = 2,
+        )
+        val vm = viewModel(draftId)
+
+        vm.cropImage(
+            "p1",
+            PhotoCropRequest(
+                frameSizePx = 4,
+                frameHeightPx = 2,
+                scale = 2f,
+                offsetX = 0f,
+                offsetY = 0f,
+                cropMode = PhotoCropMode.Original,
+            ),
+        )
+
+        val image = vm.state.value.images.single()
+        assertThat(image.cropLeftPx).isNull()
+        assertThat(image.cropTopPx).isNull()
+        assertThat(image.cropSizePx).isNull()
+        assertThat(image.width).isEqualTo(2)
+        assertThat(image.height).isEqualTo(1)
+        assertThat(File(image.photoPath).exists()).isTrue()
+    }
+
+    @Test
     fun `submit ignores duplicate calls while upload is in progress`() = runTest {
         val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
         val releaseUpload = CompletableDeferred<Unit>()

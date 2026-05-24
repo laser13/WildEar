@@ -79,12 +79,16 @@ data class PhotoVisionPanelUiState(
     val ladder: PhotoVisionLadder? = null,
 )
 
+enum class PhotoCropMode { Original, Square }
+
 data class PhotoCropRequest(
     val frameSizePx: Int,
+    val frameHeightPx: Int = frameSizePx,
     val scale: Float,
     val offsetX: Float,
     val offsetY: Float,
     val rotationDegrees: Int = 0,
+    val cropMode: PhotoCropMode = PhotoCropMode.Square,
 )
 
 val PhotoReviewUiState.isUploaded: Boolean

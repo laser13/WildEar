@@ -23,6 +23,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.RotateLeft
+import androidx.compose.material.icons.automirrored.outlined.RotateRight
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
@@ -30,8 +32,6 @@ import androidx.compose.material.icons.outlined.Crop
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
-import androidx.compose.material.icons.outlined.RotateLeft
-import androidx.compose.material.icons.outlined.RotateRight
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -46,6 +46,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedIconButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -61,6 +64,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -205,7 +209,7 @@ fun PhotoReviewScreen(
         PhotoImageDialog(
             image = image,
             onClose = { selectedImage = null },
-            onCropSquare = { request ->
+            onCrop = { request ->
                 scope.launch {
                     vm.cropImage(image.id, request)
                     selectedImage = null
@@ -715,13 +719,15 @@ private fun AddPhotoThumbnail(onClick: () -> Unit) {
 private fun PhotoImageDialog(
     image: com.sound2inat.storage.PhotoDraftImageEntity,
     onClose: () -> Unit,
-    onCropSquare: (PhotoCropRequest) -> Unit,
+    onCrop: (PhotoCropRequest) -> Unit,
     onDelete: () -> Unit,
 ) {
     var cropScale by remember(image.id) { mutableStateOf(1f) }
     var cropOffset by remember(image.id) { mutableStateOf(Offset.Zero) }
     var cropRotationDegrees by remember(image.id) { mutableStateOf(0) }
-    var cropFrameSizePx by remember(image.id) { mutableStateOf(0) }
+    var cropMode by rememberSaveable(image.id) { mutableStateOf(initialCropMode(image)) }
+    var cropFrameWidthPx by remember(image.id) { mutableStateOf(0) }
+    var cropFrameHeightPx by remember(image.id) { mutableStateOf(0) }
     var cropInitialized by remember(image.id) { mutableStateOf(false) }
     val sourcePath = remember(image.id, image.originalPhotoPath, image.photoPath) {
         image.originalPhotoPath.takeIf { it.isNotBlank() } ?: image.photoPath
@@ -730,19 +736,33 @@ private fun PhotoImageDialog(
     val displayBounds = remember(imageBounds, cropRotationDegrees) {
         rotatedPhotoBounds(imageBounds, cropRotationDegrees)
     }
+    val previewAspectRatio = remember(displayBounds, cropMode) {
+        when (cropMode) {
+            PhotoCropMode.Original -> displayBounds?.let {
+                it.width.toFloat() / it.height.toFloat()
+            } ?: 1f
+            PhotoCropMode.Square -> 1f
+        }
+    }
+
+    fun frameWidthPx(): Int = cropFrameWidthPx.coerceAtLeast(1)
+
+    fun frameHeightPx(): Int = cropFrameHeightPx.coerceAtLeast(1)
 
     fun clampOffset(offset: Offset, scale: Float): Offset {
         val bounds = displayBounds ?: return offset
-        if (cropFrameSizePx <= 0) return offset
+        if (cropFrameWidthPx <= 0 || cropFrameHeightPx <= 0) return offset
+        val width = frameWidthPx()
+        val height = frameHeightPx()
         val coverScale = maxOf(
-            cropFrameSizePx.toFloat() / bounds.width.toFloat(),
-            cropFrameSizePx.toFloat() / bounds.height.toFloat(),
+            width.toFloat() / bounds.width.toFloat(),
+            height.toFloat() / bounds.height.toFloat(),
         )
         val totalScale = coverScale * scale
         val renderedWidth = bounds.width * totalScale
         val renderedHeight = bounds.height * totalScale
-        val maxX = ((renderedWidth - cropFrameSizePx) / 2f).coerceAtLeast(0f)
-        val maxY = ((renderedHeight - cropFrameSizePx) / 2f).coerceAtLeast(0f)
+        val maxX = ((renderedWidth - width) / 2f).coerceAtLeast(0f)
+        val maxY = ((renderedHeight - height) / 2f).coerceAtLeast(0f)
         return Offset(
             x = offset.x.coerceIn(-maxX, maxX),
             y = offset.y.coerceIn(-maxY, maxY),
@@ -751,24 +771,27 @@ private fun PhotoImageDialog(
 
     fun initialRequestFromSavedCrop(region: CropRegion): PhotoCropRequest? {
         val bounds = imageBounds ?: return null
-        if (cropFrameSizePx <= 0 || region.size <= 0) return null
-        val frameSize = cropFrameSizePx.coerceAtLeast(1)
+        if (cropFrameWidthPx <= 0 || cropFrameHeightPx <= 0 || region.size <= 0) return null
+        val frameWidth = frameWidthPx()
+        val frameHeight = frameHeightPx()
         val coverScale = maxOf(
-            frameSize.toFloat() / bounds.width.toFloat(),
-            frameSize.toFloat() / bounds.height.toFloat(),
+            frameWidth.toFloat() / bounds.width.toFloat(),
+            frameHeight.toFloat() / bounds.height.toFloat(),
         )
-        val totalScale = frameSize.toFloat() / region.size.toFloat()
+        val totalScale = frameWidth.toFloat() / region.size.toFloat()
         val scale = (totalScale / coverScale).coerceAtLeast(1f)
         val centerX = region.left + region.size / 2f
         val centerY = region.top + region.size / 2f
         val offsetX = (bounds.width / 2f - centerX) * totalScale
         val offsetY = (bounds.height / 2f - centerY) * totalScale
         return PhotoCropRequest(
-            frameSizePx = frameSize,
+            frameSizePx = frameWidth,
+            frameHeightPx = frameHeight,
             scale = scale,
             offsetX = offsetX,
             offsetY = offsetY,
             rotationDegrees = cropRotationDegrees,
+            cropMode = PhotoCropMode.Square,
         )
     }
 
@@ -777,8 +800,13 @@ private fun PhotoImageDialog(
         cropOffset = clampOffset(cropOffset, cropScale)
     }
 
+    LaunchedEffect(cropMode, cropFrameWidthPx, cropFrameHeightPx, imageBounds) {
+        cropOffset = clampOffset(cropOffset, cropScale)
+    }
+
     LaunchedEffect(
-        cropFrameSizePx,
+        cropFrameWidthPx,
+        cropFrameHeightPx,
         sourcePath,
         image.cropLeftPx,
         image.cropTopPx,
@@ -786,13 +814,20 @@ private fun PhotoImageDialog(
         imageBounds,
         image.id,
     ) {
-        if (cropInitialized || cropFrameSizePx <= 0 || imageBounds == null) return@LaunchedEffect
+        val canRestoreSavedCrop = !cropInitialized &&
+            cropFrameWidthPx > 0 &&
+            cropFrameHeightPx > 0 &&
+            imageBounds != null
+        if (!canRestoreSavedCrop) {
+            return@LaunchedEffect
+        }
         val savedRegion = image.cropLeftPx?.let { left ->
             val top = image.cropTopPx ?: return@let null
             val size = image.cropSizePx ?: return@let null
-            CropRegion(left = left, top = top, size = size)
+            CropRegion(left = left, top = top, width = size, height = size)
         }
         if (savedRegion != null) {
+            cropMode = PhotoCropMode.Square
             initialRequestFromSavedCrop(savedRegion)?.let { request ->
                 cropScale = request.scale
                 cropOffset = Offset(request.offsetX, request.offsetY)
@@ -822,14 +857,43 @@ private fun PhotoImageDialog(
                     Text("Crop", style = MaterialTheme.typography.titleMedium)
                 }
 
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    PhotoCropMode.entries.forEachIndexed { index, mode ->
+                        SegmentedButton(
+                            selected = cropMode == mode,
+                            onClick = { cropMode = mode },
+                            shape = SegmentedButtonDefaults.itemShape(
+                                index = index,
+                                count = PhotoCropMode.entries.size,
+                            ),
+                            label = {
+                                Text(
+                                    stringResource(
+                                        if (mode == PhotoCropMode.Original) {
+                                            R.string.photo_crop_mode_original
+                                        } else {
+                                            R.string.photo_crop_mode_square
+                                        },
+                                    ),
+                                )
+                            },
+                        )
+                    }
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(1f),
+                        .aspectRatio(previewAspectRatio)
+                        .onSizeChanged {
+                            cropFrameWidthPx = it.width
+                            cropFrameHeightPx = it.height
+                        }
+                        .clipToBounds(),
                     contentAlignment = Alignment.Center,
                 ) {
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().clipToBounds(),
                     ) {
                         AsyncImage(
                             model = File(sourcePath),
@@ -837,9 +901,9 @@ private fun PhotoImageDialog(
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .pointerInput(image.id, cropFrameSizePx, imageBounds) {
+                                .pointerInput(image.id, cropFrameWidthPx, cropFrameHeightPx, imageBounds, cropMode) {
                                     detectTransformGestures { _, pan, zoom, _ ->
-                                        val nextScale = (cropScale * zoom).coerceIn(1f, 6f)
+                                        val nextScale = (cropScale * zoom).coerceIn(0.25f, 6f)
                                         cropScale = nextScale
                                         cropOffset = clampOffset(cropOffset + pan, nextScale)
                                     }
@@ -852,41 +916,41 @@ private fun PhotoImageDialog(
                                     rotationZ = cropRotationDegrees.toFloat()
                                 },
                         )
-                        Canvas(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .onSizeChanged { cropFrameSizePx = it.width },
-                        ) {
-                            drawRect(color = Color.Black.copy(alpha = 0.32f))
-                            drawRect(
-                                color = Color.White,
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f),
-                            )
-                            val third = size.width / 3f
-                            drawLine(
-                                color = Color.White.copy(alpha = 0.6f),
-                                start = Offset(third, 0f),
-                                end = Offset(third, size.height),
-                                strokeWidth = 2f,
-                            )
-                            drawLine(
-                                color = Color.White.copy(alpha = 0.6f),
-                                start = Offset(third * 2f, 0f),
-                                end = Offset(third * 2f, size.height),
-                                strokeWidth = 2f,
-                            )
-                            drawLine(
-                                color = Color.White.copy(alpha = 0.6f),
-                                start = Offset(0f, third),
-                                end = Offset(size.width, third),
-                                strokeWidth = 2f,
-                            )
-                            drawLine(
-                                color = Color.White.copy(alpha = 0.6f),
-                                start = Offset(0f, third * 2f),
-                                end = Offset(size.width, third * 2f),
-                                strokeWidth = 2f,
-                            )
+                        if (cropMode == PhotoCropMode.Square) {
+                            Canvas(
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                drawRect(color = Color.Black.copy(alpha = 0.32f))
+                                drawRect(
+                                    color = Color.White,
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f),
+                                )
+                                val third = size.width / 3f
+                                drawLine(
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    start = Offset(third, 0f),
+                                    end = Offset(third, size.height),
+                                    strokeWidth = 2f,
+                                )
+                                drawLine(
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    start = Offset(third * 2f, 0f),
+                                    end = Offset(third * 2f, size.height),
+                                    strokeWidth = 2f,
+                                )
+                                drawLine(
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    start = Offset(0f, third),
+                                    end = Offset(size.width, third),
+                                    strokeWidth = 2f,
+                                )
+                                drawLine(
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    start = Offset(0f, third * 2f),
+                                    end = Offset(size.width, third * 2f),
+                                    strokeWidth = 2f,
+                                )
+                            }
                         }
                     }
                 }
@@ -899,27 +963,33 @@ private fun PhotoImageDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     PhotoActionTile(
-                        icon = Icons.Outlined.RotateLeft,
+                        icon = Icons.AutoMirrored.Outlined.RotateLeft,
                         label = "Rotate left",
                         onClick = { rotateCrop(-90) },
                     )
                     PhotoActionTile(
-                        icon = Icons.Outlined.RotateRight,
+                        icon = Icons.AutoMirrored.Outlined.RotateRight,
                         label = "Rotate right",
                         onClick = { rotateCrop(90) },
                     )
                     PhotoActionTile(
                         icon = Icons.Outlined.Crop,
-                        label = "Apply crop",
+                        label = if (cropMode == PhotoCropMode.Original) {
+                            stringResource(R.string.photo_crop_apply_original)
+                        } else {
+                            stringResource(R.string.photo_crop_apply_square)
+                        },
                         onClick = {
                             val request = PhotoCropRequest(
-                                frameSizePx = cropFrameSizePx,
+                                frameSizePx = cropFrameWidthPx,
+                                frameHeightPx = cropFrameHeightPx,
                                 scale = cropScale,
                                 offsetX = cropOffset.x,
                                 offsetY = cropOffset.y,
                                 rotationDegrees = cropRotationDegrees,
+                                cropMode = cropMode,
                             )
-                            onCropSquare(request)
+                            onCrop(request)
                         },
                     )
                     PhotoActionTile(
@@ -954,6 +1024,13 @@ private fun formatCoordinates(
     val accuracy = accuracyMeters?.let { " • ±${it.toInt()}m" }.orEmpty()
     return "$lat, $lon$accuracy"
 }
+
+internal fun initialCropMode(image: com.sound2inat.storage.PhotoDraftImageEntity): PhotoCropMode =
+    if (image.cropLeftPx != null && image.cropTopPx != null && image.cropSizePx != null) {
+        PhotoCropMode.Square
+    } else {
+        PhotoCropMode.Original
+    }
 
 internal fun rotatedPhotoBounds(bounds: PhotoImageBounds?, rotationDegrees: Int): PhotoImageBounds? {
     val imageBounds = bounds ?: return null

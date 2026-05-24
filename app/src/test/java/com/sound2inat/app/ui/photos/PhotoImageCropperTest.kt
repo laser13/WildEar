@@ -1,6 +1,7 @@
 package com.sound2inat.app.ui.photos
 
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.storage.PhotoDraftImageEntity
 import org.junit.Test
 
 class PhotoImageCropperTest {
@@ -16,7 +17,8 @@ class PhotoImageCropperTest {
             CropRegion(
                 left = 0,
                 top = 1,
-                size = 2,
+                width = 2,
+                height = 2,
             ),
         )
     }
@@ -29,6 +31,7 @@ class PhotoImageCropperTest {
             bounds = PhotoImageBounds(width = 2, height = 4),
             request = PhotoCropRequest(
                 frameSizePx = 100,
+                frameHeightPx = 100,
                 scale = 1f,
                 offsetX = 0f,
                 offsetY = 0f,
@@ -39,7 +42,33 @@ class PhotoImageCropperTest {
             CropRegion(
                 left = 0,
                 top = 1,
-                size = 2,
+                width = 2,
+                height = 2,
+            ),
+        )
+    }
+
+    @Test
+    fun `viewport crop honors rectangular frame dimensions`() {
+        val cropper = PhotoImageCropper()
+
+        val region = cropper.viewportRegion(
+            bounds = PhotoImageBounds(width = 2, height = 4),
+            request = PhotoCropRequest(
+                frameSizePx = 100,
+                frameHeightPx = 200,
+                scale = 1f,
+                offsetX = 0f,
+                offsetY = 0f,
+            ),
+        )
+
+        assertThat(region).isEqualTo(
+            CropRegion(
+                left = 0,
+                top = 0,
+                width = 2,
+                height = 4,
             ),
         )
     }
@@ -59,10 +88,15 @@ class PhotoImageCropperTest {
         val dialogEnd = source.indexOf("private val UTC_FORMATTER")
         val dialogSource = source.substring(dialogStart, dialogEnd)
 
-        assertThat(dialogSource).contains("contentScale = ContentScale.Crop")
-        assertThat(dialogSource).doesNotContain("contentScale = ContentScale.Fit")
-        assertThat(dialogSource).contains("Rotate left")
-        assertThat(dialogSource).contains("Rotate right")
+        assertThat(dialogSource).contains("SingleChoiceSegmentedButtonRow")
+        assertThat(dialogSource).contains("photo_crop_mode_original")
+        assertThat(dialogSource).contains("photo_crop_mode_square")
+        assertThat(dialogSource).contains("clipToBounds()")
+        assertThat(dialogSource).contains("ContentScale.Crop")
+        assertThat(dialogSource).doesNotContain("ContentScale.Fit")
+        assertThat(dialogSource).contains("coerceIn(0.25f, 6f)")
+        assertThat(dialogSource).contains("photo_crop_apply_original")
+        assertThat(dialogSource).contains("photo_crop_apply_square")
     }
 
     @Test
@@ -76,5 +110,45 @@ class PhotoImageCropperTest {
         assertThat(dialogSource).doesNotContain("Frame 1:1")
         assertThat(dialogSource).doesNotContain("formatCropSourceLabel")
         assertThat(dialogSource).doesNotContain("AssistChip(")
+    }
+
+    @Test
+    fun `uncropped photo opens in original mode`() {
+        val image = PhotoDraftImageEntity(
+            id = "p1",
+            photoDraftId = "d1",
+            originalPhotoPath = "/tmp/original.jpg",
+            photoPath = "/tmp/original.jpg",
+            cropLeftPx = null,
+            cropTopPx = null,
+            cropSizePx = null,
+            takenAtUtcMs = 0L,
+            sortOrder = 0,
+            width = 3000,
+            height = 4000,
+            mimeType = "image/jpeg",
+        )
+
+        assertThat(initialCropMode(image)).isEqualTo(PhotoCropMode.Original)
+    }
+
+    @Test
+    fun `saved crop reopens in square mode`() {
+        val image = PhotoDraftImageEntity(
+            id = "p1",
+            photoDraftId = "d1",
+            originalPhotoPath = "/tmp/original.jpg",
+            photoPath = "/tmp/cropped.jpg",
+            cropLeftPx = 10,
+            cropTopPx = 20,
+            cropSizePx = 200,
+            takenAtUtcMs = 0L,
+            sortOrder = 0,
+            width = 200,
+            height = 200,
+            mimeType = "image/jpeg",
+        )
+
+        assertThat(initialCropMode(image)).isEqualTo(PhotoCropMode.Square)
     }
 }
