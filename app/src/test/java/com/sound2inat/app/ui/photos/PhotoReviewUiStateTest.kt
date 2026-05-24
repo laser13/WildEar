@@ -150,6 +150,20 @@ class PhotoReviewUiStateTest {
     }
 
     @Test
+    fun `incomplete photo banner keeps title separate from action buttons`() {
+        val source = java.io.File(
+            "src/main/java/com/sound2inat/app/ui/photos/PhotoReviewScreen.kt"
+        ).readText()
+        val bannerStart = source.indexOf("fun PhotoIncompleteObservationBanner")
+        val bannerEnd = source.indexOf("if (confirmOpen)", startIndex = bannerStart)
+        val bannerSource = source.substring(bannerStart, bannerEnd)
+
+        assertThat(bannerSource).contains("Modifier.fillMaxWidth()")
+        assertThat(bannerSource).contains("horizontalArrangement = Arrangement.End")
+        assertThat(bannerSource).contains(".padding(bottom = 2.dp)")
+    }
+
+    @Test
     fun `genus target does not fall back to species when genus is unavailable`() {
         val ladder = PhotoVisionLadder(
             topCandidates = listOf(

@@ -588,15 +588,18 @@ private fun PhotoIncompleteObservationBanner(
                     color = MaterialTheme.colorScheme.error,
                 )
             }
+            Text(
+                row.scientificName,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 2.dp),
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    row.scientificName,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.weight(1f),
-                )
                 TextButton(onClick = { onView(row.url) }) {
                     Text(stringResource(R.string.btn_view))
                 }
