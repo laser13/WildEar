@@ -133,6 +133,26 @@ class PhotoReviewUiStateTest {
     }
 
     @Test
+    fun `genus target does not fall back to species when genus is unavailable`() {
+        val ladder = PhotoVisionLadder(
+            topCandidates = listOf(
+                PhotoVisionSuggestion(
+                    taxonId = 101L,
+                    scientificName = "Ammophila sabulosa",
+                    commonName = "Sand wasp",
+                    rank = "species",
+                    rankLevel = 10,
+                    score = 0.91,
+                    iconicTaxonName = "Insecta",
+                ),
+            ),
+        )
+
+        assertThat(PhotoVisionPlanner.chooseSuggestion(ladder, com.sound2inat.inat.PhotoVisionTarget.GENUS))
+            .isNull()
+    }
+
+    @Test
     fun `collect ancestor ids includes candidate taxon ids even when ancestry omits them`() {
         val response = InatVisionResponse(
             candidates = listOf(

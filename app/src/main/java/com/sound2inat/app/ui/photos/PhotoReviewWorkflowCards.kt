@@ -29,6 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.Saver
@@ -401,6 +402,13 @@ fun PhotoVisionSuggestionsCard(
     }
     val ladder = state.vision.ladder
     val visibleSuggestions = ladder?.visibleSuggestions(showAllSuggestions).orEmpty()
+    val selectedSuggestion = ladder?.let { PhotoVisionPlanner.chooseSuggestion(it, selectedTarget) }
+
+    LaunchedEffect(ladder, selectedTarget) {
+        if (ladder != null && PhotoVisionPlanner.chooseSuggestion(ladder, selectedTarget) == null) {
+            selectedTarget = PhotoVisionTarget.SPECIES
+        }
+    }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -417,9 +425,11 @@ fun PhotoVisionSuggestionsCard(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 PhotoVisionTarget.entries.forEach { target ->
+                    val enabled = ladder == null || PhotoVisionPlanner.chooseSuggestion(ladder, target) != null
                     FilterChip(
                         selected = selectedTarget == target,
                         onClick = { selectedTarget = target },
+                        enabled = enabled,
                         label = { Text(target.selectionLabel()) },
                     )
                 }
@@ -486,9 +496,8 @@ fun PhotoVisionSuggestionsCard(
                             suggestion = suggestion,
                             isPrimary = index == 0,
                             onApply = {
-                                val chosenSuggestion = PhotoVisionPlanner.chooseSuggestion(ladder, selectedTarget)
-                                if (chosenSuggestion != null) {
-                                    onApplySuggestion(chosenSuggestion, selectedTarget.selectionLabel())
+                                if (selectedSuggestion != null) {
+                                    onApplySuggestion(selectedSuggestion, selectedTarget.selectionLabel())
                                 }
                             },
                         )

@@ -98,10 +98,7 @@ object PhotoVisionPlanner {
         PhotoVisionTarget.SPECIES -> ladder.topCandidates.firstOrNull { it.rankLevel <= RANK_SPECIES }
             ?: ladder.topCandidates.firstOrNull()
         PhotoVisionTarget.GENUS -> ladder.higherTaxa.firstOrNull { it.rank == "genus" }
-            ?: ladder.topCandidates.firstOrNull()
         PhotoVisionTarget.FAMILY -> ladder.higherTaxa.firstOrNull { it.rank == "family" }
-            ?: ladder.higherTaxa.firstOrNull()
-            ?: ladder.topCandidates.firstOrNull()
     }
 
     private fun InatVisionCandidate.toSuggestion(photoUrl: String? = null): PhotoVisionSuggestion =

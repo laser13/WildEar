@@ -489,6 +489,62 @@ class PhotoReviewViewModelTest {
     }
 
     @Test
+    fun `apply genus vision does not submit species when genus is unavailable`() = runTest {
+        val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
+        repo.markIncompleteUpload(
+            draftId,
+            observationId = 777L,
+            observationUuid = "uuid-777",
+            observationUrl = "https://www.inaturalist.org/observations/777",
+        )
+        repo.markPhotoUploadComplete(draftId)
+        server.enqueue(observationDetailResponse())
+        val fakeLadder = PhotoVisionLadder(
+            topCandidates = listOf(
+                PhotoVisionSuggestion(
+                    taxonId = 102L,
+                    scientificName = "Ammophila sabulosa",
+                    commonName = "Sand wasp",
+                    rank = "species",
+                    rankLevel = 10,
+                    score = 0.71,
+                    iconicTaxonName = "Insecta",
+                ),
+            ),
+        )
+        var identificationCalled = false
+        val visionUseCase = object : PhotoVisionUseCase(client) {
+            override suspend fun scoreSuggestions(token: String, observationId: Long): PhotoVisionLadder =
+                fakeLadder
+        }
+        val annotationUseCase = object : PhotoAnnotationUseCase(client) {
+            override suspend fun addIdentification(
+                token: String,
+                observationId: Long,
+                suggestion: PhotoVisionSuggestion,
+            ) {
+                identificationCalled = true
+            }
+        }
+        val vm = viewModel(
+            draftId,
+            visionUseCase = visionUseCase,
+            annotationUseCase = annotationUseCase,
+            submitter = fakeSubmitter { _, _ -> error("submit not expected") },
+        )
+
+        vm.loadVisionSuggestions()
+        repeat(50) {
+            if (vm.state.value.vision.ladder != null) return@repeat
+            delay(10)
+        }
+        vm.applyVision(PhotoVisionTarget.GENUS)
+
+        assertThat(identificationCalled).isFalse()
+        assertThat(vm.state.value.vision.error).contains("No genus suggestion available")
+    }
+
+    @Test
     fun `opened uploaded draft auto syncs observation details and comments`() = runTest {
         val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
         repo.markIncompleteUpload(
