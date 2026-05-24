@@ -65,6 +65,28 @@ class PhotoReviewUiStateTest {
     }
 
     @Test
+    fun `incomplete recovery banner is hidden while upload is still running`() {
+        val incomplete = IncompletePhotoObservationUi(
+            observationId = 42L,
+            scientificName = "Photo observation",
+            url = "https://inat.test/observations/42",
+        )
+
+        assertThat(
+            PhotoReviewUiState(
+                isSubmitting = true,
+                incompleteObservation = incomplete,
+            ).shouldShowIncompleteRecovery,
+        ).isFalse()
+        assertThat(
+            PhotoReviewUiState(
+                isSubmitting = false,
+                incompleteObservation = incomplete,
+            ).shouldShowIncompleteRecovery,
+        ).isTrue()
+    }
+
+    @Test
     fun `resolved observation id is derived from the observation url`() {
         val state = PhotoReviewUiState(uploadedUrl = "https://www.inaturalist.org/observations/777")
 

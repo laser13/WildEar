@@ -136,14 +136,16 @@ fun PhotoReviewScreen(
                     .padding(bottom = 112.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                state.incompleteObservation?.let { incomplete ->
-                    PhotoIncompleteObservationBanner(
-                        row = incomplete,
-                        retrying = state.retryingIncomplete,
-                        lastError = state.retryIncompleteError,
-                        onView = { uriHandler.openUri(it) },
-                        onRecreate = { vm.retryIncomplete() },
-                    )
+                if (state.shouldShowIncompleteRecovery) {
+                    state.incompleteObservation?.let { incomplete ->
+                        PhotoIncompleteObservationBanner(
+                            row = incomplete,
+                            retrying = state.retryingIncomplete,
+                            lastError = state.retryIncompleteError,
+                            onView = { uriHandler.openUri(it) },
+                            onRecreate = { vm.retryIncomplete() },
+                        )
+                    }
                 }
 
                 PhotoHeroSection(

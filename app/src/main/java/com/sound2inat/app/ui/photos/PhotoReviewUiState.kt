@@ -106,6 +106,9 @@ val PhotoReviewUiState.canRunVision: Boolean
 val PhotoReviewUiState.isUploading: Boolean
     get() = isSubmitting && !isUploaded
 
+val PhotoReviewUiState.shouldShowIncompleteRecovery: Boolean
+    get() = incompleteObservation != null && !isSubmitting
+
 val PhotoReviewUiState.resolvedObservationId: Long?
     get() = inatObservationId ?: observationIdFromUrl(observationUrl)
 
