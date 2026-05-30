@@ -3,8 +3,6 @@ package com.sound2inat.app.ui.home
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import com.sound2inat.app.ui.common.datedSections
-import com.sound2inat.app.ui.common.groupDatedItems
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -71,9 +69,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.sound2inat.app.R
 import com.sound2inat.app.inference.JobStatus
+import com.sound2inat.app.ui.common.datedSections
+import com.sound2inat.app.ui.common.groupDatedItems
 import com.sound2inat.app.ui.formatDurationMs
 import com.sound2inat.app.ui.theme.LocalIsDarkTheme
 import com.sound2inat.app.ui.theme.iNatGreen
+import com.sound2inat.app.ui.theme.onScrimLight
 import com.sound2inat.storage.DraftStatus
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
@@ -402,7 +403,7 @@ private fun RecordingThumbnail(
             Icon(
                 icon,
                 contentDescription = null,
-                tint = Color.White,
+                tint = onScrimLight,
                 modifier = Modifier.size(STATUS_ICON_INNER_DP.dp),
             )
         }

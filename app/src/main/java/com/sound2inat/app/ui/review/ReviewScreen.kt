@@ -77,7 +77,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import com.sound2inat.app.ui.common.detectionCardColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -92,6 +91,7 @@ import androidx.lifecycle.viewModelScope
 import coil.compose.AsyncImage
 import com.sound2inat.app.R
 import com.sound2inat.app.ui.FILE_PROVIDER_AUTHORITY
+import com.sound2inat.app.ui.common.detectionCardColor
 import com.sound2inat.app.ui.formatDurationMs
 import com.sound2inat.app.ui.theme.iNatGreen
 import com.sound2inat.inat.INatWebLoginActivity

@@ -16,6 +16,17 @@ val detectionCardUnlikelyLight = Color(0xFFFFDAD6) // same as errorContainerLigh
 val detectionCardLikelyDark = Color(0xFF3A4E2C) // warm olive-forest, more yellow than cool #2C4E38
 val detectionCardUnlikelyDark = Color(0xFF4E2A2A) // muted wine/terracotta — softer than #93000A
 
+/** Fixed white for content drawn over a dark scrim/gradient (status badge,
+ *  backlog-hint pill). Theme-independent on purpose — these sit over an
+ *  always-dark overlay, so onSurface (which flips with theme) would be wrong. */
+val onScrimLight = Color(0xFFFFFFFF)
+
+/** GPS fix-state status dots. Semantic traffic-light colours, identical in
+ *  light and dark so the meaning stays stable. */
+val gpsFixColor = Color(0xFF4CAF50) // green
+val gpsAcquiringColor = Color(0xFFFFA000) // amber
+val gpsNoFixColor = Color(0xFFE53935) // red
+
 val primaryLight = Color(0xFF6D5E0F)
 val onPrimaryLight = Color(0xFFFFFFFF)
 val primaryContainerLight = Color(0xFFF8E287)
