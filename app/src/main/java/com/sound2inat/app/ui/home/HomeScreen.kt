@@ -3,6 +3,8 @@ package com.sound2inat.app.ui.home
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import com.sound2inat.app.ui.common.datedSections
+import com.sound2inat.app.ui.common.groupDatedItems
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -78,7 +79,6 @@ import kotlinx.coroutines.flow.Flow
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.Calendar
 
 @Suppress("FunctionNaming", "LongMethod")
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -195,40 +195,32 @@ fun HomeScreen(
                         }
                     }
                     else -> {
-                        val groups = remember(filteredDrafts) { groupDraftsByDate(filteredDrafts) }
+                        val groups = remember(filteredDrafts) {
+                            groupDatedItems(filteredDrafts) { it.recordedAtUtcMs }
+                        }
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(top = 0.dp, bottom = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            groups.forEach { group ->
-                                stickyHeader(key = "header_${group.label}") {
-                                    Text(
-                                        group.label,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(MaterialTheme.colorScheme.background)
-                                            .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 4.dp),
-                                    )
-                                }
-                                items(group.drafts, key = { it.id }) { d ->
-                                    RecordingCard(
-                                        modifier = Modifier.padding(horizontal = 16.dp),
-                                        summary = d,
-                                        observeTopLabel = vm::observeTopLabel,
-                                        observeTopSpecies = vm::observeTopSpecies,
-                                        observeDetectionCount = vm::observeDetectionCount,
-                                        observeInatObservationCount = vm::observeInatObservationCount,
-                                        observeTaxonPhoto = vm::observeTaxonPhoto,
-                                        selectionMode = selectionMode,
-                                        selected = d.id in selectedIds,
-                                        onToggleSelection = { vm.toggleSelection(d.id) },
-                                        onClick = { onOpenDraft(d.id) },
-                                        onLongClick = { longPressedDraft = d },
-                                    )
-                                }
+                            datedSections(
+                                groups = groups,
+                                itemKey = { it.id },
+                            ) { d ->
+                                RecordingCard(
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                    summary = d,
+                                    observeTopLabel = vm::observeTopLabel,
+                                    observeTopSpecies = vm::observeTopSpecies,
+                                    observeDetectionCount = vm::observeDetectionCount,
+                                    observeInatObservationCount = vm::observeInatObservationCount,
+                                    observeTaxonPhoto = vm::observeTaxonPhoto,
+                                    selectionMode = selectionMode,
+                                    selected = d.id in selectedIds,
+                                    onToggleSelection = { vm.toggleSelection(d.id) },
+                                    onClick = { onOpenDraft(d.id) },
+                                    onLongClick = { longPressedDraft = d },
+                                )
                             }
                         }
                     }
@@ -532,50 +524,6 @@ private const val RECORDING_THUMB_SIZE_DP = 48
 private const val RECORDING_THUMB_CORNER_DP = 6
 private const val STATUS_ICON_INNER_DP = 20
 private const val BADGE_ICON_SIZE_DP = 14
-private const val DAY_MS = 24L * 60L * 60L * 1000L
-private const val WEEK_DAYS = 7
-
-private data class DateGroup(val label: String, val drafts: List<DraftSummary>)
-
-/**
- * Groups recording drafts by the local calendar day they were recorded on.
- * Today / Yesterday get human labels; days within a week show weekday + date;
- * older entries fall back to a full date stamp. Order: newest-first within
- * each group, groups themselves newest-first.
- */
-private fun groupDraftsByDate(
-    drafts: List<DraftSummary>,
-    now: Long = System.currentTimeMillis(),
-): List<DateGroup> {
-    if (drafts.isEmpty()) return emptyList()
-    val cal = Calendar.getInstance()
-    val todayStart = startOfDay(now, cal)
-    val yesterdayStart = todayStart - DAY_MS
-    val zone = ZoneId.systemDefault()
-    val recentFmt = DateTimeFormatter.ofPattern("EEEE, MMM d").withZone(zone)
-    val olderFmt = DateTimeFormatter.ofPattern("MMMM d, yyyy").withZone(zone)
-    val groups = LinkedHashMap<String, MutableList<DraftSummary>>()
-    for (d in drafts.sortedByDescending { it.recordedAtUtcMs }) {
-        val dayStart = startOfDay(d.recordedAtUtcMs, cal)
-        val label = when {
-            dayStart >= todayStart -> "Today"
-            dayStart >= yesterdayStart -> "Yesterday"
-            (todayStart - dayStart) < WEEK_DAYS * DAY_MS -> recentFmt.format(Instant.ofEpochMilli(d.recordedAtUtcMs))
-            else -> olderFmt.format(Instant.ofEpochMilli(d.recordedAtUtcMs))
-        }
-        groups.getOrPut(label) { mutableListOf() }.add(d)
-    }
-    return groups.map { (label, ds) -> DateGroup(label, ds) }
-}
-
-private fun startOfDay(ms: Long, cal: Calendar): Long {
-    cal.timeInMillis = ms
-    cal.set(Calendar.HOUR_OF_DAY, 0)
-    cal.set(Calendar.MINUTE, 0)
-    cal.set(Calendar.SECOND, 0)
-    cal.set(Calendar.MILLISECOND, 0)
-    return cal.timeInMillis
-}
 
 @Suppress("FunctionNaming")
 @OptIn(ExperimentalMaterial3Api::class)
