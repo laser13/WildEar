@@ -15,8 +15,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +31,7 @@ import com.sound2inat.app.permissions.LocalPermissionsController
 import com.sound2inat.app.permissions.Permission
 import com.sound2inat.app.permissions.PermissionStatus
 import com.sound2inat.app.ui.common.EmptyState
+import com.sound2inat.app.ui.common.Sound2iNatTopBar
 import com.sound2inat.inat.SpeciesAggregate
 
 private const val MAP_HEIGHT_DP = 280
@@ -56,8 +55,8 @@ fun RadarScreen(onOpenSettings: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.title_radar)) },
+            Sound2iNatTopBar(
+                title = stringResource(R.string.title_radar),
                 actions = {
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.cd_settings))

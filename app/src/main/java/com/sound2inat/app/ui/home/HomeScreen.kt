@@ -1,7 +1,6 @@
 package com.sound2inat.app.ui.home
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,9 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Autorenew
@@ -57,7 +54,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -70,10 +66,10 @@ import coil.compose.AsyncImage
 import com.sound2inat.app.R
 import com.sound2inat.app.inference.JobStatus
 import com.sound2inat.app.ui.common.EmptyState
+import com.sound2inat.app.ui.common.Sound2iNatTopBar
 import com.sound2inat.app.ui.common.datedSections
 import com.sound2inat.app.ui.common.groupDatedItems
 import com.sound2inat.app.ui.formatDurationMs
-import com.sound2inat.app.ui.theme.LocalIsDarkTheme
 import com.sound2inat.app.ui.theme.iNatGreen
 import com.sound2inat.app.ui.theme.onScrimLight
 import com.sound2inat.storage.DraftStatus
@@ -597,39 +593,28 @@ private fun HomeTopBar(
     onSettings: () -> Unit,
     showFilterChips: Boolean,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(horizontal = 4.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        val logoRes = if (LocalIsDarkTheme.current) R.drawable.ic_app_logo_dark else R.drawable.ic_app_logo_light
-        Image(
-            painter = painterResource(logoRes),
-            contentDescription = null,
-            modifier = Modifier
-                .padding(start = 8.dp)
-                .size(32.dp)
-                .clip(CircleShape),
-        )
-        if (showFilterChips) {
-            FilterChipsRow(
-                filterMode = filterMode,
-                onFilterChange = onFilterChange,
-                modifier = Modifier.weight(1f),
-            )
+    Sound2iNatTopBar(
+        title = stringResource(R.string.title_home),
+        showLogo = true,
+        inlineContent = if (showFilterChips) {
+            {
+                FilterChipsRow(
+                    filterMode = filterMode,
+                    onFilterChange = onFilterChange,
+                )
+            }
         } else {
-            Spacer(Modifier.weight(1f))
-        }
-        IconButton(onClick = onSettings) {
-            Icon(
-                Icons.Outlined.Settings,
-                contentDescription = stringResource(R.string.cd_settings),
-            )
-        }
-    }
+            null
+        },
+        actions = {
+            IconButton(onClick = onSettings) {
+                Icon(
+                    Icons.Outlined.Settings,
+                    contentDescription = stringResource(R.string.cd_settings),
+                )
+            }
+        },
+    )
 }
 
 @Suppress("FunctionNaming")

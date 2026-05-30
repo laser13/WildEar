@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.Button
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -22,6 +23,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sound2inat.app.R
 import com.sound2inat.app.ui.common.EmptyState
+import com.sound2inat.app.ui.common.Sound2iNatTopBar
 import com.sound2inat.app.ui.common.datedSections
 import com.sound2inat.app.ui.common.groupDatedItems
 
@@ -34,42 +36,48 @@ fun PhotosScreen(
     val vm: PhotosViewModel = hiltViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        when {
-            state.isLoading -> {
-                Text(stringResource(R.string.photos_loading), modifier = Modifier.align(Alignment.Center))
-            }
-            state.drafts.isEmpty() -> {
-                EmptyState(
-                    modifier = Modifier.align(Alignment.Center),
-                    icon = Icons.Outlined.PhotoLibrary,
-                    title = stringResource(R.string.photos_empty_title),
-                    detail = stringResource(R.string.photos_empty_subtitle),
-                    action = {
-                        Button(onClick = onStartCapture) {
-                            Text(stringResource(R.string.photos_action_take_photos))
-                        }
-                    },
-                )
-            }
-            else -> {
-                val groups = remember(state.drafts) {
-                    groupDatedItems(state.drafts) { it.observedAtUtcMs }
+    Scaffold(
+        topBar = {
+            Sound2iNatTopBar(title = stringResource(R.string.title_photos))
+        },
+    ) { padding ->
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            when {
+                state.isLoading -> {
+                    Text(stringResource(R.string.photos_loading), modifier = Modifier.align(Alignment.Center))
                 }
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp),
-                ) {
-                    datedSections(
-                        groups = groups,
-                        itemKey = { it.id },
-                    ) { draft ->
-                        PhotoDraftCard(
-                            draft = draft,
-                            onClick = { onOpenPhotoDraft(draft.id) },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        )
+                state.drafts.isEmpty() -> {
+                    EmptyState(
+                        modifier = Modifier.align(Alignment.Center),
+                        icon = Icons.Outlined.PhotoLibrary,
+                        title = stringResource(R.string.photos_empty_title),
+                        detail = stringResource(R.string.photos_empty_subtitle),
+                        action = {
+                            Button(onClick = onStartCapture) {
+                                Text(stringResource(R.string.photos_action_take_photos))
+                            }
+                        },
+                    )
+                }
+                else -> {
+                    val groups = remember(state.drafts) {
+                        groupDatedItems(state.drafts) { it.observedAtUtcMs }
+                    }
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp),
+                    ) {
+                        datedSections(
+                            groups = groups,
+                            itemKey = { it.id },
+                        ) { draft ->
+                            PhotoDraftCard(
+                                draft = draft,
+                                onClick = { onOpenPhotoDraft(draft.id) },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            )
+                        }
                     }
                 }
             }
