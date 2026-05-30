@@ -51,6 +51,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sound2inat.app.R
 import com.sound2inat.app.permissions.LocalPermissionsController
+import com.sound2inat.app.ui.formatDurationMs
 import com.sound2inat.app.ui.theme.detectionCardLikelyDark
 import com.sound2inat.app.ui.theme.detectionCardLikelyLight
 import com.sound2inat.app.ui.theme.detectionCardUnlikelyDark
@@ -303,7 +304,7 @@ private fun RecordingBody(
                 )
             }
             Spacer(Modifier.weight(1f))
-            Text(formatElapsed(s.elapsedMs), style = MaterialTheme.typography.headlineMedium)
+            Text(formatDurationMs(s.elapsedMs), style = MaterialTheme.typography.headlineMedium)
         }
     }
 }
@@ -386,15 +387,6 @@ private fun GpsIndicator(gps: GpsStatus, modifier: Modifier = Modifier) {
     }
 }
 
-private fun formatElapsed(ms: Long): String {
-    val totalSeconds = ms / MS_PER_SECOND
-    val minutes = totalSeconds / SECONDS_PER_MINUTE
-    val seconds = totalSeconds % SECONDS_PER_MINUTE
-    return "%d:%02d".format(minutes, seconds)
-}
-
-private const val MS_PER_SECOND = 1000L
-private const val SECONDS_PER_MINUTE = 60L
 private const val STOP_BUTTON_DP = 72
 private const val STOP_ICON_DP = 36
 private const val CAMERA_STOP_GAP_DP = 16
