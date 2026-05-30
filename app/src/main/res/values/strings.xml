@@ -257,4 +257,9 @@
     <!-- Incomplete photo observation banner -->
     <string name="photo_incomplete_banner_title">Incomplete photo observation on iNaturalist</string>
     <string name="photo_incomplete_banner_subtitle">The upload was interrupted. The observation exists on iNaturalist but may be missing photos or tags. Recreate it to fix.</string>
+
+    <!-- Photos empty state -->
+    <string name="photos_empty_title">No observations yet</string>
+    <string name="photos_empty_subtitle">Photo observations will appear here.</string>
+    <string name="photos_action_take_photos">Take photos</string>
 </resources>

@@ -7,17 +7,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sound2inat.app.R
+import com.sound2inat.app.ui.common.EmptyState
 import com.sound2inat.app.ui.common.datedSections
 import com.sound2inat.app.ui.common.groupDatedItems
 
@@ -36,9 +40,16 @@ fun PhotosScreen(
                 Text("Loading photos...", modifier = Modifier.align(Alignment.Center))
             }
             state.drafts.isEmpty() -> {
-                EmptyPhotosState(
-                    onStartCapture = onStartCapture,
+                EmptyState(
                     modifier = Modifier.align(Alignment.Center),
+                    icon = Icons.Outlined.PhotoLibrary,
+                    title = stringResource(R.string.photos_empty_title),
+                    detail = stringResource(R.string.photos_empty_subtitle),
+                    action = {
+                        Button(onClick = onStartCapture) {
+                            Text(stringResource(R.string.photos_action_take_photos))
+                        }
+                    },
                 )
             }
             else -> {
@@ -62,25 +73,6 @@ fun PhotosScreen(
                     }
                 }
             }
-        }
-    }
-}
-
-@Suppress("FunctionNaming")
-@Composable
-private fun EmptyPhotosState(
-    onStartCapture: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    androidx.compose.foundation.layout.Column(
-        modifier = modifier.padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text("Observations", style = MaterialTheme.typography.headlineMedium)
-        Text("Photo observations will appear here.", style = MaterialTheme.typography.bodyMedium)
-        Button(onClick = onStartCapture) {
-            Text("Take photos")
         }
     }
 }

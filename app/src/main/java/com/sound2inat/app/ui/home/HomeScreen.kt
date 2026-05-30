@@ -69,6 +69,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.sound2inat.app.R
 import com.sound2inat.app.inference.JobStatus
+import com.sound2inat.app.ui.common.EmptyState
 import com.sound2inat.app.ui.common.datedSections
 import com.sound2inat.app.ui.common.groupDatedItems
 import com.sound2inat.app.ui.formatDurationMs
@@ -181,7 +182,12 @@ fun HomeScreen(
             ) {
                 when {
                     enrichedDrafts.isEmpty() -> {
-                        EmptyState(modifier = Modifier.fillMaxSize())
+                        EmptyState(
+                            modifier = Modifier.fillMaxSize(),
+                            icon = Icons.Outlined.MicNone,
+                            title = stringResource(R.string.home_empty_title),
+                            detail = stringResource(R.string.home_empty_subtitle),
+                        )
                     }
                     filteredDrafts.isEmpty() -> {
                         Box(
@@ -227,34 +233,6 @@ fun HomeScreen(
                     }
                 }
             }
-        }
-    }
-}
-
-@Suppress("FunctionNaming")
-@Composable
-private fun EmptyState(modifier: Modifier = Modifier) {
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(
-                Icons.Outlined.MicNone,
-                contentDescription = null,
-                modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                stringResource(R.string.home_empty_title),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                stringResource(R.string.home_empty_subtitle),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
