@@ -77,7 +77,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
+import com.sound2inat.app.ui.common.detectionCardColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -93,10 +93,6 @@ import coil.compose.AsyncImage
 import com.sound2inat.app.R
 import com.sound2inat.app.ui.FILE_PROVIDER_AUTHORITY
 import com.sound2inat.app.ui.formatDurationMs
-import com.sound2inat.app.ui.theme.detectionCardLikelyDark
-import com.sound2inat.app.ui.theme.detectionCardLikelyLight
-import com.sound2inat.app.ui.theme.detectionCardUnlikelyDark
-import com.sound2inat.app.ui.theme.detectionCardUnlikelyLight
 import com.sound2inat.app.ui.theme.iNatGreen
 import com.sound2inat.inat.INatWebLoginActivity
 import com.sound2inat.inat.SubmissionProgress
@@ -1094,12 +1090,7 @@ private fun SpeciesListItem(
     hasHabitatPhotos: Boolean = false,
     onToggleHabitatPhoto: () -> Unit = {},
 ) {
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val tintColor = if (row.regionalStatus == RegionalStatus.NOT_CONFIRMED) {
-        if (isDark) detectionCardUnlikelyDark else detectionCardUnlikelyLight
-    } else {
-        if (isDark) detectionCardLikelyDark else detectionCardLikelyLight
-    }
+    val tintColor = detectionCardColor(likely = row.regionalStatus != RegionalStatus.NOT_CONFIRMED)
     val containerColor = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer else tintColor
     val context = LocalContext.current
     ListItem(

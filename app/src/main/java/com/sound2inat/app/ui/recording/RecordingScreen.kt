@@ -43,7 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
+import com.sound2inat.app.ui.common.detectionCardColor
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
@@ -52,10 +52,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sound2inat.app.R
 import com.sound2inat.app.permissions.LocalPermissionsController
 import com.sound2inat.app.ui.formatDurationMs
-import com.sound2inat.app.ui.theme.detectionCardLikelyDark
-import com.sound2inat.app.ui.theme.detectionCardLikelyLight
-import com.sound2inat.app.ui.theme.detectionCardUnlikelyDark
-import com.sound2inat.app.ui.theme.detectionCardUnlikelyLight
 import com.sound2inat.inference.RegionalStatus
 import kotlinx.coroutines.flow.SharedFlow
 import java.util.UUID
@@ -312,12 +308,7 @@ private fun RecordingBody(
 @Suppress("FunctionNaming")
 @Composable
 private fun LiveCardRow(card: LiveCard) {
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val cardColor = if (card.regionalStatus == RegionalStatus.NOT_CONFIRMED) {
-        if (isDark) detectionCardUnlikelyDark else detectionCardUnlikelyLight
-    } else {
-        if (isDark) detectionCardLikelyDark else detectionCardLikelyLight
-    }
+    val cardColor = detectionCardColor(likely = card.regionalStatus != RegionalStatus.NOT_CONFIRMED)
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
