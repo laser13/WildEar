@@ -41,8 +41,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.sound2inat.app.R
 import com.sound2inat.inat.PhotoVisionPlanner
 import com.sound2inat.inat.PhotoVisionSuggestion
 import com.sound2inat.inat.PhotoVisionTarget
@@ -56,10 +58,10 @@ fun PhotoWorkflowActionsCard(
     onOpenObservation: (String) -> Unit,
 ) {
     val primaryLabel = when {
-        state.isUploading -> "Uploading..."
-        state.vision.isLoading -> "Getting suggestions..."
-        !state.isUploaded -> "Upload to iNaturalist"
-        else -> "Get iNaturalist suggestions"
+        state.isUploading -> stringResource(R.string.photos_workflow_primary_uploading)
+        state.vision.isLoading -> stringResource(R.string.photos_workflow_primary_getting)
+        !state.isUploaded -> stringResource(R.string.photos_workflow_primary_upload)
+        else -> stringResource(R.string.photos_workflow_primary_get_suggestions)
     }
     val primaryEnabled = when {
         state.isUploading || state.vision.isLoading -> false
@@ -82,13 +84,13 @@ fun PhotoWorkflowActionsCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Workflow actions", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.photos_workflow_title), style = MaterialTheme.typography.titleMedium)
             Text(
                 text = when {
-                    !state.isUploaded -> "Upload the observation first, then request iNaturalist suggestions."
-                    state.canRunVision -> "Get iNaturalist suggestions for the uploaded observation."
-                    state.vision.isLoading -> "iNaturalist suggestions are loading."
-                    else -> "The upload is ready. Request iNaturalist suggestions when the observation syncs."
+                    !state.isUploaded -> stringResource(R.string.photos_workflow_body_upload_first)
+                    state.canRunVision -> stringResource(R.string.photos_workflow_body_can_run)
+                    state.vision.isLoading -> stringResource(R.string.photos_workflow_body_loading)
+                    else -> stringResource(R.string.photos_workflow_body_ready)
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -121,14 +123,14 @@ fun PhotoWorkflowActionsCard(
                     onClick = onAddMorePhotos,
                     shape = RoundedCornerShape(18.dp),
                 ) {
-                    Text("Add photos")
+                    Text(stringResource(R.string.photos_workflow_add_photos))
                 }
                 state.observationUrl?.let { url ->
                     FilledTonalButton(
                         onClick = { onOpenObservation(url) },
                         shape = RoundedCornerShape(18.dp),
                     ) {
-                        Text("Open on iNaturalist")
+                        Text(stringResource(R.string.photos_workflow_open_inat))
                     }
                 }
             }
@@ -158,7 +160,7 @@ fun INaturalistStatusCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("iNaturalist", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.photos_inat_title), style = MaterialTheme.typography.titleMedium)
             when {
                 state.submitError != null && !state.isUploaded -> {
                     Text(
@@ -170,7 +172,7 @@ fun INaturalistStatusCard(
                         onClick = onUpload,
                         shape = RoundedCornerShape(18.dp),
                     ) {
-                        Text("Upload to iNaturalist")
+                        Text(stringResource(R.string.photos_workflow_primary_upload))
                     }
                 }
                 state.isUploading -> {
@@ -185,7 +187,7 @@ fun INaturalistStatusCard(
                             strokeWidth = 2.dp,
                         )
                         Text(
-                            text = "Uploading...",
+                            text = stringResource(R.string.photos_inat_uploading),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -203,18 +205,18 @@ fun INaturalistStatusCard(
                         )
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = "Uploaded",
+                                text = stringResource(R.string.photos_inat_uploaded),
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             state.inatObservationId?.let { id ->
                                 if (observationUrl != null) {
                                     TextButton(onClick = { onOpenObservation(observationUrl) }) {
-                                        Text("Observation ID $id")
+                                        Text(stringResource(R.string.photos_inat_observation_id, id))
                                     }
                                 } else {
                                     Text(
-                                        text = "Observation ID $id",
+                                        text = stringResource(R.string.photos_inat_observation_id, id),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -229,22 +231,22 @@ fun INaturalistStatusCard(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         TextButton(onClick = onRetrySync) {
-                            Text("Retry sync")
+                            Text(stringResource(R.string.photos_inat_retry_sync))
                         }
                     }
                     observationUrl?.let { url ->
                         TextButton(onClick = { onOpenObservation(url) }) {
-                            Text("Open on iNaturalist")
+                            Text(stringResource(R.string.photos_workflow_open_inat))
                         }
                     }
                 }
                 else -> {
-                    Text("Not uploaded yet", style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(R.string.photos_inat_not_uploaded), style = MaterialTheme.typography.bodyLarge)
                     Button(
                         onClick = onUpload,
                         shape = RoundedCornerShape(18.dp),
                     ) {
-                        Text("Upload to iNaturalist")
+                        Text(stringResource(R.string.photos_workflow_primary_upload))
                     }
                 }
             }
@@ -274,7 +276,7 @@ fun IdentificationStatusCard(
         ) {
             if (displayScientificName.isNullOrBlank()) {
                 Text(
-                    text = "No identification yet",
+                    text = stringResource(R.string.photos_identification_none),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -315,7 +317,7 @@ fun PhotoObservationSyncCard(
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                 )
-                Text("iNaturalist updates", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.photos_sync_title), style = MaterialTheme.typography.titleMedium)
             }
 
             when {
@@ -329,7 +331,7 @@ fun PhotoObservationSyncCard(
                             strokeWidth = 2.dp,
                         )
                         Text(
-                            text = "Syncing observation details...",
+                            text = stringResource(R.string.photos_sync_in_progress),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -342,34 +344,39 @@ fun PhotoObservationSyncCard(
                         color = MaterialTheme.colorScheme.error,
                     )
                     TextButton(onClick = onRefresh) {
-                        Text("Try again")
+                        Text(stringResource(R.string.photos_sync_try_again))
                     }
                 }
                 state.observationDetail != null -> {
                     val detail = state.observationDetail
                     Text(
-                        text = "${detail.qualityGrade} • ${detail.agreeingIdCount} agreeing IDs • ${detail.commentsCount} comments",
+                        text = stringResource(
+                            R.string.photos_sync_summary,
+                            detail.qualityGrade,
+                            detail.agreeingIdCount,
+                            detail.commentsCount
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (detail.comments.isNotEmpty()) {
                         detail.comments.take(2).forEach { comment ->
                             Text(
-                                text = "${comment.username}: ${comment.body}",
+                                text = stringResource(R.string.photos_sync_comment, comment.username, comment.body),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         if (detail.commentsCount > detail.comments.size) {
                             Text(
-                                text = "More comments available on iNaturalist.",
+                                text = stringResource(R.string.photos_sync_more_comments),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     } else {
                         Text(
-                            text = "No public comments yet.",
+                            text = stringResource(R.string.photos_sync_no_comments),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -377,7 +384,7 @@ fun PhotoObservationSyncCard(
                 }
                 else -> {
                     Text(
-                        text = "Pull down to sync identifications and comments from iNaturalist.",
+                        text = stringResource(R.string.photos_sync_pull_hint),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -405,6 +412,7 @@ fun PhotoVisionSuggestionsCard(
     val ladder = state.vision.ladder
     val visibleSuggestions = ladder?.visibleSuggestions(showAllSuggestions).orEmpty()
     val selectedSuggestion = ladder?.let { PhotoVisionPlanner.chooseSuggestion(it, selectedTarget) }
+    val selectedTargetLabel = selectedTarget.selectionLabel()
 
     LaunchedEffect(ladder, selectedTarget) {
         if (ladder != null && PhotoVisionPlanner.chooseSuggestion(ladder, selectedTarget) == null) {
@@ -421,7 +429,7 @@ fun PhotoVisionSuggestionsCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("iNaturalist suggestions", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.photos_suggestions_title), style = MaterialTheme.typography.titleMedium)
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 PhotoVisionTarget.entries.forEachIndexed { index, target ->
                     val enabled = ladder == null || PhotoVisionPlanner.chooseSuggestion(ladder, target) != null
@@ -442,7 +450,7 @@ fun PhotoVisionSuggestionsCard(
             if (ladder == null) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "No suggestions loaded yet.",
+                        stringResource(R.string.photos_suggestions_none_loaded),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Button(
@@ -450,7 +458,7 @@ fun PhotoVisionSuggestionsCard(
                         enabled = state.canRunVision,
                         shape = RoundedCornerShape(18.dp),
                     ) {
-                        Text("Get iNaturalist suggestions")
+                        Text(stringResource(R.string.photos_workflow_primary_get_suggestions))
                     }
                 }
             } else if (state.vision.isLoading) {
@@ -464,7 +472,10 @@ fun PhotoVisionSuggestionsCard(
                             .height(20.dp),
                         strokeWidth = 2.dp,
                     )
-                    Text("Getting suggestions...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        stringResource(R.string.photos_suggestions_getting),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             } else if (state.vision.error != null) {
                 Text(
@@ -480,11 +491,14 @@ fun PhotoVisionSuggestionsCard(
                         onClick = onRetry,
                         shape = RoundedCornerShape(18.dp),
                     ) {
-                        Text("Try again")
+                        Text(stringResource(R.string.photos_sync_try_again))
                     }
                 }
             } else if (!state.isUploaded) {
-                Text("Upload first to get iNaturalist suggestions.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    stringResource(R.string.photos_suggestions_upload_first),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             } else if (visibleSuggestions.isNotEmpty()) {
                 state.vision.message?.let {
                     Text(
@@ -501,14 +515,18 @@ fun PhotoVisionSuggestionsCard(
                             isPrimary = index == 0,
                             onApply = {
                                 if (selectedSuggestion != null) {
-                                    onApplySuggestion(selectedSuggestion, selectedTarget.selectionLabel())
+                                    onApplySuggestion(selectedSuggestion, selectedTargetLabel)
                                 }
                             },
                         )
                     }
                     if (ladder.shouldShowAllToggle()) {
                         TextButton(onClick = { showAllSuggestions = !showAllSuggestions }) {
-                            Text(if (showAllSuggestions) "Show fewer suggestions" else "Show all suggestions")
+                            Text(
+                                stringResource(
+                                    if (showAllSuggestions) R.string.photos_suggestions_show_fewer else R.string.photos_suggestions_show_all
+                                )
+                            )
                         }
                     }
                 }
@@ -517,11 +535,14 @@ fun PhotoVisionSuggestionsCard(
     }
 }
 
-private fun PhotoVisionTarget.selectionLabel(): String = when (this) {
-    PhotoVisionTarget.SPECIES -> "Species"
-    PhotoVisionTarget.GENUS -> "Genus"
-    PhotoVisionTarget.FAMILY -> "Family"
-}
+@Composable
+private fun PhotoVisionTarget.selectionLabel(): String = stringResource(
+    when (this) {
+        PhotoVisionTarget.SPECIES -> R.string.photos_target_species
+        PhotoVisionTarget.GENUS -> R.string.photos_target_genus
+        PhotoVisionTarget.FAMILY -> R.string.photos_target_family
+    },
+)
 
 @Composable
 fun ObservationSuggestionCard(
@@ -572,7 +593,11 @@ fun ObservationSuggestionCard(
                             },
                         )
                         Text(
-                            text = "${suggestion.rank} • ${"%.1f".format(suggestion.score)}",
+                            text = stringResource(
+                                R.string.photos_suggestion_rank_score,
+                                suggestion.rank,
+                                "%.1f".format(suggestion.score)
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = if (isPrimary) {
                                 MaterialTheme.colorScheme.onPrimaryContainer
@@ -599,7 +624,7 @@ fun ObservationSuggestionCard(
                             },
                         ),
                     ) {
-                        Text("Apply")
+                        Text(stringResource(R.string.photos_suggestions_apply))
                     }
                 },
             )

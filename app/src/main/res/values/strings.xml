@@ -262,4 +262,107 @@
     <string name="photos_empty_title">No observations yet</string>
     <string name="photos_empty_subtitle">Photo observations will appear here.</string>
     <string name="photos_action_take_photos">Take photos</string>
+
+    <!-- Photos tab + capture + review (Phase 1 unification) -->
+    <string name="title_photos">Observations</string>
+    <string name="title_home">Recordings</string>
+    <string name="photos_loading">Loading photos…</string>
+
+    <!-- Photo capture screen -->
+    <string name="photos_capture_count">%1$d photos</string>
+    <string name="photos_capture_cancel">Cancel</string>
+    <string name="photos_capture_shutter">Shutter</string>
+    <string name="photos_capture_done">Done</string>
+    <string name="photos_capture_permission_required">Camera permission is required to take photos.</string>
+    <string name="photos_capture_open_settings">Open settings</string>
+    <string name="photos_capture_checking_permission">Checking camera permission…</string>
+    <string name="photos_capture_default_error">Photo capture failed.</string>
+    <string name="photos_capture_discard_title">Discard photo session?</string>
+    <string name="photos_capture_discard_keep">Keep album</string>
+    <string name="photos_capture_discard_confirm">Discard</string>
+    <!-- %1$d = number of photos taken -->
+    <plurals name="photos_capture_discard_body">
+        <item quantity="one">You have already taken %1$d photo. Do you want to keep this album or discard it?</item>
+        <item quantity="other">You have already taken %1$d photos. Do you want to keep this album or discard it?</item>
+    </plurals>
+
+    <!-- Photo review: workflow + iNaturalist status cards -->
+    <string name="photos_workflow_title">Workflow actions</string>
+    <string name="photos_workflow_primary_uploading">Uploading…</string>
+    <string name="photos_workflow_primary_getting">Getting suggestions…</string>
+    <string name="photos_workflow_primary_upload">Upload to iNaturalist</string>
+    <string name="photos_workflow_primary_get_suggestions">Get iNaturalist suggestions</string>
+    <string name="photos_workflow_body_upload_first">Upload the observation first, then request iNaturalist suggestions.</string>
+    <string name="photos_workflow_body_can_run">Get iNaturalist suggestions for the uploaded observation.</string>
+    <string name="photos_workflow_body_loading">iNaturalist suggestions are loading.</string>
+    <string name="photos_workflow_body_ready">The upload is ready. Request iNaturalist suggestions when the observation syncs.</string>
+    <string name="photos_workflow_add_photos">Add photos</string>
+    <string name="photos_workflow_open_inat">Open on iNaturalist</string>
+
+    <string name="photos_inat_title">iNaturalist</string>
+    <string name="photos_inat_uploading">Uploading…</string>
+    <string name="photos_inat_uploaded">Uploaded</string>
+    <string name="photos_inat_not_uploaded">Not uploaded yet</string>
+    <string name="photos_inat_retry_sync">Retry sync</string>
+    <!-- %1$s = iNaturalist observation id -->
+    <string name="photos_inat_observation_id">Observation ID %1$s</string>
+
+    <string name="photos_identification_none">No identification yet</string>
+
+    <string name="photos_sync_title">iNaturalist updates</string>
+    <string name="photos_sync_in_progress">Syncing observation details…</string>
+    <string name="photos_sync_try_again">Try again</string>
+    <!-- %1$s = quality grade, %2$d = agreeing IDs, %3$d = comments -->
+    <string name="photos_sync_summary">%1$s • %2$d agreeing IDs • %3$d comments</string>
+    <!-- %1$s = username, %2$s = comment body -->
+    <string name="photos_sync_comment">%1$s: %2$s</string>
+    <string name="photos_sync_more_comments">More comments available on iNaturalist.</string>
+    <string name="photos_sync_no_comments">No public comments yet.</string>
+    <string name="photos_sync_pull_hint">Pull down to sync identifications and comments from iNaturalist.</string>
+
+    <string name="photos_suggestions_title">iNaturalist suggestions</string>
+    <string name="photos_suggestions_none_loaded">No suggestions loaded yet.</string>
+    <string name="photos_suggestions_getting">Getting suggestions…</string>
+    <string name="photos_suggestions_upload_first">Upload first to get iNaturalist suggestions.</string>
+    <string name="photos_suggestions_show_all">Show all suggestions</string>
+    <string name="photos_suggestions_show_fewer">Show fewer suggestions</string>
+    <string name="photos_suggestions_apply">Apply</string>
+    <string name="photos_target_species">Species</string>
+    <string name="photos_target_genus">Genus</string>
+    <string name="photos_target_family">Family</string>
+    <!-- %1$s = rank, %2$s = score (one decimal) -->
+    <string name="photos_suggestion_rank_score">%1$s • %2$s</string>
+
+    <!-- Photo review screen: hero, footer, dialog, action tiles -->
+    <string name="photos_review_loading">Loading photo review…</string>
+    <string name="photos_review_no_photos_title">No photos yet</string>
+    <string name="photos_review_no_photos_subtitle">Take a few shots to build the album.</string>
+    <string name="photos_review_cover_cd">Cover photo</string>
+    <string name="photos_review_delete_selected_cd">Delete selected photo</string>
+    <string name="photos_review_add_photos_cd">Add photos</string>
+    <string name="photos_review_back">Back</string>
+    <string name="photos_review_delete_album">Delete album</string>
+    <string name="photos_review_unknown">Unknown</string>
+    <!-- %1$s = formatted UTC timestamp -->
+    <string name="photos_review_observed">Observed %1$s</string>
+    <!-- %1$s = formatted coordinates -->
+    <string name="photos_review_coordinates">Coordinates %1$s</string>
+    <!-- %1$s = error message -->
+    <string name="photos_review_upload_error">iNaturalist upload error: %1$s</string>
+    <string name="photos_review_not_uploaded">iNaturalist not uploaded yet</string>
+    <string name="photos_review_crop_title">Crop</string>
+    <!-- %1$d = photo position in album -->
+    <string name="photos_review_photo_cd">Photo %1$d</string>
+    <string name="photos_review_selected_photo_cd">Selected photo</string>
+    <string name="photos_review_rotate_left">Rotate left</string>
+    <string name="photos_review_rotate_right">Rotate right</string>
+    <string name="photos_review_delete">Delete</string>
+    <string name="photos_review_close_preview">Close preview</string>
+
+    <!-- Submit bottom bar -->
+    <string name="photos_submit_uploading">Uploading…</string>
+    <string name="photos_submit_already_uploaded">Already uploaded</string>
+    <string name="photos_submit_recreate_first">Recreate incomplete first</string>
+    <string name="photos_submit_add_photos">Add photos to upload</string>
+    <string name="photos_submit_upload">Upload to iNaturalist</string>
 </resources>

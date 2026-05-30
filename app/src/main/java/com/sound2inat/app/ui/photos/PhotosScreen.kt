@@ -37,7 +37,7 @@ fun PhotosScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         when {
             state.isLoading -> {
-                Text("Loading photos...", modifier = Modifier.align(Alignment.Center))
+                Text(stringResource(R.string.photos_loading), modifier = Modifier.align(Alignment.Center))
             }
             state.drafts.isEmpty() -> {
                 EmptyState(

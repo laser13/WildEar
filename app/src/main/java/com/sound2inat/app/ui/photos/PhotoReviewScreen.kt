@@ -117,7 +117,7 @@ fun PhotoReviewScreen(
 
     if (state.isLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Loading photo review...")
+            Text(stringResource(R.string.photos_review_loading))
         }
         return
     }
@@ -185,12 +185,12 @@ fun PhotoReviewScreen(
                 ) {
                     PhotoActionTile(
                         icon = Icons.AutoMirrored.Outlined.ArrowBack,
-                        label = "Back",
+                        label = stringResource(R.string.photos_review_back),
                         onClick = onBack,
                     )
                     PhotoActionTile(
                         icon = Icons.Outlined.Delete,
-                        label = "Delete album",
+                        label = stringResource(R.string.photos_review_delete_album),
                         onClick = {
                             scope.launch {
                                 vm.deleteAlbum()
@@ -264,14 +264,17 @@ private fun PhotoHeroSection(
                                 imageVector = Icons.Outlined.AddPhotoAlternate,
                                 contentDescription = null,
                             )
-                            Text("No photos yet", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                "Take a few shots to build the album.",
+                                stringResource(R.string.photos_review_no_photos_title),
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                stringResource(R.string.photos_review_no_photos_subtitle),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             OutlinedButton(onClick = onAddMorePhotos) {
                                 Icon(imageVector = Icons.Outlined.AddPhotoAlternate, contentDescription = null)
-                                Text("Add photos")
+                                Text(stringResource(R.string.photos_workflow_add_photos))
                             }
                         }
                     }
@@ -286,7 +289,7 @@ private fun PhotoHeroSection(
                 ) {
                     AsyncImage(
                         model = File(cover.photoPath),
-                        contentDescription = "Cover photo",
+                        contentDescription = stringResource(R.string.photos_review_cover_cd),
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .fillMaxSize()
@@ -312,7 +315,10 @@ private fun PhotoHeroSection(
                             .padding(12.dp)
                             .size(34.dp),
                     ) {
-                        Icon(Icons.Outlined.Delete, contentDescription = "Delete selected photo")
+                        Icon(
+                            Icons.Outlined.Delete,
+                            contentDescription = stringResource(R.string.photos_review_delete_selected_cd)
+                        )
                     }
                     AssistChip(
                         onClick = {},
@@ -363,24 +369,32 @@ private fun PhotoObservationFooter(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            val unknownStr = stringResource(R.string.photos_review_unknown)
             Text(
-                text = "Observed ${state.observedAtUtcMs?.let(::formatUtc) ?: "Unknown"}",
+                text = stringResource(
+                    R.string.photos_review_observed,
+                    state.observedAtUtcMs?.let(::formatUtc) ?: unknownStr
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = "Coordinates ${formatCoordinates(
-                    state.latitude,
-                    state.longitude,
-                    state.locationAccuracyMeters
-                )}",
+                text = stringResource(
+                    R.string.photos_review_coordinates,
+                    formatCoordinates(
+                        state.latitude,
+                        state.longitude,
+                        state.locationAccuracyMeters,
+                        unknownStr,
+                    )
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             when {
                 state.submitError != null && !state.isUploaded -> {
                     Text(
-                        text = "iNaturalist upload error: ${state.submitError}",
+                        text = stringResource(R.string.photos_review_upload_error, state.submitError ?: ""),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -389,11 +403,11 @@ private fun PhotoObservationFooter(
                     state.inatObservationId?.let { id ->
                         if (observationUrl != null) {
                             TextButton(onClick = { onOpenObservation(observationUrl) }) {
-                                Text("Observation ID $id")
+                                Text(stringResource(R.string.photos_inat_observation_id, id))
                             }
                         } else {
                             Text(
-                                text = "Observation ID $id",
+                                text = stringResource(R.string.photos_inat_observation_id, id),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -402,7 +416,7 @@ private fun PhotoObservationFooter(
                 }
                 else -> {
                     Text(
-                        text = "iNaturalist not uploaded yet",
+                        text = stringResource(R.string.photos_review_not_uploaded),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -424,11 +438,11 @@ private fun PhotoSubmitBottomBar(
         !state.isUploaded &&
         state.incompleteObservation == null
     val label = when {
-        state.isSubmitting -> "Uploading…"
-        state.isUploaded -> "Already uploaded"
-        state.incompleteObservation != null -> "Recreate incomplete first"
-        state.images.isEmpty() -> "Add photos to upload"
-        else -> "Upload to iNaturalist"
+        state.isSubmitting -> stringResource(R.string.photos_submit_uploading)
+        state.isUploaded -> stringResource(R.string.photos_submit_already_uploaded)
+        state.incompleteObservation != null -> stringResource(R.string.photos_submit_recreate_first)
+        state.images.isEmpty() -> stringResource(R.string.photos_submit_add_photos)
+        else -> stringResource(R.string.photos_submit_upload)
     }
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -667,10 +681,11 @@ private fun PhotoThumbnail(
     onOpen: () -> Unit,
 ) {
     val thumbnailWidth = if (compact) 92.dp else 112.dp
+    val photoCd = stringResource(R.string.photos_review_photo_cd, index)
     Card(
         modifier = Modifier
             .widthIn(max = thumbnailWidth)
-            .semantics { contentDescription = "Photo $index" }
+            .semantics { contentDescription = photoCd }
             .clickable(onClick = onOpen),
         shape = RoundedCornerShape(if (compact) 18.dp else 20.dp),
         colors = CardDefaults.cardColors(
@@ -688,7 +703,7 @@ private fun PhotoThumbnail(
         ) {
             AsyncImage(
                 model = File(image.photoPath),
-                contentDescription = "Photo $index",
+                contentDescription = stringResource(R.string.photos_review_photo_cd, index),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -715,7 +730,7 @@ private fun AddPhotoThumbnail(onClick: () -> Unit) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
                     imageVector = Icons.Outlined.AddPhotoAlternate,
-                    contentDescription = "Add photos",
+                    contentDescription = stringResource(R.string.photos_review_add_photos_cd),
                 )
             }
         }
@@ -868,7 +883,10 @@ private fun PhotoImageDialog(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Crop", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        stringResource(R.string.photos_review_crop_title),
+                        style = MaterialTheme.typography.titleMedium
+                    )
                 }
 
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
@@ -911,7 +929,7 @@ private fun PhotoImageDialog(
                     ) {
                         AsyncImage(
                             model = File(sourcePath),
-                            contentDescription = "Selected photo",
+                            contentDescription = stringResource(R.string.photos_review_selected_photo_cd),
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1001,12 +1019,12 @@ private fun PhotoImageDialog(
                 ) {
                     PhotoActionTile(
                         icon = Icons.AutoMirrored.Outlined.RotateLeft,
-                        label = "Rotate left",
+                        label = stringResource(R.string.photos_review_rotate_left),
                         onClick = { rotateCrop(-90) },
                     )
                     PhotoActionTile(
                         icon = Icons.AutoMirrored.Outlined.RotateRight,
-                        label = "Rotate right",
+                        label = stringResource(R.string.photos_review_rotate_right),
                         onClick = { rotateCrop(90) },
                     )
                     PhotoActionTile(
@@ -1033,12 +1051,12 @@ private fun PhotoImageDialog(
                     )
                     PhotoActionTile(
                         icon = Icons.Outlined.Delete,
-                        label = "Delete",
+                        label = stringResource(R.string.photos_review_delete),
                         onClick = onDelete,
                     )
                     PhotoActionTile(
                         icon = Icons.Outlined.Close,
-                        label = "Close preview",
+                        label = stringResource(R.string.photos_review_close_preview),
                         onClick = onClose,
                     )
                 }
@@ -1057,9 +1075,10 @@ private fun formatCoordinates(
     latitude: Double?,
     longitude: Double?,
     accuracyMeters: Float?,
+    unknown: String,
 ): String {
-    val lat = latitude?.let { "%.5f".format(it) } ?: return "Unknown"
-    val lon = longitude?.let { "%.5f".format(it) } ?: return "Unknown"
+    val lat = latitude?.let { "%.5f".format(it) } ?: return unknown
+    val lon = longitude?.let { "%.5f".format(it) } ?: return unknown
     val accuracy = accuracyMeters?.let { " • ±${it.toInt()}m" }.orEmpty()
     return "$lat, $lon$accuracy"
 }
