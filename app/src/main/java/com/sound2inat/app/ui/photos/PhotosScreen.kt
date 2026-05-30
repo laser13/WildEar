@@ -48,7 +48,7 @@ fun PhotosScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(16.dp),
+                    contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp),
                 ) {
                     datedSections(
                         groups = groups,
@@ -57,7 +57,7 @@ fun PhotosScreen(
                         PhotoDraftCard(
                             draft = draft,
                             onClick = { onOpenPhotoDraft(draft.id) },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         )
                     }
                 }
