@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import com.sound2inat.app.R
 import com.sound2inat.app.ui.formatDurationMs
 import com.sound2inat.app.ui.theme.iNatGreen
-import com.sound2inat.inference.ModelIds
+import com.sound2inat.modelmanager.ModelIds
 
 /**
  * Bottom sheet showing technical details for a single species detection.

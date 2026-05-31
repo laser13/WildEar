@@ -1,6 +1,7 @@
 package com.sound2inat.inference
 
 import com.sound2inat.modelmanager.LabelsFormat
+import com.sound2inat.modelmanager.ModelIds
 import java.io.File
 import kotlin.math.exp
 

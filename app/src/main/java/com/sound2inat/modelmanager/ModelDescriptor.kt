@@ -1,7 +1,5 @@
 package com.sound2inat.modelmanager
 
-import com.sound2inat.inference.ModelIds
-
 data class ModelDescriptor(
     val id: String,
     val displayName: String,

@@ -128,6 +128,8 @@ copyRoomSchemasIntoAssets.configure {
 }
 
 dependencies {
+    implementation(project(":core-audio"))
+
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)

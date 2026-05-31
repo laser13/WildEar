@@ -1,6 +1,7 @@
 package com.sound2inat.inference
 
 import com.sound2inat.modelmanager.ModelDescriptor
+import com.sound2inat.modelmanager.ModelIds
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
 import kotlinx.coroutines.Dispatchers

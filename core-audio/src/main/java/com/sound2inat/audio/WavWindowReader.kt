@@ -12,7 +12,7 @@ import java.io.RandomAccessFile
  *
  * Created in Task B1 to avoid holding the entire decoded WAV in memory.
  */
-internal class WavWindowReader private constructor(
+class WavWindowReader private constructor(
     private val raf: RandomAccessFile,
     val sampleRate: Int,
     val dataStartByte: Long,

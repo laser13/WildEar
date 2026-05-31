@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "sound2inat"
 include(":app")
+include(":core-audio")

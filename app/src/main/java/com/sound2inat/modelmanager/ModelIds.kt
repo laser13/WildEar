@@ -1,4 +1,4 @@
-package com.sound2inat.inference
+package com.sound2inat.modelmanager
 
 object ModelIds {
     const val BIRDNET = "birdnet_v2_4"

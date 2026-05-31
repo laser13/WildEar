@@ -5,7 +5,7 @@ import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.DetectionAggregator
 import com.sound2inat.inference.LiveInferenceEngine
 import com.sound2inat.inference.LiveInferenceEngineFactory
-import com.sound2inat.inference.ModelIds
+import com.sound2inat.modelmanager.ModelIds
 import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.location.Fix
 import com.sound2inat.location.LocationProvider

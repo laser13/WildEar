@@ -3,6 +3,7 @@ package com.sound2inat.inference
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.audio.WavWriter
 import com.sound2inat.modelmanager.ModelDescriptor
+import com.sound2inat.modelmanager.ModelIds
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
 import kotlinx.coroutines.flow.flowOf

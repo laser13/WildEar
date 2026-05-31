@@ -11,7 +11,7 @@ import com.sound2inat.inference.InferenceUseCase
 import com.sound2inat.inference.InterpreterFactory
 import com.sound2inat.inference.LiveInferenceEngine
 import com.sound2inat.inference.LiveInferenceEngineFactory
-import com.sound2inat.inference.ModelIds
+import com.sound2inat.modelmanager.ModelIds
 import com.sound2inat.inference.PerchTfliteModel
 import com.sound2inat.inference.YamNetGate
 import com.sound2inat.inference.YamNetTfliteGate
