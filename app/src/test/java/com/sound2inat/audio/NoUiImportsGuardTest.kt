@@ -32,4 +32,9 @@ class NoUiImportsGuardTest {
     fun `inference package has no app_ui imports`() {
         assertNoImportPrefix("inference", "com.sound2inat.app.ui")
     }
+
+    @Test
+    fun `inference package has no app_data imports`() {
+        assertNoImportPrefix("inference", "com.sound2inat.app.data")
+    }
 }

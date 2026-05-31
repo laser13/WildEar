@@ -1,6 +1,5 @@
 package com.sound2inat.inference
 
-import com.sound2inat.app.data.Settings
 import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
@@ -37,7 +36,7 @@ class DefaultInferenceUseCase(
     private val models: List<BioacousticModel>,
     private val descriptors: List<ModelDescriptor>,
     private val modelManager: ModelManager,
-    private val settings: Settings,
+    private val settings: InferenceSettings,
     private val yamNetGate: YamNetGate?,
     private val birdNetMeta: BirdNetMetaModel?,
 ) : InferenceUseCase {
@@ -88,7 +87,7 @@ internal class ProductionInferenceJob(
     private val models: List<BioacousticModel>,
     private val descriptors: List<ModelDescriptor>,
     private val modelManager: ModelManager,
-    private val settings: Settings,
+    private val settings: InferenceSettings,
     private val yamNetGate: YamNetGate?,
     private val birdNetMeta: BirdNetMetaModel?,
 ) : InferenceJob {
@@ -219,7 +218,7 @@ internal class ProductionInferenceJob(
      * Runs the BirdNET location/time meta-model once for this recording and
      * returns the per-species multiplier map, or null when we have no priors
      * to apply (model not installed, coords unknown, or any internal failure).
-     * Coords fall back to [Settings.lastKnownLat]/[lastKnownLon] when the
+     * Coords fall back to [InferenceSettings.lastKnownLat]/[lastKnownLon] when the
      * recording itself has no GPS fix attached.
      */
     private suspend fun computeBirdNetPriors(
@@ -271,7 +270,7 @@ internal class ProductionInferenceJob(
 internal class ProductionPerchAnalysisJob(
     private val models: List<BioacousticModel>,
     private val modelManager: ModelManager,
-    private val settings: Settings,
+    private val settings: InferenceSettings,
     private val yamNetGate: YamNetGate?,
     /** When true, YAMNet gate is always active and skips predict on DOWNRANK (hard pre-filter). */
     private val hardGate: Boolean = false,
