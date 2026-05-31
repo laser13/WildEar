@@ -1,6 +1,7 @@
 package com.sound2inat.recorder
 
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.audio.WavWriter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout

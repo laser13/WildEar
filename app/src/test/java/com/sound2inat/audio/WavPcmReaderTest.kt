@@ -1,7 +1,6 @@
 package com.sound2inat.audio
 
 import com.google.common.truth.Truth.assertThat
-import com.sound2inat.recorder.WavWriter
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder

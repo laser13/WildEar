@@ -5,7 +5,7 @@ import java.io.RandomAccessFile
 
 /**
  * Canonical reader for mono 16-bit PCM WAV files produced by
- * [com.sound2inat.recorder.WavWriter] (clean 44-byte header, fmt chunk size 16,
+ * [com.sound2inat.audio.WavWriter] (clean 44-byte header, fmt chunk size 16,
  * PCM `data` chunk immediately after at offset 36). NOT a general RIFF parser —
  * extra chunks (LIST/INFO) are unsupported.
  *

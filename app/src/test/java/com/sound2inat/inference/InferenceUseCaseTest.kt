@@ -1,10 +1,10 @@
 package com.sound2inat.inference
 
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.audio.WavWriter
 import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
-import com.sound2inat.recorder.WavWriter
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient

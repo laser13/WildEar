@@ -1,5 +1,6 @@
 package com.sound2inat.recorder
 
+import com.sound2inat.audio.WavWriter
 import java.io.File
 import java.io.IOException
 import kotlin.math.PI

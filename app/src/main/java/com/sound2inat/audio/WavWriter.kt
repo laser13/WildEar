@@ -1,4 +1,4 @@
-package com.sound2inat.recorder
+package com.sound2inat.audio
 
 import java.io.BufferedOutputStream
 import java.io.File

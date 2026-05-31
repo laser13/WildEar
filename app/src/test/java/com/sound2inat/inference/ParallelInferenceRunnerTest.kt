@@ -1,7 +1,7 @@
 package com.sound2inat.inference
 
 import com.google.common.truth.Truth.assertThat
-import com.sound2inat.recorder.WavWriter
+import com.sound2inat.audio.WavWriter
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest

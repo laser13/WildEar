@@ -3,7 +3,7 @@ package com.sound2inat.inat
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
-import com.sound2inat.recorder.WavWriter
+import com.sound2inat.audio.WavWriter
 import com.sound2inat.storage.DetectionEntity
 import com.sound2inat.storage.DraftEntity
 import com.sound2inat.storage.DraftStatus

@@ -1,9 +1,9 @@
 package com.sound2inat.inat
 
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.audio.WavWriter
 import com.sound2inat.inference.FragmentRange
 import com.sound2inat.inference.FragmentRanges
-import com.sound2inat.recorder.WavWriter
 import com.sound2inat.storage.DetectionEntity
 import com.sound2inat.storage.DraftEntity
 import com.sound2inat.storage.DraftStatus

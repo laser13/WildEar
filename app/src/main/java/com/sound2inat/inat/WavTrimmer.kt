@@ -1,13 +1,13 @@
 package com.sound2inat.inat
 
 import com.sound2inat.audio.WavPcmReader
-import com.sound2inat.recorder.WavWriter
+import com.sound2inat.audio.WavWriter
 import java.io.File
 import java.io.RandomAccessFile
 
 /**
  * Pure-JVM WAV slicer. Reads a mono 16-bit PCM WAV (the format produced by
- * [com.sound2inat.recorder.WavWriter]) and writes a new WAV containing only
+ * [com.sound2inat.audio.WavWriter]) and writes a new WAV containing only
  * the samples in `[startMs, endMs)` after clamping into the file's range.
  *
  * Used by the iNaturalist submission flow: per-species crops are tighter

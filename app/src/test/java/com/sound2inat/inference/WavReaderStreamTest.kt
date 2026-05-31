@@ -3,7 +3,7 @@ package com.sound2inat.inference
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.audio.WavPcmReader
 import com.sound2inat.audio.WavWindowReader
-import com.sound2inat.recorder.WavWriter
+import com.sound2inat.audio.WavWriter
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
