@@ -14,8 +14,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.sound2inat.app.R
 import com.sound2inat.storage.PhotoDraftSummary
 import java.io.File
 import java.time.Instant
@@ -51,7 +53,9 @@ fun PhotoDraftCard(
             },
             headlineContent = {
                 Text(
-                    draft.taxonCommonName ?: draft.taxonScientificName ?: "Observation",
+                    draft.taxonCommonName?.takeIf { it.isNotBlank() }
+                        ?: draft.taxonScientificName?.takeIf { it.isNotBlank() }
+                        ?: stringResource(R.string.photos_draft_unnamed),
                     style = MaterialTheme.typography.titleMedium,
                 )
             },

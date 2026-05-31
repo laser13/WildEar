@@ -22,8 +22,9 @@ import com.sound2inat.app.ui.theme.LocalIsDarkTheme
  * @param title shown when [showLogo] is false (Photos, Radar).
  * @param showLogo when true, renders the app logo as the navigation icon
  *   instead of a text title (Home).
- * @param inlineContent optional slot rendered between title and actions,
- *   e.g. Home's filter chips. Receives a RowScope so callers can weight it.
+ * @param inlineContent optional slot prepended to the actions area (rendered
+ *   to the right of the title, before [actions]), e.g. Home's filter chips.
+ *   Receives the actions RowScope.
  * @param actions trailing action slot (e.g. a settings IconButton).
  */
 @OptIn(ExperimentalMaterial3Api::class)
