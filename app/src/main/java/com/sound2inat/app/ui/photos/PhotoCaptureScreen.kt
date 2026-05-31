@@ -58,6 +58,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sound2inat.app.R
 import com.sound2inat.app.permissions.LocalPermissionsController
+import com.sound2inat.app.ui.theme.cornerLarge24
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -311,7 +312,7 @@ fun PhotoCaptureScreen(
             state.showCameraPermissionDenied -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Card(
-                        shape = RoundedCornerShape(24.dp),
+                        shape = cornerLarge24,
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     ) {
                         Column(
