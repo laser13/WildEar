@@ -8,12 +8,12 @@ import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.ObservationDetail
 import com.sound2inat.inat.PhotoAnnotationUseCase
 import com.sound2inat.inat.PhotoSubmitResult
-import com.sound2inat.inat.SubmissionProgress
 import com.sound2inat.inat.PhotoSubmitter
 import com.sound2inat.inat.PhotoVisionPlanner
 import com.sound2inat.inat.PhotoVisionSuggestion
 import com.sound2inat.inat.PhotoVisionTarget
 import com.sound2inat.inat.PhotoVisionUseCase
+import com.sound2inat.inat.SubmissionProgress
 import com.sound2inat.storage.PhotoDraftEntity
 import com.sound2inat.storage.PhotoDraftRepository
 import com.sound2inat.storage.PhotoObservationFileStore

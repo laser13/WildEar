@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Sync
@@ -46,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.sound2inat.app.R
 import com.sound2inat.app.ui.theme.cornerLarge24
+import com.sound2inat.app.ui.theme.cornerTopLarge24
 import com.sound2inat.inat.PhotoVisionPlanner
 import com.sound2inat.inat.PhotoVisionSuggestion
 import com.sound2inat.inat.PhotoVisionTarget
@@ -571,7 +571,7 @@ fun ObservationSuggestionCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(132.dp)
-                        .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)), // top-only corners; no shape token
+                        .clip(cornerTopLarge24),
                 )
             }
             ListItem(

@@ -28,3 +28,6 @@ val Sound2iNatShapes = Shapes(
 
 /** 24 dp radius used by hero/suggestion image clips; no M3 bucket maps to it. */
 val cornerLarge24 = RoundedCornerShape(24.dp)
+
+/** Top-only 24 dp rounding for image clips whose bottom meets a card edge. */
+val cornerTopLarge24 = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
