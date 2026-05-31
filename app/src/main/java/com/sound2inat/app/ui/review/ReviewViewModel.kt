@@ -12,7 +12,6 @@ import com.sound2inat.app.data.Settings
 import com.sound2inat.app.inference.InferenceQueue
 import com.sound2inat.app.inference.JobStatus
 import com.sound2inat.app.inference.QueuedJob
-import com.sound2inat.app.ui.FILE_PROVIDER_AUTHORITY
 import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
 import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INaturalistClient
@@ -268,6 +267,11 @@ class ReviewViewModel(
     private var denoiseJob: Job? = null
 
     private val exportUseCase = ReviewExportUseCase(exportClipsDir = exportClipsDir, draftId = draftId)
+
+    private val photoController = ReviewPhotoAttachmentController(
+        photoStore = photoStore,
+        photosDao = photosDao,
+    )
 
     init {
         cachedFilesDir = defaultFilesDir
@@ -582,15 +586,8 @@ class ReviewViewModel(
      * Creates a new photo file and returns a content URI suitable for
      * [ActivityResultContracts.TakePicture]. Requires [photoStore] to be set.
      */
-    fun preparePhotoCapture(context: android.content.Context, draftId: String, photoId: String): android.net.Uri {
-        checkNotNull(photoStore) { "Camera not available" }
-        val file = photoStore.newPhotoFile(draftId, photoId)
-        return androidx.core.content.FileProvider.getUriForFile(
-            context,
-            FILE_PROVIDER_AUTHORITY,
-            file,
-        )
-    }
+    fun preparePhotoCapture(context: android.content.Context, draftId: String, photoId: String): android.net.Uri =
+        photoController.preparePhotoCapture(context, draftId, photoId)
 
     /**
      * Creates a new photo file and returns a content URI plus the absolute file
@@ -603,37 +600,17 @@ class ReviewViewModel(
         context: android.content.Context,
         draftId: String,
         photoId: String,
-    ): Pair<android.net.Uri, String> {
-        checkNotNull(photoStore) { "Camera not available" }
-        val file = photoStore.newPhotoFile(draftId, photoId)
-        val uri = androidx.core.content.FileProvider.getUriForFile(
-            context,
-            FILE_PROVIDER_AUTHORITY,
-            file,
-        )
-        return uri to file.absolutePath
-    }
+    ): Pair<android.net.Uri, String> =
+        photoController.preparePhotoCaptureWithPath(context, draftId, photoId)
 
     /** Persists a newly captured photo entity to the database. */
     fun onPhotoTaken(draftId: String, photoId: String, photoPath: String) {
-        scope.launch(Dispatchers.IO) {
-            photosDao?.insert(
-                DraftPhotoEntity(
-                    id = photoId,
-                    draftId = draftId,
-                    photoPath = photoPath,
-                    takenAtMs = System.currentTimeMillis()
-                )
-            )
-        }
+        scope.launch(Dispatchers.IO) { photoController.onPhotoTaken(draftId, photoId, photoPath) }
     }
 
     /** Removes a photo from the database and deletes the file from disk. */
     fun onPhotoDeleted(photoId: String, photoPath: String) {
-        scope.launch(Dispatchers.IO) {
-            photosDao?.deleteById(photoId)
-            java.io.File(photoPath).delete()
-        }
+        scope.launch(Dispatchers.IO) { photoController.onPhotoDeleted(photoId, photoPath) }
     }
 
     /**
