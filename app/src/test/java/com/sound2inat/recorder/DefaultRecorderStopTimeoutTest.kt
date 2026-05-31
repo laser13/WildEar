@@ -24,15 +24,23 @@ class DefaultRecorderStopTimeoutTest {
         override val channels = 1
         override val bitsPerSample = 16
 
+        // Set true by the test (in a finally) to let the wedged read() thread exit
+        // instead of leaking for the JVM lifetime. Stays false during the test so
+        // read() remains blocked and stop()'s join timeout is genuinely exercised.
+        @Volatile
+        var released = false
+
         override suspend fun start() { /* no-op */ }
 
         override suspend fun read(buf: ShortArray, off: Int, len: Int): Int {
-            // Block forever on a real thread, ignoring coroutine cancellation:
-            // Thread.sleep does not check isActive/isCancelled, so the pump
-            // coroutine is stuck here regardless of Job.cancel().
-            while (true) {
-                Thread.sleep(10_000)
+            // Block on a real thread ignoring coroutine cancellation: Thread.sleep
+            // does not check isActive/isCancelled, so the pump coroutine is stuck
+            // here regardless of Job.cancel() — simulating a wedged native
+            // AudioRecord.read(). Exits only once the test releases it.
+            while (!released) {
+                Thread.sleep(20)
             }
+            return 0
         }
 
         override suspend fun stop() { /* no-op */ }
@@ -57,8 +65,9 @@ class DefaultRecorderStopTimeoutTest {
         // runBlocking (not runTest) so withTimeout measures real wall-clock time,
         // not virtual test time — required because the pump is stuck on a real thread.
         // stopJoinTimeoutMs=200 makes the test fast and deterministic.
+        val source = WedgedSource()
         val recorder = DefaultRecorder(
-            source = WedgedSource(),
+            source = source,
             ioDispatcher = Dispatchers.IO,
             wavWriterFactory = { file -> NoIoWavWriter(file) },
             stopJoinTimeoutMs = 200L,
@@ -66,9 +75,14 @@ class DefaultRecorderStopTimeoutTest {
         val target = tmp.newFile("rec.wav")
         recorder.start(target)
 
-        // stop() must complete within a real-time bound well above the internal
-        // join timeout (200ms) but far below "forever" (5000ms).
-        val result = withTimeout(5_000) { recorder.stop() }
-        assertThat(result.audioPath).isEqualTo(target.absolutePath)
+        try {
+            // stop() must complete within a real-time bound well above the internal
+            // join timeout (200ms) but far below "forever" (5000ms).
+            val result = withTimeout(5_000) { recorder.stop() }
+            assertThat(result.audioPath).isEqualTo(target.absolutePath)
+        } finally {
+            // Let the wedged read() thread exit so it does not leak past the test.
+            source.released = true
+        }
     }
 }

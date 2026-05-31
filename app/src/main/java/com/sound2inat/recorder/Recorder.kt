@@ -101,6 +101,11 @@ class DefaultRecorder(
 
     override val sampleRate: Int get() = source.sampleRate
 
+    // @Volatile: stop() may null this from one thread while the pump coroutine
+    // (possibly still alive after a join timeout) reads it on another. Without
+    // volatility the null would not be guaranteed visible to the pump, so its
+    // writer?.writeShorts guard could write to an already-closed stream.
+    @Volatile
     private var writer: WavWriter? = null
     private var target: File? = null
     private var startMs = 0L
@@ -178,14 +183,19 @@ class DefaultRecorder(
             }
         }
         job = null
+        // Null the shared writer BEFORE closing it. If the join above timed out the
+        // pump may still be wedged in source.read(); when it unblocks its
+        // writer?.writeShorts guard must see null (hence @Volatile) and skip rather
+        // than write to a stream we are about to close.
         // Tolerate IOException from close (e.g. disk full during patchHeader).
         // The WAV payload is already on disk; only the header update may be stale.
         // We still return a RecordingResult so the draft is persisted and the user
         // doesn't lose the recording entirely. The downstream inference path can
         // fail gracefully on a stale header rather than us losing the file.
-        runCatching { writer?.close() }
-            .onFailure { Log.w(TAG, "writer.close() failed; WAV may have stale header", it) }
+        val pendingWriter = writer
         writer = null
+        runCatching { pendingWriter?.close() }
+            .onFailure { Log.w(TAG, "writer.close() failed; WAV may have stale header", it) }
         val durationMs = clock.nowMs() - startMs
         RecordingResult(target!!.absolutePath, durationMs, source.sampleRate, source.channels)
     }
