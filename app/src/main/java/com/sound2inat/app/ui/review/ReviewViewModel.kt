@@ -29,7 +29,6 @@ import com.sound2inat.inference.PerchAnalysisJob
 import com.sound2inat.inference.PerchAnalysisOutcome
 import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.inference.SourceStats
-import com.sound2inat.inference.WavReader
 import com.sound2inat.inference.WindowPrediction
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
@@ -68,10 +67,10 @@ import kotlin.coroutines.coroutineContext
  * Builds (or loads cached) waveform and spectrogram artifacts for a draft.
  * Decoupled from Android's `Bitmap` so the VM can be unit-tested on the JVM.
  *
- * Production wiring: [ProductionVisualsProvider] reads the WAV via
- * [WavReader.readMono16], runs [LiveStyleReviewRenderer] into an in-memory
- * preview, and computes per-column peaks via a downsampled envelope. PNG
- * generation is deferred until submission/export.
+ * Production wiring: [ProductionVisualsProvider] streams the WAV block-by-block
+ * via [streamMono16] into [LiveStyleReviewRenderer.renderStreaming], then computes
+ * per-column peaks via a downsampled envelope. PNG generation is deferred until
+ * submission/export.
  */
 fun interface VisualsProvider {
     suspend fun build(
@@ -1639,30 +1638,26 @@ internal class ProductionVisualsProvider(
         val startedAt = SystemClock.elapsedRealtime()
         val input = File(audioPath)
         Log.d("ReviewVisuals", "provider-start draft=$draftId file=${input.name}")
-        val readStart = SystemClock.elapsedRealtime()
-        val (shorts, sampleRateHz) = WavReader.readMono16(input)
-        val samples = FloatArray(shorts.size) { i -> shorts[i] / Short.MAX_VALUE.toFloat() }
-        Log.d(
-            "ReviewVisuals",
-            "wav-read draft=$draftId elapsed=${SystemClock.elapsedRealtime() - readStart}ms rate=$sampleRateHz samples=${samples.size}",
-        )
+        val info = readMono16Info(input)
         val palette = config.palette ?: SpectrogramPalette.INK
         val contrastDb = config.gainDb ?: 0f
         val renderStart = SystemClock.elapsedRealtime()
-        val rendered = LiveStyleReviewRenderer.render(
-            samples = samples,
-            sampleRateHz = sampleRateHz,
+        val rendered = LiveStyleReviewRenderer.renderStreaming(
+            sampleRateHz = info.sampleRateHz,
             palette = palette,
             contrastDb = contrastDb,
-        )
+        ) { onBlock ->
+            streamMono16(input) { chunk, _ ->
+                onBlock(FloatArray(chunk.size) { i -> chunk[i] / Short.MAX_VALUE.toFloat() })
+            }
+        }
         Log.d(
             "ReviewVisuals",
             "render-done draft=$draftId elapsed=${SystemClock.elapsedRealtime() - renderStart}ms preview=${rendered.preview.width}x${rendered.preview.height}",
         )
         val peaksStarted = SystemClock.elapsedRealtime()
-        val wavInfo = Mono16Info(sampleRateHz = sampleRateHz, totalSamples = samples.size.toLong())
         val peaks = waveformPeaksCache.getOrCreate(input, draftId, filesDir) {
-            buildWaveformPeaks(input, wavInfo)
+            buildWaveformPeaks(input, info)
         }
         Log.d(
             "ReviewVisuals",

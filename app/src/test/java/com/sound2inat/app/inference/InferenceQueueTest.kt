@@ -279,6 +279,60 @@ class InferenceQueueTest {
     }
 
     @Test
+    fun `worker survives a throwing job and processes the next one`() = runTest {
+        var d2Ran = false
+        val jobs = mutableListOf(
+            InferenceJob { _, _, _, _, _ -> throw RuntimeException("boom") },
+            InferenceJob { _, _, _, _, _ ->
+                d2Ran = true
+                InferenceOutcome.Success("b", "1", emptyList())
+            },
+        )
+        val queue = InferenceQueue(
+            backgroundScope,
+            useCase(birdnet = InferenceJob { a, b, c, d, e -> jobs.removeAt(0).run(a, b, c, d, e) }),
+            repo(),
+        )
+
+        queue.enqueue(job("d1"))
+        runCurrent()
+        queue.enqueue(job("d2"))
+        runCurrent()
+
+        // First job failed but the worker must NOT be dead — second job ran.
+        assertThat(queue.status.value["d1"]).isInstanceOf(JobStatus.Failed::class.java)
+        assertThat(d2Ran).isTrue()
+        assertThat(queue.status.value).doesNotContainKey("d2")
+    }
+
+    @Test
+    fun `cancelQueued clears status synchronously`() = runTest {
+        val latch = CompletableDeferred<Unit>()
+        val queue = InferenceQueue(
+            backgroundScope,
+            useCase(
+                birdnet = InferenceJob { _, _, _, _, _ ->
+                    latch.await()
+                    InferenceOutcome.Success("b", "1", emptyList())
+                }
+            ),
+            repo(),
+        )
+        queue.enqueue(job("d1")) // will start running (blocks on latch)
+        runCurrent()
+        queue.enqueue(job("d2")) // stays Queued
+        runCurrent()
+
+        assertThat(queue.status.value).containsKey("d2")
+        queue.cancelQueued("d2")
+        // No runCurrent needed — cancelQueued patches _status synchronously.
+        assertThat(queue.status.value).doesNotContainKey("d2")
+
+        latch.complete(Unit)
+        runCurrent()
+    }
+
+    @Test
     fun `runPerch=true without runBirdnet runs only perch path`() = runTest {
         var birdnetCalled = false
         var perchCalled = false

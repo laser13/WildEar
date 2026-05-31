@@ -6,7 +6,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import kotlin.math.sqrt
 
@@ -76,6 +76,7 @@ class DefaultRecorder(
     private val wavWriterFactory: (File) -> WavWriter = { file ->
         WavWriter(file, source.sampleRate, source.channels, source.bitsPerSample)
     },
+    private val stopJoinTimeoutMs: Long = DEFAULT_STOP_JOIN_TIMEOUT_MS,
 ) : Recorder {
     init {
         require(Recorder.HISTORY_SIZE > 0) { "HISTORY_SIZE must be positive" }
@@ -100,6 +101,11 @@ class DefaultRecorder(
 
     override val sampleRate: Int get() = source.sampleRate
 
+    // @Volatile: stop() may null this from one thread while the pump coroutine
+    // (possibly still alive after a join timeout) reads it on another. Without
+    // volatility the null would not be guaranteed visible to the pump, so its
+    // writer?.writeShorts guard could write to an already-closed stream.
+    @Volatile
     private var writer: WavWriter? = null
     private var target: File? = null
     private var startMs = 0L
@@ -165,16 +171,31 @@ class DefaultRecorder(
 
     override suspend fun stop(): RecordingResult = withContext(ioDispatcher) {
         source.stop()
-        job?.cancelAndJoin()
+        // Cancel the pump, then join with a bound: if pump() is wedged inside a
+        // non-cooperative source.read() (e.g. a stuck native AudioRecord.read),
+        // cancelAndJoin() would otherwise block forever and freeze the UI/service.
+        val pump = job
+        pump?.cancel()
+        if (pump != null) {
+            val joined = withTimeoutOrNull(stopJoinTimeoutMs) { pump.join() }
+            if (joined == null) {
+                Log.w(TAG, "pump did not finish within ${stopJoinTimeoutMs}ms after cancel; abandoning join")
+            }
+        }
         job = null
+        // Null the shared writer BEFORE closing it. If the join above timed out the
+        // pump may still be wedged in source.read(); when it unblocks its
+        // writer?.writeShorts guard must see null (hence @Volatile) and skip rather
+        // than write to a stream we are about to close.
         // Tolerate IOException from close (e.g. disk full during patchHeader).
         // The WAV payload is already on disk; only the header update may be stale.
         // We still return a RecordingResult so the draft is persisted and the user
         // doesn't lose the recording entirely. The downstream inference path can
         // fail gracefully on a stale header rather than us losing the file.
-        runCatching { writer?.close() }
-            .onFailure { Log.w(TAG, "writer.close() failed; WAV may have stale header", it) }
+        val pendingWriter = writer
         writer = null
+        runCatching { pendingWriter?.close() }
+            .onFailure { Log.w(TAG, "writer.close() failed; WAV may have stale header", it) }
         val durationMs = clock.nowMs() - startMs
         RecordingResult(target!!.absolutePath, durationMs, source.sampleRate, source.channels)
     }
@@ -191,5 +212,6 @@ class DefaultRecorder(
     companion object {
         const val BUFFER_FRAMES = 4096
         private const val TAG = "DefaultRecorder"
+        const val DEFAULT_STOP_JOIN_TIMEOUT_MS = 2_000L
     }
 }

@@ -50,7 +50,11 @@ class InferenceQueue @Inject constructor(
     private val repo: DraftRepository,
 ) {
     private val enqueueMutex = Mutex()
-    private val jobChannel = Channel<QueuedJob>(Channel.UNLIMITED)
+
+    // Bounded queue: backpressure protects against unbounded growth if the UI
+    // somehow floods enqueue(). Capacity is generous relative to realistic
+    // review-screen usage (one job per recording).
+    private val jobChannel = Channel<QueuedJob>(capacity = MAX_QUEUED_JOBS)
 
     private val _pendingJobs = MutableStateFlow<List<QueuedJob>>(emptyList())
     private val _runningDraftId = MutableStateFlow<String?>(null)
@@ -93,10 +97,13 @@ class InferenceQueue @Inject constructor(
             }.collect { _status.value = it }
         }
 
-        // Worker: dequeue and execute jobs one at a time.
+        // Worker: dequeue and execute jobs one at a time. Resilient to any per-job
+        // failure — a throwable from one job is recorded as Failed and the loop
+        // continues. The loop only ends when the channel closes or the scope is
+        // cancelled (CancellationException is rethrown).
         scope.launch {
-            try {
-                for (job in jobChannel) {
+            for (job in jobChannel) {
+                try {
                     // Honour cancellations made after trySend but before dequeue.
                     if (_pendingJobs.value.none { it.draftId == job.draftId }) continue
                     _pendingJobs.update { list -> list.filterNot { it.draftId == job.draftId } }
@@ -106,23 +113,17 @@ class InferenceQueue @Inject constructor(
                     try {
                         runJob(job)
                         recentDurationMs = System.currentTimeMillis() - startMs
-                    } catch (t: Throwable) {
-                        if (t is CancellationException) throw t
-                        _failedJobs.update {
-                            it + (
-                                job.draftId to JobStatus.Failed(
-                                    t.message ?: t::class.simpleName.orEmpty()
-                                )
-                                )
-                        }
                     } finally {
                         _runningDraftId.value = null
                         _runningStatus.value = null
                     }
+                } catch (t: Throwable) {
+                    if (t is CancellationException) throw t
+                    Log.e("InferenceQueue", "Job ${job.draftId} failed; worker continues", t)
+                    _failedJobs.update {
+                        it + (job.draftId to JobStatus.Failed(t.message ?: t::class.simpleName.orEmpty()))
+                    }
                 }
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                Log.e("InferenceQueue", "Worker crashed unexpectedly", t)
             }
         }
     }
@@ -180,14 +181,23 @@ class InferenceQueue @Inject constructor(
         }
     }
 
-    /** Adds job to queue. Returns false if the same draftId is already running or pending. */
+    /** Adds job to queue. Returns false if the same draftId is already running, pending, or the queue is full. */
     suspend fun enqueue(job: QueuedJob): Boolean = enqueueMutex.withLock {
         _failedJobs.update { it - job.draftId }
         _status.update { it - job.draftId }
         if (_pendingJobs.value.any { it.draftId == job.draftId }) return@withLock false
         if (_runningDraftId.value == job.draftId) return@withLock false
+        // _pendingJobs.update BEFORE trySend: the worker guard checks _pendingJobs when it
+        // dequeues a job. The guard must see the job in pending, so we register it first.
+        // If the channel is full (trySend fails), we roll back the pending update so state
+        // stays consistent — no orphaned pending entry with no corresponding channel slot.
         _pendingJobs.update { it + job }
-        jobChannel.trySend(job)
+        val sent = jobChannel.trySend(job)
+        if (sent.isFailure) {
+            Log.w("InferenceQueue", "Queue full (>$MAX_QUEUED_JOBS), rejecting ${job.draftId}")
+            _pendingJobs.update { it.filterNot { j -> j.draftId == job.draftId } }
+            return@withLock false
+        }
         true
     }
 
@@ -200,5 +210,9 @@ class InferenceQueue @Inject constructor(
     fun clearError(draftId: String) {
         _failedJobs.update { it - draftId }
         _status.update { if (it[draftId] is JobStatus.Failed) it - draftId else it }
+    }
+
+    companion object {
+        private const val MAX_QUEUED_JOBS = 64
     }
 }

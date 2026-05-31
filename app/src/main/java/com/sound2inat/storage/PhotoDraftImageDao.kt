@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PhotoDraftImageDao {
@@ -27,4 +28,7 @@ interface PhotoDraftImageDao {
 
     @Query("SELECT * FROM photo_draft_images ORDER BY sortOrder ASC, takenAtUtcMs ASC")
     suspend fun listAll(): List<PhotoDraftImageEntity>
+
+    @Query("SELECT * FROM photo_draft_images ORDER BY sortOrder ASC, takenAtUtcMs ASC")
+    fun observeAll(): Flow<List<PhotoDraftImageEntity>>
 }

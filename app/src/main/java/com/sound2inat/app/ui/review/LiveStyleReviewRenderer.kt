@@ -57,6 +57,52 @@ internal object LiveStyleReviewRenderer {
         return RenderedSpectrogram(displayPlane, preview)
     }
 
+    /**
+     * Streaming variant of [render]: feeds [Spectrogram] block-by-block instead of
+     * holding the whole decoded signal in memory. [blockSource] is invoked once and
+     * must push every PCM block (floats in ≈[-1,1]) into the provided callback, in
+     * order, exactly as [render] would have received them concatenated. Only the
+     * per-column binned plane (width × HEIGHT_BINS) is accumulated — never the full
+     * sample buffer nor the raw STFT columns.
+     *
+     * Equivalent to `render(allSamplesConcatenated, ...)` because [Spectrogram]
+     * keeps STFT state across [Spectrogram.process] calls.
+     */
+    fun renderStreaming(
+        sampleRateHz: Int,
+        palette: SpectrogramPalette,
+        contrastDb: Float,
+        blockSource: (onBlock: (FloatArray) -> Unit) -> Unit,
+    ): RenderedSpectrogram {
+        val profile = SpectrogramRenderProfile.LiveBird
+        val spectrogram = Spectrogram(FFT_SIZE, HOP_SIZE, sampleRateHz)
+        val binnedColumns = ArrayList<FloatArray>()
+        var sortBuf: FloatArray? = null
+
+        blockSource { block ->
+            for (col in spectrogram.process(block)) {
+                val buf = sortBuf ?: FloatArray(col.size).also { sortBuf = it }
+                SpectrogramVisualPipeline.whitenColumnInPlace(col, buf)
+                binnedColumns += SpectrogramVisualPipeline.logBinDown(
+                    src = col,
+                    outBins = HEIGHT_BINS,
+                    sampleRateHz = sampleRateHz,
+                    minFrequencyHz = profile.minFrequencyHz,
+                    maxFrequencyHz = profile.maxFrequencyHz,
+                )
+            }
+        }
+
+        if (binnedColumns.isEmpty()) return RenderedSpectrogram(emptyDisplayPlane(), emptyPreview())
+
+        val width = binnedColumns.size
+        val binned = binnedColumns.toTypedArray()
+        val displayRangeDb = (profile.displayRangeDb - contrastDb).coerceAtLeast(MIN_DISPLAY_DB)
+        val displayPlane = buildDisplayPlane(binned, width, profile.gateDb, displayRangeDb, profile.gamma)
+        val preview = colorize(displayPlane, palette, profile.maxInkArgb)
+        return RenderedSpectrogram(displayPlane, preview)
+    }
+
     private fun buildDisplayPlane(
         binned: Array<FloatArray>,
         width: Int,
