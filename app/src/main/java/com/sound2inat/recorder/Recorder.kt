@@ -6,7 +6,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import kotlin.math.sqrt
 
@@ -76,6 +76,7 @@ class DefaultRecorder(
     private val wavWriterFactory: (File) -> WavWriter = { file ->
         WavWriter(file, source.sampleRate, source.channels, source.bitsPerSample)
     },
+    private val stopJoinTimeoutMs: Long = DEFAULT_STOP_JOIN_TIMEOUT_MS,
 ) : Recorder {
     init {
         require(Recorder.HISTORY_SIZE > 0) { "HISTORY_SIZE must be positive" }
@@ -165,7 +166,17 @@ class DefaultRecorder(
 
     override suspend fun stop(): RecordingResult = withContext(ioDispatcher) {
         source.stop()
-        job?.cancelAndJoin()
+        // Cancel the pump, then join with a bound: if pump() is wedged inside a
+        // non-cooperative source.read() (e.g. a stuck native AudioRecord.read),
+        // cancelAndJoin() would otherwise block forever and freeze the UI/service.
+        val pump = job
+        pump?.cancel()
+        if (pump != null) {
+            val joined = withTimeoutOrNull(stopJoinTimeoutMs) { pump.join() }
+            if (joined == null) {
+                Log.w(TAG, "pump did not finish within ${stopJoinTimeoutMs}ms after cancel; abandoning join")
+            }
+        }
         job = null
         // Tolerate IOException from close (e.g. disk full during patchHeader).
         // The WAV payload is already on disk; only the header update may be stale.
@@ -191,5 +202,6 @@ class DefaultRecorder(
     companion object {
         const val BUFFER_FRAMES = 4096
         private const val TAG = "DefaultRecorder"
+        const val DEFAULT_STOP_JOIN_TIMEOUT_MS = 2_000L
     }
 }
