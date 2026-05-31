@@ -19,7 +19,6 @@ import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.ObservationDetail
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inat.RegionalStatusRepository
-import com.sound2inat.inat.WavTrimmer
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.FragmentRanges
 import com.sound2inat.inference.InferenceJob
@@ -322,6 +321,8 @@ class ReviewViewModel(
 
     private var denoisedPath: String? = null
     private var denoiseJob: Job? = null
+
+    private val exportUseCase = ReviewExportUseCase(exportClipsDir = exportClipsDir, draftId = draftId)
 
     init {
         cachedFilesDir = defaultFilesDir
@@ -1285,123 +1286,65 @@ class ReviewViewModel(
     }
 
     fun onShareFullRecording() {
-        _state.update { it.copy(exportingAction = ExportingAction.FullRecordingShare) }
         scope.launch(ioDispatcher) {
-            try {
-                val snapshot = _state.value
-                val path = snapshot.audioPath
-                val file = if (path != null) File(path) else null
-                require(file != null && file.exists() && file.isFile && file.length() > 0L)
-                emitEffect(ReviewExportEffect.ShareAudioFile(file, buildFullRecordingShareText(snapshot)))
-            } catch (_: IllegalArgumentException) {
-                emitEffect(ReviewExportEffect.ShowSnackbar("Audio file is missing"))
-            } catch (_: Exception) {
-                emitEffect(ReviewExportEffect.ShowSnackbar("Could not share audio"))
-            } finally {
-                clearExportingAction()
+            exportUseCase.runExport(
+                action = ExportingAction.FullRecordingShare,
+                setExportingAction = { a -> _state.update { it.copy(exportingAction = a) } },
+                emitEffect = ::emitEffect,
+                clearExportingAction = ::clearExportingAction,
+            ) {
+                exportUseCase.shareFullRecording(_state.value)
             }
         }
     }
 
     fun onSaveFullRecording() {
-        _state.update { it.copy(exportingAction = ExportingAction.FullRecordingSave) }
         scope.launch(ioDispatcher) {
-            try {
-                val path = _state.value.audioPath
-                val file = if (path != null) File(path) else null
-                require(file != null && file.exists() && file.isFile && file.length() > 0L)
-                audioSaver.saveToDownloads(file, buildDisplayName("original"))
-                emitEffect(ReviewExportEffect.ShowSnackbar("Audio saved to Downloads"))
-            } catch (_: UnsupportedOperationException) {
-                emitEffect(
-                    ReviewExportEffect.ShowSnackbar(
-                        "Saving to Downloads is not supported on this Android version"
-                    )
-                )
-            } catch (_: IllegalArgumentException) {
-                emitEffect(ReviewExportEffect.ShowSnackbar("Audio file is missing"))
-            } catch (_: Exception) {
-                emitEffect(ReviewExportEffect.ShowSnackbar("Could not save audio"))
-            } finally {
-                clearExportingAction()
+            exportUseCase.runExport(
+                action = ExportingAction.FullRecordingSave,
+                genericErrorMessage = "Could not save audio",
+                setExportingAction = { a -> _state.update { it.copy(exportingAction = a) } },
+                emitEffect = ::emitEffect,
+                clearExportingAction = ::clearExportingAction,
+            ) {
+                exportUseCase.saveFullRecording(_state.value) { file, name ->
+                    audioSaver.saveToDownloads(file, name)
+                }
             }
         }
     }
 
     fun onShareSpeciesClip(row: SpeciesRow) {
-        _state.update { it.copy(exportingAction = ExportingAction.SpeciesClipShare(row.detectionId)) }
         scope.launch(ioDispatcher) {
-            try {
-                val snapshot = _state.value
-                val clip = prepareSpeciesClip(row)
-                emitEffect(ReviewExportEffect.ShareAudioFile(clip, buildClipShareText(snapshot, row)))
-            } catch (_: IllegalArgumentException) {
-                emitEffect(ReviewExportEffect.ShowSnackbar("Audio file is missing"))
-            } catch (_: Exception) {
-                emitEffect(ReviewExportEffect.ShowSnackbar("Could not share audio"))
-            } finally {
-                clearExportingAction()
+            exportUseCase.runExport(
+                action = ExportingAction.SpeciesClipShare(row.detectionId),
+                setExportingAction = { a -> _state.update { it.copy(exportingAction = a) } },
+                emitEffect = ::emitEffect,
+                clearExportingAction = ::clearExportingAction,
+            ) {
+                exportUseCase.shareSpeciesClip(_state.value, row)
             }
         }
     }
 
     fun onSaveSpeciesClip(row: SpeciesRow) {
-        _state.update { it.copy(exportingAction = ExportingAction.SpeciesClipSave(row.detectionId)) }
         scope.launch(ioDispatcher) {
-            try {
-                val clip = prepareSpeciesClip(row)
-                val safe = row.taxonScientificName.replace("[^A-Za-z0-9]+".toRegex(), "_")
-                audioSaver.saveToDownloads(clip, buildDisplayName("original_clip_$safe"))
-                emitEffect(ReviewExportEffect.ShowSnackbar("Audio saved to Downloads"))
-            } catch (_: UnsupportedOperationException) {
-                emitEffect(
-                    ReviewExportEffect.ShowSnackbar(
-                        "Saving to Downloads is not supported on this Android version"
-                    )
-                )
-            } catch (_: IllegalArgumentException) {
-                emitEffect(ReviewExportEffect.ShowSnackbar("Audio file is missing"))
-            } catch (_: Exception) {
-                emitEffect(ReviewExportEffect.ShowSnackbar("Could not save audio"))
-            } finally {
-                clearExportingAction()
+            exportUseCase.runExport(
+                action = ExportingAction.SpeciesClipSave(row.detectionId),
+                genericErrorMessage = "Could not save audio",
+                setExportingAction = { a -> _state.update { it.copy(exportingAction = a) } },
+                emitEffect = ::emitEffect,
+                clearExportingAction = ::clearExportingAction,
+            ) {
+                exportUseCase.saveSpeciesClip(_state.value, row) { file, name ->
+                    audioSaver.saveToDownloads(file, name)
+                }
             }
         }
     }
 
     fun consumeExportEffect() {
         _state.update { it.copy(exportEffect = null) }
-    }
-
-    private fun prepareSpeciesClip(row: SpeciesRow): File {
-        val snapshot = _state.value
-        val srcPath = requireNotNull(snapshot.audioPath) { "No audio path available" }
-        val srcFile = File(srcPath)
-        require(srcFile.exists() && srcFile.isFile && srcFile.length() > 0L) {
-            "Source audio missing or empty"
-        }
-        val durationMs = snapshot.durationMs
-        require(durationMs > 0L) { "Recording duration not yet loaded" }
-        val startMs = maxOf(0L, row.firstSeenMs - CLIP_PADDING_MS)
-        val endMs = minOf(durationMs, row.lastSeenMs + CLIP_PADDING_MS)
-        require(endMs > startMs) { "Clip range is empty: $startMs..$endMs" }
-        val safe = row.taxonScientificName.replace("[^A-Za-z0-9]+".toRegex(), "_")
-        val clipFile = File(exportClipsDir, "${draftId}__${safe}__${row.firstSeenMs}_${row.lastSeenMs}.wav")
-        if (clipFile.exists() && clipFile.length() > 0L) return clipFile
-        exportClipsDir.mkdirs()
-        val tmp = File(exportClipsDir, "${clipFile.name}.tmp")
-        try {
-            WavTrimmer.trimMono16(srcPath, tmp, startMs, endMs)
-            if (!tmp.renameTo(clipFile)) {
-                // renameTo can fail across filesystems; fall back to copy+delete
-                tmp.copyTo(clipFile, overwrite = true)
-                tmp.delete()
-            }
-        } catch (t: Throwable) {
-            tmp.delete()
-            throw t
-        }
-        return clipFile
     }
 
     private fun emitEffect(effect: ReviewExportEffect) {
@@ -1412,65 +1355,9 @@ class ReviewViewModel(
         _state.update { it.copy(exportingAction = null) }
     }
 
-    private fun buildDisplayName(label: String): String {
-        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", java.util.Locale.US).apply {
-            timeZone = java.util.TimeZone.getTimeZone("UTC")
-        }
-        return "wildear_${label}_${sdf.format(java.util.Date(_state.value.recordedAtUtcMs))}.wav"
-    }
-
-    private fun buildFullRecordingShareText(snapshot: ReviewUiState): String {
-        val sb = StringBuilder("WildEar · Original recording — ")
-        sb.append(formatShareDateTime(snapshot.recordedAtUtcMs))
-        formatShareCoords(snapshot.latitude, snapshot.longitude)?.let {
-            sb.append("\nLocation: ").append(it)
-        }
-        val sorted = snapshot.species.sortedByDescending { it.maxConfidence }
-        if (sorted.isNotEmpty()) {
-            sb.append("\n\nDetected:")
-            sorted.forEach { row -> sb.append("\n• ").append(formatSpeciesLine(row)) }
-        }
-        return sb.toString()
-    }
-
-    private fun buildClipShareText(snapshot: ReviewUiState, row: SpeciesRow): String {
-        val sb = StringBuilder("WildEar · Original clip — ")
-        sb.append(formatSpeciesLine(row))
-        sb.append("\n").append(formatShareDateTime(snapshot.recordedAtUtcMs))
-        formatShareCoords(snapshot.latitude, snapshot.longitude)?.let {
-            sb.append("\nLocation: ").append(it)
-        }
-        return sb.toString()
-    }
-
-    private fun formatSpeciesLine(row: SpeciesRow): String {
-        val name = if (row.taxonCommonName != null) {
-            "${row.taxonCommonName} (${row.taxonScientificName})"
-        } else {
-            row.taxonScientificName
-        }
-        return "$name — ${"%.0f".format(row.maxConfidence * 100)}%"
-    }
-
-    private fun formatShareDateTime(epochMs: Long): String {
-        val sdf = java.text.SimpleDateFormat("d MMM yyyy, HH:mm 'UTC'", java.util.Locale.US).apply {
-            timeZone = java.util.TimeZone.getTimeZone("UTC")
-        }
-        return sdf.format(java.util.Date(epochMs))
-    }
-
-    private fun formatShareCoords(lat: Double?, lon: Double?): String? {
-        if (lat == null || lon == null) return null
-        val latStr = "${"%.4f".format(Math.abs(lat))}°${if (lat >= 0) "N" else "S"}"
-        val lonStr = "${"%.4f".format(Math.abs(lon))}°${if (lon >= 0) "E" else "W"}"
-        return "$latStr, $lonStr"
-    }
-
     private companion object {
         /** Milliseconds an overlay/row stays highlighted after a tap. */
         const val HighlightDurationMs = 800L
-
-        private const val CLIP_PADDING_MS = 1_000L
     }
 }
 
