@@ -43,7 +43,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
@@ -51,10 +50,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sound2inat.app.R
 import com.sound2inat.app.permissions.LocalPermissionsController
-import com.sound2inat.app.ui.theme.detectionCardLikelyDark
-import com.sound2inat.app.ui.theme.detectionCardLikelyLight
-import com.sound2inat.app.ui.theme.detectionCardUnlikelyDark
-import com.sound2inat.app.ui.theme.detectionCardUnlikelyLight
+import com.sound2inat.app.ui.common.detectionCardColor
+import com.sound2inat.app.ui.formatDurationMs
+import com.sound2inat.app.ui.theme.gpsAcquiringColor
+import com.sound2inat.app.ui.theme.gpsFixColor
+import com.sound2inat.app.ui.theme.gpsNoFixColor
+import com.sound2inat.app.ui.theme.onScrimLight
 import com.sound2inat.inference.RegionalStatus
 import kotlinx.coroutines.flow.SharedFlow
 import java.util.UUID
@@ -167,7 +168,7 @@ private fun RecordingBody(
                 Text(
                     stringResource(R.string.recording_backlog_hint, delaySeconds),
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White,
+                    color = onScrimLight,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(6.dp)
@@ -303,7 +304,7 @@ private fun RecordingBody(
                 )
             }
             Spacer(Modifier.weight(1f))
-            Text(formatElapsed(s.elapsedMs), style = MaterialTheme.typography.headlineMedium)
+            Text(formatDurationMs(s.elapsedMs), style = MaterialTheme.typography.headlineMedium)
         }
     }
 }
@@ -311,12 +312,7 @@ private fun RecordingBody(
 @Suppress("FunctionNaming")
 @Composable
 private fun LiveCardRow(card: LiveCard) {
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val cardColor = if (card.regionalStatus == RegionalStatus.NOT_CONFIRMED) {
-        if (isDark) detectionCardUnlikelyDark else detectionCardUnlikelyLight
-    } else {
-        if (isDark) detectionCardLikelyDark else detectionCardLikelyLight
-    }
+    val cardColor = detectionCardColor(likely = card.regionalStatus != RegionalStatus.NOT_CONFIRMED)
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
@@ -368,9 +364,9 @@ private fun LiveCardRow(card: LiveCard) {
 @Composable
 private fun GpsIndicator(gps: GpsStatus, modifier: Modifier = Modifier) {
     val color = when (gps) {
-        is GpsStatus.Fix -> GPS_FIX_COLOR
-        is GpsStatus.Acquiring -> GPS_ACQUIRING_COLOR
-        is GpsStatus.NoFix -> GPS_NO_FIX_COLOR
+        is GpsStatus.Fix -> gpsFixColor
+        is GpsStatus.Acquiring -> gpsAcquiringColor
+        is GpsStatus.NoFix -> gpsNoFixColor
     }
     Row(
         modifier = modifier,
@@ -386,15 +382,6 @@ private fun GpsIndicator(gps: GpsStatus, modifier: Modifier = Modifier) {
     }
 }
 
-private fun formatElapsed(ms: Long): String {
-    val totalSeconds = ms / MS_PER_SECOND
-    val minutes = totalSeconds / SECONDS_PER_MINUTE
-    val seconds = totalSeconds % SECONDS_PER_MINUTE
-    return "%d:%02d".format(minutes, seconds)
-}
-
-private const val MS_PER_SECOND = 1000L
-private const val SECONDS_PER_MINUTE = 60L
 private const val STOP_BUTTON_DP = 72
 private const val STOP_ICON_DP = 36
 private const val CAMERA_STOP_GAP_DP = 16
@@ -415,6 +402,3 @@ private const val BACKLOG_VISIBLE_THRESHOLD = 1
 
 private const val GPS_DOT_DP = 10
 private const val GPS_DOT_GAP_DP = 6
-private val GPS_FIX_COLOR = Color(0xFF4CAF50) // green
-private val GPS_ACQUIRING_COLOR = Color(0xFFFFA000) // amber
-private val GPS_NO_FIX_COLOR = Color(0xFFE53935) // red

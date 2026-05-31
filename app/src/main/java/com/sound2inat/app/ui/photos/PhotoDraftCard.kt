@@ -4,7 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ListItem
@@ -15,8 +14,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.sound2inat.app.R
 import com.sound2inat.storage.PhotoDraftSummary
 import java.io.File
 import java.time.Instant
@@ -47,12 +48,14 @@ fun PhotoDraftCard(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .size(72.dp)
-                        .clip(RoundedCornerShape(12.dp)),
+                        .clip(MaterialTheme.shapes.small),
                 )
             },
             headlineContent = {
                 Text(
-                    draft.taxonCommonName ?: draft.taxonScientificName ?: "Observation",
+                    draft.taxonCommonName?.takeIf { it.isNotBlank() }
+                        ?: draft.taxonScientificName?.takeIf { it.isNotBlank() }
+                        ?: stringResource(R.string.photos_draft_unnamed),
                     style = MaterialTheme.typography.titleMedium,
                 )
             },

@@ -1,6 +1,5 @@
 package com.sound2inat.app.ui.radar
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,10 +14,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +30,8 @@ import com.sound2inat.app.R
 import com.sound2inat.app.permissions.LocalPermissionsController
 import com.sound2inat.app.permissions.Permission
 import com.sound2inat.app.permissions.PermissionStatus
+import com.sound2inat.app.ui.common.EmptyState
+import com.sound2inat.app.ui.common.Sound2iNatTopBar
 import com.sound2inat.inat.SpeciesAggregate
 
 private const val MAP_HEIGHT_DP = 280
@@ -57,8 +55,8 @@ fun RadarScreen(onOpenSettings: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.title_radar)) },
+            Sound2iNatTopBar(
+                title = stringResource(R.string.title_radar),
                 actions = {
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.cd_settings))
@@ -102,12 +100,17 @@ private fun RadarBody(
     when {
         state.locationStatus == LocationStatus.NoLocation && state.species.isEmpty() -> {
             EmptyState(
+                modifier = Modifier.fillMaxSize(),
                 title = stringResource(R.string.radar_location_title),
                 detail = stringResource(R.string.radar_location_detail),
             )
         }
         state.error != null -> {
-            EmptyState(title = stringResource(R.string.radar_error_title), detail = state.error)
+            EmptyState(
+                modifier = Modifier.fillMaxSize(),
+                title = stringResource(R.string.radar_error_title),
+                detail = state.error,
+            )
         }
         state.species.isEmpty() && state.loading -> {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -116,6 +119,7 @@ private fun RadarBody(
         }
         state.species.isEmpty() -> {
             EmptyState(
+                modifier = Modifier.fillMaxSize(),
                 title = stringResource(R.string.radar_no_obs_title),
                 detail = stringResource(R.string.radar_no_obs_detail),
             )
@@ -127,22 +131,5 @@ private fun RadarBody(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun EmptyState(title: String, detail: String) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        Text(
-            detail,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp),
-        )
     }
 }

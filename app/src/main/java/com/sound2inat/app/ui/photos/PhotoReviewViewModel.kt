@@ -13,6 +13,7 @@ import com.sound2inat.inat.PhotoVisionPlanner
 import com.sound2inat.inat.PhotoVisionSuggestion
 import com.sound2inat.inat.PhotoVisionTarget
 import com.sound2inat.inat.PhotoVisionUseCase
+import com.sound2inat.inat.SubmissionProgress
 import com.sound2inat.storage.PhotoDraftEntity
 import com.sound2inat.storage.PhotoDraftRepository
 import com.sound2inat.storage.PhotoObservationFileStore
@@ -389,12 +390,26 @@ class PhotoReviewViewModel(
 
     fun submit() {
         if (_state.value.isSubmitting) return
-        _state.update { it.copy(isSubmitting = true, submitError = null, submissionProgress = null) }
+        _state.update { it.copy(isSubmitting = true, submitError = null, submissionProgress = null, failedStep = null) }
         scope.launch {
             val token = auth.getValidToken().orEmpty()
+            var lastActiveStep: SubmissionProgress.Step? = null
             when (
                 val result = submitter.submit(token, draftId) { progress ->
-                    _state.update { it.copy(submissionProgress = progress) }
+                    val step = (progress as? SubmissionProgress.Species)?.step
+                    if (step != null &&
+                        step != SubmissionProgress.Step.DoneOk &&
+                        step != SubmissionProgress.Step.DoneFailed
+                    ) {
+                        lastActiveStep = step
+                    }
+                    _state.update { current ->
+                        if (step == SubmissionProgress.Step.DoneFailed) {
+                            current.copy(submissionProgress = progress, failedStep = lastActiveStep)
+                        } else {
+                            current.copy(submissionProgress = progress)
+                        }
+                    }
                 }
             ) {
                 is PhotoSubmitResult.Ok -> {
@@ -404,6 +419,7 @@ class PhotoReviewViewModel(
                             uploadedUrl = result.observationUrl,
                             submitError = result.warnings.joinToString(" | ").takeIf { text -> text.isNotBlank() },
                             submissionProgress = null,
+                            failedStep = null,
                         )
                     }
                 }
@@ -413,6 +429,7 @@ class PhotoReviewViewModel(
                             isSubmitting = false,
                             submitError = result.message,
                             submissionProgress = null,
+                            failedStep = null,
                         )
                     }
                 }

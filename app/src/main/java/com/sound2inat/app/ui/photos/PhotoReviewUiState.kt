@@ -52,6 +52,9 @@ data class PhotoReviewUiState(
     val observationDetail: PhotoObservationDetailUiState? = null,
     val vision: PhotoVisionPanelUiState = PhotoVisionPanelUiState(),
     val submissionProgress: SubmissionProgress? = null,
+    /** The last active (non-terminal) step that was in progress when [SubmissionProgress.Step.DoneFailed] arrived.
+     *  Null if no failure has occurred or the failed step is unknown. */
+    val failedStep: SubmissionProgress.Step? = null,
     val incompleteObservation: IncompletePhotoObservationUi? = null,
     val retryingIncomplete: Boolean = false,
     val retryIncompleteError: String? = null,

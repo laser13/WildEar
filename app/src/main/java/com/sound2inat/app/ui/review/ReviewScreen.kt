@@ -35,13 +35,10 @@ import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.CameraAlt
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.MicNone
 import androidx.compose.material.icons.outlined.Public
-import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.WarningAmber
@@ -77,7 +74,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -92,11 +88,10 @@ import androidx.lifecycle.viewModelScope
 import coil.compose.AsyncImage
 import com.sound2inat.app.R
 import com.sound2inat.app.ui.FILE_PROVIDER_AUTHORITY
+import com.sound2inat.app.ui.common.ProgressRow
+import com.sound2inat.app.ui.common.ProgressRowState
+import com.sound2inat.app.ui.common.detectionCardColor
 import com.sound2inat.app.ui.formatDurationMs
-import com.sound2inat.app.ui.theme.detectionCardLikelyDark
-import com.sound2inat.app.ui.theme.detectionCardLikelyLight
-import com.sound2inat.app.ui.theme.detectionCardUnlikelyDark
-import com.sound2inat.app.ui.theme.detectionCardUnlikelyLight
 import com.sound2inat.app.ui.theme.iNatGreen
 import com.sound2inat.inat.INatWebLoginActivity
 import com.sound2inat.inat.SubmissionProgress
@@ -749,7 +744,7 @@ private fun SubmissionProgressChecklist(
                 else -> ProgressRowState.Pending
             }
             ProgressRow(
-                name = name,
+                label = name,
                 state = rowState,
                 subStatus = if (rowState == ProgressRowState.InProgress) {
                     stepLabel(current?.step)
@@ -760,54 +755,10 @@ private fun SubmissionProgressChecklist(
         }
         if (crossLinking) {
             ProgressRow(
-                name = stringResource(R.string.review_submit_step_crosslink),
+                label = stringResource(R.string.review_submit_step_crosslink),
                 state = ProgressRowState.InProgress,
                 subStatus = null,
             )
-        }
-    }
-}
-
-private enum class ProgressRowState { Pending, InProgress, Done, Failed }
-
-@Suppress("FunctionNaming")
-@Composable
-private fun ProgressRow(name: String, state: ProgressRowState, subStatus: String?) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        when (state) {
-            ProgressRowState.InProgress -> {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            else -> {
-                val icon = when (state) {
-                    ProgressRowState.Pending -> Icons.Outlined.RadioButtonUnchecked
-                    ProgressRowState.Done -> Icons.Outlined.CheckCircle
-                    ProgressRowState.Failed -> Icons.Outlined.ErrorOutline
-                    ProgressRowState.InProgress -> error("unreachable")
-                }
-                val tint = when (state) {
-                    ProgressRowState.Pending -> MaterialTheme.colorScheme.outline
-                    ProgressRowState.Done -> MaterialTheme.colorScheme.primary
-                    ProgressRowState.Failed -> MaterialTheme.colorScheme.error
-                    ProgressRowState.InProgress -> error("unreachable")
-                }
-                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
-            }
-        }
-        Spacer(Modifier.width(8.dp))
-        Column {
-            Text(name, style = MaterialTheme.typography.bodyMedium)
-            if (subStatus != null) {
-                Text(
-                    subStatus,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
     }
 }
@@ -1094,12 +1045,7 @@ private fun SpeciesListItem(
     hasHabitatPhotos: Boolean = false,
     onToggleHabitatPhoto: () -> Unit = {},
 ) {
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val tintColor = if (row.regionalStatus == RegionalStatus.NOT_CONFIRMED) {
-        if (isDark) detectionCardUnlikelyDark else detectionCardUnlikelyLight
-    } else {
-        if (isDark) detectionCardLikelyDark else detectionCardLikelyLight
-    }
+    val tintColor = detectionCardColor(likely = row.regionalStatus != RegionalStatus.NOT_CONFIRMED)
     val containerColor = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer else tintColor
     val context = LocalContext.current
     ListItem(

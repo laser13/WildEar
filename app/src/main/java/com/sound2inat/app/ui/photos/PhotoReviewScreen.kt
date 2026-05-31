@@ -19,26 +19,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.RotateLeft
 import androidx.compose.material.icons.automirrored.outlined.RotateRight
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Crop
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
@@ -85,6 +80,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.sound2inat.app.R
+import com.sound2inat.app.ui.common.ProgressRow
+import com.sound2inat.app.ui.common.ProgressRowState
+import com.sound2inat.app.ui.theme.cornerLarge24
 import com.sound2inat.inat.SubmissionProgress
 import kotlinx.coroutines.launch
 import java.io.File
@@ -117,7 +115,7 @@ fun PhotoReviewScreen(
 
     if (state.isLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Loading photo review...")
+            Text(stringResource(R.string.photos_review_loading))
         }
         return
     }
@@ -185,12 +183,12 @@ fun PhotoReviewScreen(
                 ) {
                     PhotoActionTile(
                         icon = Icons.AutoMirrored.Outlined.ArrowBack,
-                        label = "Back",
+                        label = stringResource(R.string.photos_review_back),
                         onClick = onBack,
                     )
                     PhotoActionTile(
                         icon = Icons.Outlined.Delete,
-                        label = "Delete album",
+                        label = stringResource(R.string.photos_review_delete_album),
                         onClick = {
                             scope.launch {
                                 vm.deleteAlbum()
@@ -240,7 +238,7 @@ private fun PhotoHeroSection(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
@@ -252,7 +250,7 @@ private fun PhotoHeroSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(4f / 3f),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = cornerLarge24,
                     color = MaterialTheme.colorScheme.surfaceVariant,
                 ) {
                     Box(
@@ -264,14 +262,17 @@ private fun PhotoHeroSection(
                                 imageVector = Icons.Outlined.AddPhotoAlternate,
                                 contentDescription = null,
                             )
-                            Text("No photos yet", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                "Take a few shots to build the album.",
+                                stringResource(R.string.photos_review_no_photos_title),
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                stringResource(R.string.photos_review_no_photos_subtitle),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             OutlinedButton(onClick = onAddMorePhotos) {
                                 Icon(imageVector = Icons.Outlined.AddPhotoAlternate, contentDescription = null)
-                                Text("Add photos")
+                                Text(stringResource(R.string.photos_workflow_add_photos))
                             }
                         }
                     }
@@ -286,16 +287,16 @@ private fun PhotoHeroSection(
                 ) {
                     AsyncImage(
                         model = File(cover.photoPath),
-                        contentDescription = "Cover photo",
+                        contentDescription = stringResource(R.string.photos_review_cover_cd),
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .fillMaxSize()
-                            .clip(RoundedCornerShape(24.dp)),
+                            .clip(cornerLarge24),
                     )
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .clip(RoundedCornerShape(24.dp))
+                            .clip(cornerLarge24)
                             .background(
                                 Brush.verticalGradient(
                                     colors = listOf(
@@ -312,7 +313,10 @@ private fun PhotoHeroSection(
                             .padding(12.dp)
                             .size(34.dp),
                     ) {
-                        Icon(Icons.Outlined.Delete, contentDescription = "Delete selected photo")
+                        Icon(
+                            Icons.Outlined.Delete,
+                            contentDescription = stringResource(R.string.photos_review_delete_selected_cd)
+                        )
                     }
                     AssistChip(
                         onClick = {},
@@ -356,31 +360,39 @@ private fun PhotoObservationFooter(
     val observationUrl = state.observationUrl
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerLowest,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            val unknownStr = stringResource(R.string.photos_review_unknown)
             Text(
-                text = "Observed ${state.observedAtUtcMs?.let(::formatUtc) ?: "Unknown"}",
+                text = stringResource(
+                    R.string.photos_review_observed,
+                    state.observedAtUtcMs?.let(::formatUtc) ?: unknownStr
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = "Coordinates ${formatCoordinates(
-                    state.latitude,
-                    state.longitude,
-                    state.locationAccuracyMeters
-                )}",
+                text = stringResource(
+                    R.string.photos_review_coordinates,
+                    formatCoordinates(
+                        state.latitude,
+                        state.longitude,
+                        state.locationAccuracyMeters,
+                        unknownStr,
+                    )
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             when {
                 state.submitError != null && !state.isUploaded -> {
                     Text(
-                        text = "iNaturalist upload error: ${state.submitError}",
+                        text = stringResource(R.string.photos_review_upload_error, state.submitError ?: ""),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -389,11 +401,11 @@ private fun PhotoObservationFooter(
                     state.inatObservationId?.let { id ->
                         if (observationUrl != null) {
                             TextButton(onClick = { onOpenObservation(observationUrl) }) {
-                                Text("Observation ID $id")
+                                Text(stringResource(R.string.photos_inat_observation_id, id))
                             }
                         } else {
                             Text(
-                                text = "Observation ID $id",
+                                text = stringResource(R.string.photos_inat_observation_id, id),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -402,7 +414,7 @@ private fun PhotoObservationFooter(
                 }
                 else -> {
                     Text(
-                        text = "iNaturalist not uploaded yet",
+                        text = stringResource(R.string.photos_review_not_uploaded),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -424,11 +436,11 @@ private fun PhotoSubmitBottomBar(
         !state.isUploaded &&
         state.incompleteObservation == null
     val label = when {
-        state.isSubmitting -> "Uploading…"
-        state.isUploaded -> "Already uploaded"
-        state.incompleteObservation != null -> "Recreate incomplete first"
-        state.images.isEmpty() -> "Add photos to upload"
-        else -> "Upload to iNaturalist"
+        state.isSubmitting -> stringResource(R.string.photos_submit_uploading)
+        state.isUploaded -> stringResource(R.string.photos_submit_already_uploaded)
+        state.incompleteObservation != null -> stringResource(R.string.photos_submit_recreate_first)
+        state.images.isEmpty() -> stringResource(R.string.photos_submit_add_photos)
+        else -> stringResource(R.string.photos_submit_upload)
     }
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -442,7 +454,7 @@ private fun PhotoSubmitBottomBar(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (state.isSubmitting) {
-                PhotoSubmissionProgressChecklist(progress = state.submissionProgress)
+                PhotoSubmissionProgressChecklist(progress = state.submissionProgress, failedStep = state.failedStep)
             }
             Button(
                 onClick = onUpload,
@@ -457,7 +469,7 @@ private fun PhotoSubmitBottomBar(
 
 @Suppress("FunctionNaming")
 @Composable
-private fun PhotoSubmissionProgressChecklist(progress: SubmissionProgress?) {
+private fun PhotoSubmissionProgressChecklist(progress: SubmissionProgress?, failedStep: SubmissionProgress.Step?) {
     val step = (progress as? SubmissionProgress.Species)?.step
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
@@ -465,78 +477,50 @@ private fun PhotoSubmissionProgressChecklist(progress: SubmissionProgress?) {
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary,
         )
-        PhotoProgressRow(
+        ProgressRow(
             label = stringResource(R.string.photo_submit_step_creating),
-            step = step,
-            rowStep = SubmissionProgress.Step.CreatingObservation,
+            state = photoProgressRowState(step, failedStep, SubmissionProgress.Step.CreatingObservation),
         )
-        PhotoProgressRow(
+        ProgressRow(
             label = stringResource(R.string.photo_submit_step_photo_primary),
-            step = step,
-            rowStep = SubmissionProgress.Step.UploadingPrimaryPhoto,
+            state = photoProgressRowState(step, failedStep, SubmissionProgress.Step.UploadingPrimaryPhoto),
         )
-        PhotoProgressRow(
+        ProgressRow(
             label = stringResource(R.string.photo_submit_step_photo_extra),
-            step = step,
-            rowStep = SubmissionProgress.Step.UploadingExtraPhoto,
+            state = photoProgressRowState(step, failedStep, SubmissionProgress.Step.UploadingExtraPhoto),
         )
-        PhotoProgressRow(
+        ProgressRow(
             label = stringResource(R.string.photo_submit_step_tag),
-            step = step,
-            rowStep = SubmissionProgress.Step.ApplyingTag,
+            state = photoProgressRowState(step, failedStep, SubmissionProgress.Step.ApplyingTag),
         )
-        PhotoProgressRow(
+        ProgressRow(
             label = stringResource(R.string.photo_submit_step_persisting),
-            step = step,
-            rowStep = SubmissionProgress.Step.Persisting,
+            state = photoProgressRowState(step, failedStep, SubmissionProgress.Step.Persisting),
         )
     }
 }
 
-private enum class PhotoProgressRowState { Pending, InProgress, Done, Failed }
-
-@Suppress("FunctionNaming")
-@Composable
-private fun PhotoProgressRow(
-    label: String,
+internal fun photoProgressRowState(
     step: SubmissionProgress.Step?,
+    failedStep: SubmissionProgress.Step?,
     rowStep: SubmissionProgress.Step,
-) {
+): ProgressRowState {
     val orderedSteps = photoProgressSteps()
     val rowIndex = orderedSteps.indexOf(rowStep)
     val currentIndex = orderedSteps.indexOf(step)
-    val state = when {
-        step == SubmissionProgress.Step.DoneOk -> PhotoProgressRowState.Done
-        step == SubmissionProgress.Step.DoneFailed && rowIndex == currentIndex + 1 -> PhotoProgressRowState.Failed
-        step == rowStep -> PhotoProgressRowState.InProgress
-        currentIndex >= 0 && rowIndex < currentIndex -> PhotoProgressRowState.Done
-        else -> PhotoProgressRowState.Pending
-    }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        when (state) {
-            PhotoProgressRowState.InProgress -> CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            else -> {
-                val icon = when (state) {
-                    PhotoProgressRowState.Pending -> Icons.Outlined.RadioButtonUnchecked
-                    PhotoProgressRowState.Done -> Icons.Outlined.CheckCircle
-                    PhotoProgressRowState.Failed -> Icons.Outlined.ErrorOutline
-                    PhotoProgressRowState.InProgress -> error("unreachable")
-                }
-                val tint = when (state) {
-                    PhotoProgressRowState.Pending -> MaterialTheme.colorScheme.outline
-                    PhotoProgressRowState.Done -> MaterialTheme.colorScheme.primary
-                    PhotoProgressRowState.Failed -> MaterialTheme.colorScheme.error
-                    PhotoProgressRowState.InProgress -> error("unreachable")
-                }
-                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+    return when {
+        step == SubmissionProgress.Step.DoneOk -> ProgressRowState.Done
+        step == SubmissionProgress.Step.DoneFailed -> {
+            val failedIndex = orderedSteps.indexOf(failedStep)
+            when {
+                failedStep != null && rowStep == failedStep -> ProgressRowState.Failed
+                failedIndex >= 0 && rowIndex < failedIndex -> ProgressRowState.Done
+                else -> ProgressRowState.Pending
             }
         }
-        Spacer(Modifier.width(8.dp))
-        Text(label, style = MaterialTheme.typography.bodySmall)
+        step == rowStep -> ProgressRowState.InProgress
+        currentIndex >= 0 && rowIndex < currentIndex -> ProgressRowState.Done
+        else -> ProgressRowState.Pending
     }
 }
 
@@ -667,12 +651,13 @@ private fun PhotoThumbnail(
     onOpen: () -> Unit,
 ) {
     val thumbnailWidth = if (compact) 92.dp else 112.dp
+    val photoCd = stringResource(R.string.photos_review_photo_cd, index)
     Card(
         modifier = Modifier
             .widthIn(max = thumbnailWidth)
-            .semantics { contentDescription = "Photo $index" }
+            .semantics { contentDescription = photoCd }
             .clickable(onClick = onOpen),
-        shape = RoundedCornerShape(if (compact) 18.dp else 20.dp),
+        shape = if (compact) MaterialTheme.shapes.medium else MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
                 MaterialTheme.colorScheme.primaryContainer
@@ -688,7 +673,7 @@ private fun PhotoThumbnail(
         ) {
             AsyncImage(
                 model = File(image.photoPath),
-                contentDescription = "Photo $index",
+                contentDescription = stringResource(R.string.photos_review_photo_cd, index),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -703,7 +688,7 @@ private fun AddPhotoThumbnail(onClick: () -> Unit) {
             .widthIn(max = 92.dp)
             .aspectRatio(1f)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(18.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
@@ -715,7 +700,7 @@ private fun AddPhotoThumbnail(onClick: () -> Unit) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
                     imageVector = Icons.Outlined.AddPhotoAlternate,
-                    contentDescription = "Add photos",
+                    contentDescription = stringResource(R.string.photos_review_add_photos_cd),
                 )
             }
         }
@@ -868,7 +853,10 @@ private fun PhotoImageDialog(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Crop", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        stringResource(R.string.photos_review_crop_title),
+                        style = MaterialTheme.typography.titleMedium
+                    )
                 }
 
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
@@ -911,7 +899,7 @@ private fun PhotoImageDialog(
                     ) {
                         AsyncImage(
                             model = File(sourcePath),
-                            contentDescription = "Selected photo",
+                            contentDescription = stringResource(R.string.photos_review_selected_photo_cd),
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1001,12 +989,12 @@ private fun PhotoImageDialog(
                 ) {
                     PhotoActionTile(
                         icon = Icons.AutoMirrored.Outlined.RotateLeft,
-                        label = "Rotate left",
+                        label = stringResource(R.string.photos_review_rotate_left),
                         onClick = { rotateCrop(-90) },
                     )
                     PhotoActionTile(
                         icon = Icons.AutoMirrored.Outlined.RotateRight,
-                        label = "Rotate right",
+                        label = stringResource(R.string.photos_review_rotate_right),
                         onClick = { rotateCrop(90) },
                     )
                     PhotoActionTile(
@@ -1033,12 +1021,12 @@ private fun PhotoImageDialog(
                     )
                     PhotoActionTile(
                         icon = Icons.Outlined.Delete,
-                        label = "Delete",
+                        label = stringResource(R.string.photos_review_delete),
                         onClick = onDelete,
                     )
                     PhotoActionTile(
                         icon = Icons.Outlined.Close,
-                        label = "Close preview",
+                        label = stringResource(R.string.photos_review_close_preview),
                         onClick = onClose,
                     )
                 }
@@ -1057,9 +1045,10 @@ private fun formatCoordinates(
     latitude: Double?,
     longitude: Double?,
     accuracyMeters: Float?,
+    unknown: String,
 ): String {
-    val lat = latitude?.let { "%.5f".format(it) } ?: return "Unknown"
-    val lon = longitude?.let { "%.5f".format(it) } ?: return "Unknown"
+    val lat = latitude?.let { "%.5f".format(it) } ?: return unknown
+    val lon = longitude?.let { "%.5f".format(it) } ?: return unknown
     val accuracy = accuracyMeters?.let { " • ±${it.toInt()}m" }.orEmpty()
     return "$lat, $lon$accuracy"
 }

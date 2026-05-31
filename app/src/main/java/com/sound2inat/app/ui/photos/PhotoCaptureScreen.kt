@@ -48,6 +48,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -55,7 +57,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Observer
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sound2inat.app.R
 import com.sound2inat.app.permissions.LocalPermissionsController
+import com.sound2inat.app.ui.theme.cornerLarge24
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -174,6 +178,8 @@ fun PhotoCaptureScreen(
         boundCamera.cameraControl.setZoomRatio(bounded)
     }
 
+    val defaultErrorStr = stringResource(R.string.photos_capture_default_error)
+
     Box(modifier = Modifier.fillMaxSize()) {
         when {
             state.canBindCamera -> {
@@ -202,7 +208,11 @@ fun PhotoCaptureScreen(
                                 CameraHudPill(
                                     icon = Icons.Outlined.PhotoLibrary,
                                     text = state.photoCount.toString(),
-                                    contentDescription = "${state.photoCount} photos",
+                                    contentDescription = pluralStringResource(
+                                        R.plurals.photos_capture_count,
+                                        state.photoCount,
+                                        state.photoCount
+                                    ),
                                 )
                             }
                             ZoomChip("1x", selected = isZoomSelected(zoomRatio, 1f), onClick = { setZoom(1f) })
@@ -246,7 +256,7 @@ fun PhotoCaptureScreen(
                         ) {
                             androidx.compose.material3.Icon(
                                 imageVector = Icons.Outlined.Close,
-                                contentDescription = "Cancel",
+                                contentDescription = stringResource(R.string.photos_capture_cancel),
                             )
                         }
                         FilledTonalIconButton(
@@ -275,7 +285,7 @@ fun PhotoCaptureScreen(
                                             vm.onPhotoCaptureFailed(
                                                 photoId = prepared.photoId,
                                                 file = prepared.file,
-                                                message = exception.message ?: "Photo capture failed.",
+                                                message = exception.message ?: defaultErrorStr,
                                             )
                                         }
                                     },
@@ -284,7 +294,7 @@ fun PhotoCaptureScreen(
                         ) {
                             androidx.compose.material3.Icon(
                                 imageVector = Icons.Filled.CameraAlt,
-                                contentDescription = "Shutter",
+                                contentDescription = stringResource(R.string.photos_capture_shutter),
                             )
                         }
                         IconButton(
@@ -294,7 +304,7 @@ fun PhotoCaptureScreen(
                         ) {
                             androidx.compose.material3.Icon(
                                 imageVector = Icons.Filled.Check,
-                                contentDescription = "Done",
+                                contentDescription = stringResource(R.string.photos_capture_done),
                             )
                         }
                     }
@@ -304,16 +314,16 @@ fun PhotoCaptureScreen(
             state.showCameraPermissionDenied -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Card(
-                        shape = RoundedCornerShape(24.dp),
+                        shape = cornerLarge24,
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     ) {
                         Column(
                             modifier = Modifier.padding(20.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Text("Camera permission is required to take photos.")
+                            Text(stringResource(R.string.photos_capture_permission_required))
                             Button(onClick = { vm.openAppSettings(permissions) }) {
-                                Text("Open settings")
+                                Text(stringResource(R.string.photos_capture_open_settings))
                             }
                         }
                     }
@@ -322,7 +332,7 @@ fun PhotoCaptureScreen(
 
             else -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Checking camera permission...")
+                    Text(stringResource(R.string.photos_capture_checking_permission))
                 }
             }
         }
@@ -331,16 +341,19 @@ fun PhotoCaptureScreen(
     if (showDiscardDialog) {
         AlertDialog(
             onDismissRequest = { showDiscardDialog = false },
-            title = { Text("Discard photo session?") },
+            title = { Text(stringResource(R.string.photos_capture_discard_title)) },
             text = {
                 Text(
-                    "You have already taken ${state.photoCount} photo${if (state.photoCount == 1) "" else "s"}. " +
-                        "Do you want to keep this album or discard it?",
+                    androidx.compose.ui.res.pluralStringResource(
+                        R.plurals.photos_capture_discard_body,
+                        state.photoCount,
+                        state.photoCount,
+                    ),
                 )
             },
             confirmButton = {
                 TextButton(onClick = { showDiscardDialog = false }) {
-                    Text("Keep album")
+                    Text(stringResource(R.string.photos_capture_discard_keep))
                 }
             },
             dismissButton = {
@@ -351,7 +364,7 @@ fun PhotoCaptureScreen(
                         onCancel()
                     }
                 }) {
-                    Text("Discard")
+                    Text(stringResource(R.string.photos_capture_discard_confirm))
                 }
             },
         )

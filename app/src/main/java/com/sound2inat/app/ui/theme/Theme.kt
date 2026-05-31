@@ -108,6 +108,7 @@ fun Sound2iNatTheme(
         MaterialTheme(
             colorScheme = colorScheme,
             typography = Sound2iNatTypography,
+            shapes = Sound2iNatShapes,
             content = content,
         )
     }
