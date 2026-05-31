@@ -2,6 +2,7 @@ package com.sound2inat.app.di
 
 import android.content.Context
 import com.sound2inat.app.data.Settings
+import com.sound2inat.app.data.SettingsInferenceAdapter
 import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.BirdNetMetaModel
 import com.sound2inat.inference.BirdNetTfliteModel
@@ -117,7 +118,7 @@ object SwappableModule {
         models = bioModels,
         descriptors = descriptors,
         modelManager = modelManager,
-        settings = settings,
+        settings = SettingsInferenceAdapter(settings),
         yamNetGate = yamNetGate,
         birdNetMeta = birdNetMeta,
     )

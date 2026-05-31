@@ -1,13 +1,10 @@
 package com.sound2inat.inference
 
 import com.google.common.truth.Truth.assertThat
-import com.sound2inat.app.data.Settings
 import com.sound2inat.modelmanager.ModelDescriptor
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
 import com.sound2inat.recorder.WavWriter
-import io.mockk.every
-import io.mockk.mockk
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
@@ -19,9 +16,6 @@ import java.io.File
 /**
  * Unit tests for [ProductionInferenceJob] (the production implementation of
  * [InferenceJob]) using a fake [BioacousticModel] and a real silent WAV.
- *
- * [Settings] is mocked via MockK since it wraps Android DataStore and cannot
- * be constructed without a [android.content.Context].
  */
 class InferenceUseCaseTest {
 
@@ -35,13 +29,14 @@ class InferenceUseCaseTest {
         minWindows: Int = 1,
         yamNetEnabled: Boolean = false,
         birdNetMetaEnabled: Boolean = false,
-    ): Settings = mockk<Settings>().also { s ->
-        every { s.minConfidenceDisplay } returns flowOf(minConf)
-        every { s.minWindows } returns flowOf(minWindows)
-        every { s.yamNetGateEnabled } returns flowOf(yamNetEnabled)
-        every { s.birdNetMetaEnabled } returns flowOf(birdNetMetaEnabled)
-        every { s.lastKnownLat } returns flowOf(null)
-        every { s.lastKnownLon } returns flowOf(null)
+    ): InferenceSettings = object : InferenceSettings {
+        override val minConfidenceDisplay = flowOf(minConf)
+        override val minWindows = flowOf(minWindows)
+        override val yamNetGateEnabled = flowOf(yamNetEnabled)
+        override val birdNetMetaEnabled = flowOf(birdNetMetaEnabled)
+        override val lastKnownLat = flowOf<Double?>(null)
+        override val lastKnownLon = flowOf<Double?>(null)
+        override suspend fun setLastKnownCoords(lat: Double, lon: Double) = Unit
     }
 
     private fun fakeModelManager(stubModel: File, stubLabels: File): ModelManager =
@@ -93,7 +88,7 @@ class InferenceUseCaseTest {
 
     private fun makeJob(
         model: BioacousticModel,
-        settings: Settings,
+        settings: InferenceSettings,
         descriptor: ModelDescriptor = com.sound2inat.modelmanager.BirdNetV24.descriptor.copy(
             id = "fake_birdnet",
         ),

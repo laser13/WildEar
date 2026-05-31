@@ -1,5 +1,6 @@
 package com.sound2inat.inat
 
+import com.sound2inat.audio.WavPcmReader
 import com.sound2inat.recorder.WavWriter
 import java.io.File
 import java.io.RandomAccessFile
@@ -27,20 +28,10 @@ object WavTrimmer {
     @Suppress("ThrowsCount")
     fun trimMono16(srcPath: String, dstFile: File, startMs: Long, endMs: Long): File {
         require(endMs > startMs) { "endMs must be > startMs (got $startMs..$endMs)" }
+        val parsed = WavPcmReader.readHeader(File(srcPath))
+        val sampleRate = parsed.sampleRateHz.toLong()
+        val totalSamples = parsed.totalSamples
         RandomAccessFile(srcPath, "r").use { raf ->
-            val header = ByteArray(HEADER_SIZE).also { raf.readFully(it) }
-            require(String(header, 0, 4) == "RIFF" && String(header, 8, 4) == "WAVE") {
-                "Not a WAV file: $srcPath"
-            }
-            val channels = leU16(header, OFFSET_CHANNELS)
-            val sampleRate = leU32(header, OFFSET_SAMPLE_RATE)
-            val bits = leU16(header, OFFSET_BITS)
-            require(channels == 1 && bits == BITS_PCM16) {
-                "Mono 16-bit PCM only (got ch=$channels bits=$bits)"
-            }
-            val dataBytes = leU32(header, OFFSET_DATA_SIZE)
-            val totalSamples = dataBytes / BYTES_PER_SAMPLE
-
             val startSample = msToSamples(startMs.coerceAtLeast(0L), sampleRate).coerceAtMost(totalSamples)
             val endSample = msToSamples(endMs, sampleRate).coerceAtMost(totalSamples)
             check(endSample > startSample) {
@@ -49,7 +40,7 @@ object WavTrimmer {
 
             // Read only the samples we need. PCM is 2 bytes/sample so we can
             // seek straight past the header + the prefix we're discarding.
-            raf.seek(HEADER_SIZE + startSample * BYTES_PER_SAMPLE)
+            raf.seek(WavPcmReader.HEADER_SIZE + startSample * BYTES_PER_SAMPLE)
             val sliceLen = endSample - startSample
             // sliceLen fits in Int: clips trimmed for iNat upload are well under 2 GiB in memory
             val raw = ByteArray(sliceLen.toInt() * BYTES_PER_SAMPLE)
@@ -63,7 +54,12 @@ object WavTrimmer {
             // Reuse the production WavWriter so the trimmed file gets a clean
             // 44-byte header that any downstream tool — including iNat — will
             // happily decode.
-            val writer = WavWriter(dstFile, sampleRate.toInt(), channels = 1, bitsPerSample = BITS_PCM16)
+            val writer = WavWriter(
+                dstFile,
+                sampleRate.toInt(),
+                channels = 1,
+                bitsPerSample = WavPcmReader.BITS_PER_SAMPLE
+            )
             writer.open()
             writer.writeShorts(shorts, 0, shorts.size)
             writer.close()
@@ -74,21 +70,6 @@ object WavTrimmer {
     private fun msToSamples(ms: Long, sampleRate: Long): Long =
         (ms * sampleRate) / MS_PER_SECOND
 
-    private fun leU16(buf: ByteArray, o: Int): Int =
-        (buf[o].toInt() and 0xFF) or ((buf[o + 1].toInt() and 0xFF) shl 8)
-
-    private fun leU32(buf: ByteArray, o: Int): Long =
-        ((buf[o].toLong() and 0xFF)) or
-            ((buf[o + 1].toLong() and 0xFF) shl 8) or
-            ((buf[o + 2].toLong() and 0xFF) shl 16) or
-            ((buf[o + 3].toLong() and 0xFF) shl 24)
-
-    private const val HEADER_SIZE = 44
-    private const val OFFSET_CHANNELS = 22
-    private const val OFFSET_SAMPLE_RATE = 24
-    private const val OFFSET_BITS = 34
-    private const val OFFSET_DATA_SIZE = 40
-    private const val BITS_PCM16 = 16
     private const val BYTES_PER_SAMPLE = 2
     private const val MS_PER_SECOND = 1000L
 }

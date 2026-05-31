@@ -1,7 +1,6 @@
 package com.sound2inat.app.recording
 
 import com.google.common.truth.Truth.assertThat
-import com.sound2inat.app.ui.recording.GpsStatus
 import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.LiveInferenceEngine
 import com.sound2inat.inference.LiveInferenceEngineFactory
@@ -80,7 +79,8 @@ class RecordingControllerTest {
         val state = ctrl.state.value as RecordingSessionState.Recording
         assertThat(state.draftId).isNotEmpty()
         assertThat(state.elapsedMs).isEqualTo(0L)
-        assertThat(state.gps).isInstanceOf(GpsStatus.Acquiring::class.java)
+        assertThat(state.gpsFix).isNull()
+        assertThat(state.locationTimedOut).isFalse()
         ctrl.cancel()
     }
 
@@ -137,8 +137,8 @@ class RecordingControllerTest {
         engine.emit(WindowPrediction(0L, 3000L, "Turdus merula", "Blackbird", 0.8f, "birdnet_v2_4"))
         runCurrent()
         val state = ctrl.state.value as RecordingSessionState.Recording
-        assertThat(state.liveCards).hasSize(1)
-        assertThat(state.liveCards[0].scientificName).isEqualTo("Turdus merula")
+        assertThat(state.detections).hasSize(1)
+        assertThat(state.detections[0].scientificName).isEqualTo("Turdus merula")
         ctrl.cancel()
         runCurrent()
     }

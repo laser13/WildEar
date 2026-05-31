@@ -1,28 +1,27 @@
 package com.sound2inat.app.recording
 
 import com.google.common.truth.Truth.assertThat
-import com.sound2inat.app.ui.recording.GpsStatus
-import com.sound2inat.app.ui.recording.LiveCard
 import org.junit.Test
 
 class RecordingNotificationBuilderTest {
 
     private fun state(
         elapsedMs: Long = 0L,
-        lastDetection: LiveCard? = null,
+        lastDetection: LiveDetection? = null,
     ) = RecordingSessionState.Recording(
         draftId = "d1",
         recordingStartMs = 0L,
         elapsedMs = elapsedMs,
         rms = 0f,
-        gps = GpsStatus.Acquiring,
+        gpsFix = null,
+        locationTimedOut = false,
         warningSoftLimit = false,
         backlogWindows = 0,
-        liveCards = emptyList(),
+        detections = emptyList(),
         lastDetection = lastDetection,
     )
 
-    private fun card(scientific: String, common: String?) = LiveCard(
+    private fun detection(scientific: String, common: String?) = LiveDetection(
         scientificName = scientific,
         commonName = common,
         count = 1,
@@ -40,7 +39,7 @@ class RecordingNotificationBuilderTest {
     @Test
     fun `elapsed plus common name when detection has common name`() {
         val text = RecordingNotificationBuilder.buildContentText(
-            state(elapsedMs = 65_000L, lastDetection = card("Turdus merula", "Common Blackbird")),
+            state(elapsedMs = 65_000L, lastDetection = detection("Turdus merula", "Common Blackbird")),
         )
         assertThat(text).isEqualTo("1:05 · Common Blackbird")
     }
@@ -48,7 +47,7 @@ class RecordingNotificationBuilderTest {
     @Test
     fun `falls back to scientific name when common name is null`() {
         val text = RecordingNotificationBuilder.buildContentText(
-            state(elapsedMs = 0L, lastDetection = card("Turdus merula", null)),
+            state(elapsedMs = 0L, lastDetection = detection("Turdus merula", null)),
         )
         assertThat(text).isEqualTo("0:00 · Turdus merula")
     }

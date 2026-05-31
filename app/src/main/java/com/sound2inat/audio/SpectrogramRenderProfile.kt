@@ -1,4 +1,4 @@
-package com.sound2inat.app.ui.spectrogram
+package com.sound2inat.audio
 
 data class SpectrogramRenderProfile(
     val minFrequencyHz: Int,

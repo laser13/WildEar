@@ -1,6 +1,7 @@
 package com.sound2inat.inference
 
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.audio.WavPcmReader
 import com.sound2inat.recorder.WavWriter
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
@@ -210,7 +211,7 @@ class WavReaderTest {
         file.writeBytes(header)
 
         try {
-            WavReader.readMono16(file)
+            WavPcmReader.readMono16(file)
             error("Expected IllegalArgumentException")
         } catch (e: IllegalArgumentException) {
             assertThat(e.message).contains("data")

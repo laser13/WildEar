@@ -1,6 +1,4 @@
-package com.sound2inat.app.ui.spectrogram
-
-enum class SpectrogramPalette { INK, VIRIDIS, MAGMA, GRAY }
+package com.sound2inat.audio
 
 /**
  * Shared spectrogram color utilities. Pure Kotlin — no Android framework dependency

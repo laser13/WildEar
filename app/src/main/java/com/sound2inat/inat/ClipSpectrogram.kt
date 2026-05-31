@@ -1,15 +1,10 @@
-// TODO(architecture): LiveStyleReviewRenderer lives in com.sound2inat.app.ui.review
-// (an internal object). Calling it from the com.sound2inat.inat package compiles only
-// because this is a single Gradle module, but it inverts the documented package
-// dependency (inat should not depend on ui.review). Extract the DSP core into
-// com.sound2inat.audio in a follow-up.
 package com.sound2inat.inat
 
-import com.sound2inat.app.ui.review.LiveStyleReviewRenderer
-import com.sound2inat.app.ui.review.ReviewSpectrogramPreview
-import com.sound2inat.app.ui.review.SpectrogramBitmap
-import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
-import com.sound2inat.inference.WavReader
+import com.sound2inat.audio.SpectrogramBitmap
+import com.sound2inat.audio.SpectrogramPalette
+import com.sound2inat.audio.SpectrogramPngRenderer
+import com.sound2inat.audio.SpectrogramPreview
+import com.sound2inat.audio.WavPcmReader
 import java.io.File
 
 /**
@@ -33,18 +28,18 @@ internal fun renderClipSpectrogramPng(
     contrastDb: Float = 0f,
 ): File? {
     if (!clipWav.exists() || clipWav.length() <= 0L) return null
-    val (shorts, sampleRateHz) = WavReader.readMono16(clipWav)
+    val (shorts, sampleRateHz) = WavPcmReader.readMono16(clipWav)
     if (shorts.isEmpty()) return null
     val sliced: ShortArray = if (peakOffsetMs == null) shorts else sliceSamples(shorts, sampleRateHz, peakOffsetMs)
     if (sliced.isEmpty()) return null
     val samples = FloatArray(sliced.size) { i -> sliced[i] / Short.MAX_VALUE.toFloat() }
-    val rendered = LiveStyleReviewRenderer.render(
+    val rendered = SpectrogramPngRenderer.render(
         samples = samples,
         sampleRateHz = sampleRateHz,
         palette = palette,
         contrastDb = contrastDb,
     )
-    val preview: ReviewSpectrogramPreview = rendered.preview
+    val preview: SpectrogramPreview = rendered.preview
     if (preview.width <= 0 || preview.height <= 0) return null
     val rows = Array(preview.height) { row ->
         IntArray(preview.width) { col ->

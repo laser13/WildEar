@@ -1,4 +1,4 @@
-package com.sound2inat.inference
+package com.sound2inat.audio
 
 import java.io.File
 import java.io.RandomAccessFile
@@ -52,34 +52,16 @@ internal class WavWindowReader private constructor(
 
     companion object {
         private const val BYTES_PER_SAMPLE = 2
-        private const val HEADER_SIZE = 44
 
         fun open(file: File): WavWindowReader {
             val raf = RandomAccessFile(file, "r")
-            try {
-                val header = ByteArray(HEADER_SIZE).also { raf.readFully(it) }
-                require(String(header, 0, 4) == "RIFF" && String(header, 8, 4) == "WAVE") {
-                    "Not a WAV file"
-                }
-                val ch = WavHeaderParser.readLeUint16(header, 22)
-                val sr = WavHeaderParser.readLeUint32(header, 24).toInt()
-                val bits = WavHeaderParser.readLeUint16(header, 34)
-                require(ch == 1 && bits == 16) {
-                    "Mono 16-bit PCM only (got ch=$ch bits=$bits)"
-                }
-                require(String(header, 36, 4) == "data") {
-                    "WAV 'data' chunk not at offset 36 — unsupported chunk layout"
-                }
-                val dataSize: Long = WavHeaderParser.readLeUint32(header, 40)
-                require(dataSize in 0L..Int.MAX_VALUE.toLong()) {
-                    "WAV dataSize out of safe range: $dataSize bytes"
-                }
-                val totalSamples = (dataSize / BYTES_PER_SAMPLE).toInt()
-                return WavWindowReader(
+            return try {
+                val parsed = WavPcmReader.parseHeader(raf)
+                WavWindowReader(
                     raf = raf,
-                    sampleRate = sr,
-                    dataStartByte = HEADER_SIZE.toLong(),
-                    totalSamples = totalSamples,
+                    sampleRate = parsed.sampleRateHz,
+                    dataStartByte = WavPcmReader.HEADER_SIZE.toLong(),
+                    totalSamples = parsed.totalSamples.toInt(),
                 )
             } catch (t: Throwable) {
                 runCatching { raf.close() }

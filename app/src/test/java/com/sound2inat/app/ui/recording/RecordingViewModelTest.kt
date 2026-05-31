@@ -126,10 +126,11 @@ class RecordingViewModelTest {
                 recordingStartMs = 0L,
                 elapsedMs = 5_000L,
                 rms = 0.3f,
-                gps = GpsStatus.NoFix,
+                gpsFix = null,
+                locationTimedOut = true,
                 warningSoftLimit = false,
                 backlogWindows = 2,
-                liveCards = emptyList(),
+                detections = emptyList(),
                 lastDetection = null,
             ),
         )
@@ -151,8 +152,8 @@ class RecordingViewModelTest {
         fakeController.setState(
             RecordingSessionState.Recording(
                 draftId = "d2", recordingStartMs = 0L, elapsedMs = 0L,
-                rms = 0f, gps = GpsStatus.NoFix, warningSoftLimit = false,
-                backlogWindows = 0, liveCards = emptyList(), lastDetection = null,
+                rms = 0f, gpsFix = null, locationTimedOut = true, warningSoftLimit = false,
+                backlogWindows = 0, detections = emptyList(), lastDetection = null,
             ),
         )
         runCurrent()
@@ -170,8 +171,8 @@ class RecordingViewModelTest {
         fakeController.setState(
             RecordingSessionState.Recording(
                 draftId = "d1", recordingStartMs = 0L, elapsedMs = 1000L,
-                rms = 0f, gps = GpsStatus.NoFix, warningSoftLimit = false,
-                backlogWindows = 0, liveCards = emptyList(), lastDetection = null,
+                rms = 0f, gpsFix = null, locationTimedOut = true, warningSoftLimit = false,
+                backlogWindows = 0, detections = emptyList(), lastDetection = null,
             ),
         )
         val vm = buildVm(photoDao = fakePhotoDao, photoStore = photoStore)

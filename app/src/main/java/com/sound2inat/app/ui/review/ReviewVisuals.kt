@@ -3,8 +3,8 @@ package com.sound2inat.app.ui.review
 import android.os.SystemClock
 import android.util.Log
 import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
+import com.sound2inat.audio.WavPcmReader
 import java.io.File
-import java.io.RandomAccessFile
 
 /**
  * Builds (or loads cached) waveform and spectrogram artifacts for a draft.
@@ -88,7 +88,9 @@ internal class ProductionVisualsProvider(
         val startedAt = SystemClock.elapsedRealtime()
         val input = File(audioPath)
         Log.d("ReviewVisuals", "provider-start draft=$draftId file=${input.name}")
-        val info = readMono16Info(input)
+        val info = WavPcmReader.readHeader(input).let {
+            Mono16Info(sampleRateHz = it.sampleRateHz, totalSamples = it.totalSamples)
+        }
         val palette = config.palette ?: SpectrogramPalette.INK
         val contrastDb = config.gainDb ?: 0f
         val renderStart = SystemClock.elapsedRealtime()
@@ -97,7 +99,7 @@ internal class ProductionVisualsProvider(
             palette = palette,
             contrastDb = contrastDb,
         ) { onBlock ->
-            streamMono16(input) { chunk, _ ->
+            WavPcmReader.stream(input) { chunk, _ ->
                 onBlock(FloatArray(chunk.size) { i -> chunk[i] / Short.MAX_VALUE.toFloat() })
             }
         }
@@ -127,29 +129,6 @@ internal data class Mono16Info(
     val totalSamples: Long,
 )
 
-internal fun readMono16Info(file: File): Mono16Info {
-    RandomAccessFile(file, "r").use { raf ->
-        val header = ByteArray(WAV_HEADER_SIZE).also { raf.readFully(it) }
-        require(String(header, 0, 4) == "RIFF" && String(header, 8, 4) == "WAVE") {
-            "Not a WAV file"
-        }
-        val channels = leU16(header, 22)
-        val sampleRateHz = leU32(header, 24).toInt()
-        val bitsPerSample = leU16(header, 34)
-        require(channels == 1 && bitsPerSample == WAV_BITS_PER_SAMPLE) {
-            "Mono 16-bit PCM only (got ch=$channels bits=$bitsPerSample)"
-        }
-        require(String(header, 36, 4) == "data") {
-            "WAV 'data' chunk not at offset 36 — unsupported chunk layout"
-        }
-        val dataSize = leU32(header, 40)
-        require(dataSize in 0L..Long.MAX_VALUE / WAV_BYTES_PER_SAMPLE) {
-            "WAV dataSize out of safe range: $dataSize bytes"
-        }
-        return Mono16Info(sampleRateHz = sampleRateHz, totalSamples = dataSize / WAV_BYTES_PER_SAMPLE)
-    }
-}
-
 internal fun buildWaveformPeaks(file: File, info: Mono16Info): FloatArray {
     if (info.totalSamples <= 0L) return FloatArray(0)
     val width =
@@ -157,7 +136,7 @@ internal fun buildWaveformPeaks(file: File, info: Mono16Info): FloatArray {
     if (width <= 0) return FloatArray(0)
     val lows = FloatArray(width) { Float.POSITIVE_INFINITY }
     val highs = FloatArray(width) { Float.NEGATIVE_INFINITY }
-    streamMono16(file) { chunk, startSample ->
+    WavPcmReader.stream(file) { chunk, startSample ->
         for (i in chunk.indices) {
             val sampleIndex = startSample + i
             val bucket = ((sampleIndex * width) / info.totalSamples).toInt().coerceIn(0, width - 1)
@@ -175,55 +154,3 @@ internal fun buildWaveformPeaks(file: File, info: Mono16Info): FloatArray {
         }
     }
 }
-
-private fun streamMono16(
-    file: File,
-    blockSamples: Int = WAV_READ_BLOCK_SAMPLES,
-    onChunk: (chunk: ShortArray, startSample: Long) -> Unit,
-) {
-    RandomAccessFile(file, "r").use { raf ->
-        val header = ByteArray(WAV_HEADER_SIZE).also { raf.readFully(it) }
-        require(String(header, 0, 4) == "RIFF" && String(header, 8, 4) == "WAVE") {
-            "Not a WAV file"
-        }
-        val channels = leU16(header, 22)
-        val sampleRateHz = leU32(header, 24).toInt()
-        val bitsPerSample = leU16(header, 34)
-        require(channels == 1 && bitsPerSample == WAV_BITS_PER_SAMPLE) {
-            "Mono 16-bit PCM only (got ch=$channels bits=$bitsPerSample)"
-        }
-        require(String(header, 36, 4) == "data") {
-            "WAV 'data' chunk not at offset 36 — unsupported chunk layout"
-        }
-        val dataSize = leU32(header, 40)
-        val totalSamples = dataSize / WAV_BYTES_PER_SAMPLE
-        val raw = ByteArray(blockSamples * WAV_BYTES_PER_SAMPLE)
-        var startSample = 0L
-        while (startSample < totalSamples) {
-            val samplesToRead = minOf(blockSamples.toLong(), totalSamples - startSample).toInt()
-            raf.readFully(raw, 0, samplesToRead * WAV_BYTES_PER_SAMPLE)
-            val chunk = ShortArray(samplesToRead)
-            for (i in 0 until samplesToRead) {
-                val lo = raw[2 * i].toInt() and 0xFF
-                val hi = raw[2 * i + 1].toInt()
-                chunk[i] = ((hi shl 8) or lo).toShort()
-            }
-            onChunk(chunk, startSample)
-            startSample += samplesToRead
-        }
-    }
-}
-
-private fun leU16(buf: ByteArray, o: Int): Int =
-    (buf[o].toInt() and 0xFF) or ((buf[o + 1].toInt() and 0xFF) shl 8)
-
-private fun leU32(buf: ByteArray, o: Int): Long =
-    (buf[o].toLong() and 0xFF) or
-        ((buf[o + 1].toLong() and 0xFF) shl 8) or
-        ((buf[o + 2].toLong() and 0xFF) shl 16) or
-        ((buf[o + 3].toLong() and 0xFF) shl 24)
-
-private const val WAV_HEADER_SIZE = 44
-private const val WAV_BYTES_PER_SAMPLE = 2
-private const val WAV_BITS_PER_SAMPLE = 16
-private const val WAV_READ_BLOCK_SAMPLES = 16_384

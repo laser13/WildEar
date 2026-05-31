@@ -1,6 +1,7 @@
 package com.sound2inat.inference
 
 import android.util.Log
+import com.sound2inat.audio.WavWindowReader
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -8,7 +9,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import java.io.File
-import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * fd, identical file) and processes its assigned frame range; results merged and sorted
  * by windowStartMs.
  *
- * Memory note (Task B1): the previous implementation called [WavReader.readMono16]
+ * Memory note (Task B1): the previous implementation called [com.sound2inat.audio.WavPcmReader.readMono16]
  * which materialised the whole WAV as `ByteArray + ShortArray + FloatArray`, peaking at
  * roughly 4 × dataSize bytes. For a one-hour 48 kHz/16-bit/mono recording this is ~1.3 GB
  * and OOMs on Android (heap 256–512 MB on low/mid-tier devices). The streaming path keeps
@@ -333,44 +333,5 @@ class InferenceRunner(
         const val MS_PER_SECOND_LONG = 1_000L
         const val BATCH_LOG_INTERVAL = 50
         const val EXPECTED_PREDICTIONS_PER_FRAME = 5
-    }
-}
-
-/**
- * Reads a mono 16-bit PCM WAV produced by `recorder.WavWriter` (clean 44-byte
- * header, fmt chunk size 16, PCM data chunk immediately after). Not a general
- * RIFF parser — extra chunks (e.g. LIST/INFO) are NOT supported.
- */
-internal object WavReader {
-    fun readMono16(file: File): Pair<ShortArray, Int> {
-        RandomAccessFile(file, "r").use { raf ->
-            val header = ByteArray(44).also { raf.readFully(it) }
-            require(String(header, 0, 4) == "RIFF" && String(header, 8, 4) == "WAVE") {
-                "Not a WAV file"
-            }
-            val ch = WavHeaderParser.readLeUint16(header, 22)
-            val sr = WavHeaderParser.readLeUint32(header, 24).toInt()
-            val bits = WavHeaderParser.readLeUint16(header, 34)
-            require(ch == 1 && bits == 16) { "Mono 16-bit PCM only (got ch=$ch bits=$bits)" }
-            require(String(header, 36, 4) == "data") {
-                "WAV 'data' chunk not at offset 36 — unsupported chunk layout"
-            }
-            val dataSize: Long = WavHeaderParser.readLeUint32(header, 40)
-            require(dataSize in 0L..Int.MAX_VALUE.toLong()) {
-                "WAV dataSize out of safe range: $dataSize bytes"
-            }
-            val raw = ByteArray(dataSize.toInt())
-            raf.readFully(raw)
-            // Build ShortArray after fully reading raw bytes so both arrays do
-            // not need to coexist in heap. The local `raw` reference becomes
-            // unreachable after the lambda exits and can be collected early.
-            val sampleCount = dataSize.toInt() / 2
-            val samples = ShortArray(sampleCount) { i ->
-                val lo = raw[2 * i].toInt() and 0xFF
-                val hi = raw[2 * i + 1].toInt()
-                ((hi shl 8) or lo).toShort()
-            }
-            return samples to sr
-        }
     }
 }

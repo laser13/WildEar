@@ -1,6 +1,8 @@
 package com.sound2inat.inference
 
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.audio.WavPcmReader
+import com.sound2inat.audio.WavWindowReader
 import com.sound2inat.recorder.WavWriter
 import org.junit.Rule
 import org.junit.Test
@@ -11,7 +13,7 @@ import kotlin.math.sin
 
 /**
  * Direct tests for [WavWindowReader]. Covers:
- * - Byte-exact equivalence with [WavReader.readMono16] when windowing overlapping ranges.
+ * - Byte-exact equivalence with [com.sound2inat.audio.WavPcmReader.readMono16] when windowing overlapping ranges.
  * - Zero-padding of the trailing partial window (the legacy full-buffer path produced
  *   the same behaviour implicitly because `ShortArray.copyOfRange` past the end is
  *   not allowed — the runner historically clipped frames; this test pins the contract
@@ -42,7 +44,7 @@ class WavReaderStreamTest {
         val samples = sineSamples(durationSec = 2, sampleRate = 48_000, freq = 880.0)
         val wav = writeWav(samples)
 
-        val (full, sr) = WavReader.readMono16(wav)
+        val (full, sr) = WavPcmReader.readMono16(wav)
         assertThat(sr).isEqualTo(48_000)
         assertThat(full.size).isEqualTo(samples.size)
 
@@ -139,7 +141,7 @@ class WavReaderStreamTest {
         val wav = writeWav(samples, sampleRate = sr)
 
         // Legacy path.
-        val (raw, gotSr) = WavReader.readMono16(wav)
+        val (raw, gotSr) = WavPcmReader.readMono16(wav)
         assertThat(gotSr).isEqualTo(sr)
         val resampled = Resampler.resample(raw, sr, target)
         val normalized = FloatArray(resampled.size) { i -> resampled[i] / Short.MAX_VALUE.toFloat() }
@@ -169,7 +171,7 @@ class WavReaderStreamTest {
         val samples = sineSamples(durationSec = 2, sampleRate = sr, freq = 880.0)
         val wav = writeWav(samples, sampleRate = sr)
 
-        val (raw, _) = WavReader.readMono16(wav)
+        val (raw, _) = WavPcmReader.readMono16(wav)
         val resampled = Resampler.resample(raw, sr, target)
         val normalized = FloatArray(resampled.size) { i -> resampled[i] / Short.MAX_VALUE.toFloat() }
 
