@@ -129,6 +129,7 @@ copyRoomSchemasIntoAssets.configure {
 
 dependencies {
     implementation(project(":core-audio"))
+    implementation(project(":inference"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -154,10 +155,6 @@ dependencies {
     implementation(libs.datastore.preferences)
     implementation(libs.coroutines.android)
     implementation(libs.okhttp)
-    implementation(libs.jtransforms)
-    implementation(libs.tflite)
-    implementation(libs.tflite.gpu)
-    implementation(libs.tflite.support)
     implementation(libs.play.services.location)
     implementation(libs.coil.compose)
     implementation(libs.androidx.security.crypto)
