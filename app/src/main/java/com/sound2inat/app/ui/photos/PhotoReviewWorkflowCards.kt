@@ -45,6 +45,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.sound2inat.app.R
+import com.sound2inat.app.ui.theme.cornerLarge24
 import com.sound2inat.inat.PhotoVisionPlanner
 import com.sound2inat.inat.PhotoVisionSuggestion
 import com.sound2inat.inat.PhotoVisionTarget
@@ -77,7 +78,7 @@ fun PhotoWorkflowActionsCard(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
@@ -100,7 +101,7 @@ fun PhotoWorkflowActionsCard(
                 onClick = primaryAction,
                 enabled = primaryEnabled,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
+                shape = MaterialTheme.shapes.large,
             ) {
                 if (state.isUploading || state.vision.isLoading) {
                     CircularProgressIndicator(
@@ -121,14 +122,14 @@ fun PhotoWorkflowActionsCard(
             ) {
                 OutlinedButton(
                     onClick = onAddMorePhotos,
-                    shape = RoundedCornerShape(18.dp),
+                    shape = MaterialTheme.shapes.medium,
                 ) {
                     Text(stringResource(R.string.photos_workflow_add_photos))
                 }
                 state.observationUrl?.let { url ->
                     FilledTonalButton(
                         onClick = { onOpenObservation(url) },
-                        shape = RoundedCornerShape(18.dp),
+                        shape = MaterialTheme.shapes.medium,
                     ) {
                         Text(stringResource(R.string.photos_workflow_open_inat))
                     }
@@ -149,7 +150,7 @@ fun INaturalistStatusCard(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         color = if (state.isUploaded) {
             MaterialTheme.colorScheme.surfaceContainer
         } else {
@@ -170,7 +171,7 @@ fun INaturalistStatusCard(
                     )
                     Button(
                         onClick = onUpload,
-                        shape = RoundedCornerShape(18.dp),
+                        shape = MaterialTheme.shapes.medium,
                     ) {
                         Text(stringResource(R.string.photos_workflow_primary_upload))
                     }
@@ -244,7 +245,7 @@ fun INaturalistStatusCard(
                     Text(stringResource(R.string.photos_inat_not_uploaded), style = MaterialTheme.typography.bodyLarge)
                     Button(
                         onClick = onUpload,
-                        shape = RoundedCornerShape(18.dp),
+                        shape = MaterialTheme.shapes.medium,
                     ) {
                         Text(stringResource(R.string.photos_workflow_primary_upload))
                     }
@@ -267,7 +268,7 @@ fun IdentificationStatusCard(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
@@ -301,7 +302,7 @@ fun PhotoObservationSyncCard(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = cornerLarge24,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
@@ -422,7 +423,7 @@ fun PhotoVisionSuggestionsCard(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
@@ -456,7 +457,7 @@ fun PhotoVisionSuggestionsCard(
                     Button(
                         onClick = onRetry,
                         enabled = state.canRunVision,
-                        shape = RoundedCornerShape(18.dp),
+                        shape = MaterialTheme.shapes.medium,
                     ) {
                         Text(stringResource(R.string.photos_workflow_primary_get_suggestions))
                     }
@@ -489,7 +490,7 @@ fun PhotoVisionSuggestionsCard(
                 ) {
                     Button(
                         onClick = onRetry,
-                        shape = RoundedCornerShape(18.dp),
+                        shape = MaterialTheme.shapes.medium,
                     ) {
                         Text(stringResource(R.string.photos_sync_try_again))
                     }
@@ -552,7 +553,7 @@ fun ObservationSuggestionCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = cornerLarge24,
         colors = CardDefaults.cardColors(
             containerColor = if (isPrimary) {
                 MaterialTheme.colorScheme.primaryContainer
@@ -570,7 +571,7 @@ fun ObservationSuggestionCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(132.dp)
-                        .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
+                        .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)), // top-only corners; no shape token
                 )
             }
             ListItem(
@@ -610,7 +611,7 @@ fun ObservationSuggestionCard(
                 trailingContent = {
                     Button(
                         onClick = onApply,
-                        shape = RoundedCornerShape(18.dp),
+                        shape = MaterialTheme.shapes.medium,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (isPrimary) {
                                 MaterialTheme.colorScheme.onPrimaryContainer

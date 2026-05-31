@@ -19,26 +19,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.RotateLeft
 import androidx.compose.material.icons.automirrored.outlined.RotateRight
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Crop
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
@@ -85,6 +80,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.sound2inat.app.R
+import com.sound2inat.app.ui.common.ProgressRow
+import com.sound2inat.app.ui.common.ProgressRowState
+import com.sound2inat.app.ui.theme.cornerLarge24
 import com.sound2inat.inat.SubmissionProgress
 import kotlinx.coroutines.launch
 import java.io.File
@@ -240,7 +238,7 @@ private fun PhotoHeroSection(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
@@ -252,7 +250,7 @@ private fun PhotoHeroSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(4f / 3f),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = cornerLarge24,
                     color = MaterialTheme.colorScheme.surfaceVariant,
                 ) {
                     Box(
@@ -293,12 +291,12 @@ private fun PhotoHeroSection(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .fillMaxSize()
-                            .clip(RoundedCornerShape(24.dp)),
+                            .clip(cornerLarge24),
                     )
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .clip(RoundedCornerShape(24.dp))
+                            .clip(cornerLarge24)
                             .background(
                                 Brush.verticalGradient(
                                     colors = listOf(
@@ -362,7 +360,7 @@ private fun PhotoObservationFooter(
     val observationUrl = state.observationUrl
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerLowest,
     ) {
         Column(
@@ -479,78 +477,42 @@ private fun PhotoSubmissionProgressChecklist(progress: SubmissionProgress?) {
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary,
         )
-        PhotoProgressRow(
+        ProgressRow(
             label = stringResource(R.string.photo_submit_step_creating),
-            step = step,
-            rowStep = SubmissionProgress.Step.CreatingObservation,
+            state = photoProgressRowState(step, SubmissionProgress.Step.CreatingObservation),
         )
-        PhotoProgressRow(
+        ProgressRow(
             label = stringResource(R.string.photo_submit_step_photo_primary),
-            step = step,
-            rowStep = SubmissionProgress.Step.UploadingPrimaryPhoto,
+            state = photoProgressRowState(step, SubmissionProgress.Step.UploadingPrimaryPhoto),
         )
-        PhotoProgressRow(
+        ProgressRow(
             label = stringResource(R.string.photo_submit_step_photo_extra),
-            step = step,
-            rowStep = SubmissionProgress.Step.UploadingExtraPhoto,
+            state = photoProgressRowState(step, SubmissionProgress.Step.UploadingExtraPhoto),
         )
-        PhotoProgressRow(
+        ProgressRow(
             label = stringResource(R.string.photo_submit_step_tag),
-            step = step,
-            rowStep = SubmissionProgress.Step.ApplyingTag,
+            state = photoProgressRowState(step, SubmissionProgress.Step.ApplyingTag),
         )
-        PhotoProgressRow(
+        ProgressRow(
             label = stringResource(R.string.photo_submit_step_persisting),
-            step = step,
-            rowStep = SubmissionProgress.Step.Persisting,
+            state = photoProgressRowState(step, SubmissionProgress.Step.Persisting),
         )
     }
 }
 
-private enum class PhotoProgressRowState { Pending, InProgress, Done, Failed }
-
-@Suppress("FunctionNaming")
-@Composable
-private fun PhotoProgressRow(
-    label: String,
+private fun photoProgressRowState(
     step: SubmissionProgress.Step?,
     rowStep: SubmissionProgress.Step,
-) {
+): ProgressRowState {
     val orderedSteps = photoProgressSteps()
     val rowIndex = orderedSteps.indexOf(rowStep)
     val currentIndex = orderedSteps.indexOf(step)
-    val state = when {
-        step == SubmissionProgress.Step.DoneOk -> PhotoProgressRowState.Done
-        step == SubmissionProgress.Step.DoneFailed && rowIndex == currentIndex + 1 -> PhotoProgressRowState.Failed
-        step == rowStep -> PhotoProgressRowState.InProgress
-        currentIndex >= 0 && rowIndex < currentIndex -> PhotoProgressRowState.Done
-        else -> PhotoProgressRowState.Pending
-    }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        when (state) {
-            PhotoProgressRowState.InProgress -> CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            else -> {
-                val icon = when (state) {
-                    PhotoProgressRowState.Pending -> Icons.Outlined.RadioButtonUnchecked
-                    PhotoProgressRowState.Done -> Icons.Outlined.CheckCircle
-                    PhotoProgressRowState.Failed -> Icons.Outlined.ErrorOutline
-                    PhotoProgressRowState.InProgress -> error("unreachable")
-                }
-                val tint = when (state) {
-                    PhotoProgressRowState.Pending -> MaterialTheme.colorScheme.outline
-                    PhotoProgressRowState.Done -> MaterialTheme.colorScheme.primary
-                    PhotoProgressRowState.Failed -> MaterialTheme.colorScheme.error
-                    PhotoProgressRowState.InProgress -> error("unreachable")
-                }
-                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
-            }
-        }
-        Spacer(Modifier.width(8.dp))
-        Text(label, style = MaterialTheme.typography.bodySmall)
+    return when {
+        step == SubmissionProgress.Step.DoneOk -> ProgressRowState.Done
+        step == SubmissionProgress.Step.DoneFailed && rowIndex == currentIndex + 1 -> ProgressRowState.Failed
+        step == rowStep -> ProgressRowState.InProgress
+        currentIndex >= 0 && rowIndex < currentIndex -> ProgressRowState.Done
+        else -> ProgressRowState.Pending
     }
 }
 
@@ -687,7 +649,7 @@ private fun PhotoThumbnail(
             .widthIn(max = thumbnailWidth)
             .semantics { contentDescription = photoCd }
             .clickable(onClick = onOpen),
-        shape = RoundedCornerShape(if (compact) 18.dp else 20.dp),
+        shape = if (compact) MaterialTheme.shapes.medium else MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
                 MaterialTheme.colorScheme.primaryContainer
@@ -718,7 +680,7 @@ private fun AddPhotoThumbnail(onClick: () -> Unit) {
             .widthIn(max = 92.dp)
             .aspectRatio(1f)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(18.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
