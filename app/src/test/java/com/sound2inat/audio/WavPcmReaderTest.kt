@@ -84,6 +84,18 @@ class WavPcmReaderTest {
     }
 
     @Test
+    fun `stream rejects non-positive blockSamples`() {
+        val wav = writeWav(ShortArray(10) { it.toShort() })
+
+        try {
+            WavPcmReader.stream(wav, blockSamples = 0) { _, _ -> }
+            error("Expected IllegalArgumentException")
+        } catch (e: IllegalArgumentException) {
+            assertThat(e.message).contains("blockSamples must be positive")
+        }
+    }
+
+    @Test
     fun `readHeader rejects stereo WAV`() {
         val file = tmp.newFile("stereo.wav")
         val header = ByteArray(44)

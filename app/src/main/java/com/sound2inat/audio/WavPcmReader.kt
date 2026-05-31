@@ -45,7 +45,7 @@ object WavPcmReader {
      * Clamps the declared `data` size to what the file actually contains so a
      * mismatched header never drives an over-read.
      */
-    private fun parseHeader(raf: RandomAccessFile): Header {
+    internal fun parseHeader(raf: RandomAccessFile): Header {
         val header = ByteArray(HEADER_SIZE).also { raf.readFully(it) }
         require(String(header, 0, 4) == "RIFF" && String(header, 8, 4) == "WAVE") {
             "Not a WAV file"
@@ -96,6 +96,7 @@ object WavPcmReader {
         blockSamples: Int = DEFAULT_BLOCK_SAMPLES,
         onChunk: (chunk: ShortArray, startSample: Long) -> Unit,
     ) {
+        require(blockSamples > 0) { "blockSamples must be positive" }
         RandomAccessFile(file, "r").use { raf ->
             val header = parseHeader(raf)
             val totalSamples = header.totalSamples

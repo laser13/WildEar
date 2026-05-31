@@ -54,10 +54,10 @@ internal class WavWindowReader private constructor(
         private const val BYTES_PER_SAMPLE = 2
 
         fun open(file: File): WavWindowReader {
-            val parsed = WavPcmReader.readHeader(file)
             val raf = RandomAccessFile(file, "r")
-            try {
-                return WavWindowReader(
+            return try {
+                val parsed = WavPcmReader.parseHeader(raf)
+                WavWindowReader(
                     raf = raf,
                     sampleRate = parsed.sampleRateHz,
                     dataStartByte = WavPcmReader.HEADER_SIZE.toLong(),
