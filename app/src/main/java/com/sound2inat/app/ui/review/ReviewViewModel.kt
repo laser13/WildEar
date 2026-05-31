@@ -1183,10 +1183,9 @@ class ReviewViewModel(
     }
 
     fun onShareFullRecording() {
+        _state.update { it.copy(exportingAction = ExportingAction.FullRecordingShare) }
         scope.launch(ioDispatcher) {
             exportUseCase.runExport(
-                action = ExportingAction.FullRecordingShare,
-                setExportingAction = { a -> _state.update { it.copy(exportingAction = a) } },
                 emitEffect = ::emitEffect,
                 clearExportingAction = ::clearExportingAction,
             ) {
@@ -1196,11 +1195,10 @@ class ReviewViewModel(
     }
 
     fun onSaveFullRecording() {
+        _state.update { it.copy(exportingAction = ExportingAction.FullRecordingSave) }
         scope.launch(ioDispatcher) {
             exportUseCase.runExport(
-                action = ExportingAction.FullRecordingSave,
                 genericErrorMessage = "Could not save audio",
-                setExportingAction = { a -> _state.update { it.copy(exportingAction = a) } },
                 emitEffect = ::emitEffect,
                 clearExportingAction = ::clearExportingAction,
             ) {
@@ -1212,10 +1210,9 @@ class ReviewViewModel(
     }
 
     fun onShareSpeciesClip(row: SpeciesRow) {
+        _state.update { it.copy(exportingAction = ExportingAction.SpeciesClipShare(row.detectionId)) }
         scope.launch(ioDispatcher) {
             exportUseCase.runExport(
-                action = ExportingAction.SpeciesClipShare(row.detectionId),
-                setExportingAction = { a -> _state.update { it.copy(exportingAction = a) } },
                 emitEffect = ::emitEffect,
                 clearExportingAction = ::clearExportingAction,
             ) {
@@ -1225,11 +1222,10 @@ class ReviewViewModel(
     }
 
     fun onSaveSpeciesClip(row: SpeciesRow) {
+        _state.update { it.copy(exportingAction = ExportingAction.SpeciesClipSave(row.detectionId)) }
         scope.launch(ioDispatcher) {
             exportUseCase.runExport(
-                action = ExportingAction.SpeciesClipSave(row.detectionId),
                 genericErrorMessage = "Could not save audio",
-                setExportingAction = { a -> _state.update { it.copy(exportingAction = a) } },
                 emitEffect = ::emitEffect,
                 clearExportingAction = ::clearExportingAction,
             ) {

@@ -10,8 +10,8 @@ import java.io.File
  *
  * The four entry points ([shareFullRecording], [saveFullRecording],
  * [shareSpeciesClip], [saveSpeciesClip]) share the [runExport] template that
- * replaces the four duplicated `setExportingAction → try/catch → emitEffect →
- * clear` blocks that previously lived inline in the ViewModel.
+ * replaces the four duplicated `try/catch → emitEffect → clear` blocks that
+ * previously lived inline in the ViewModel.
  */
 class ReviewExportUseCase(
     private val exportClipsDir: File,
@@ -24,18 +24,20 @@ class ReviewExportUseCase(
      * skeleton and the file work in [block]. [block] runs on the caller's
      * (IO) coroutine context.
      *
+     * The caller is responsible for setting `exportingAction` synchronously
+     * *before* launching the coroutine that invokes this template, so the UI
+     * observes the loading state immediately (original timing). This template
+     * only clears it in the `finally` block.
+     *
      * The two SAVE call sites pass [genericErrorMessage] = "Could not save audio"
      * to preserve the original's two different error messages.
      */
     suspend fun runExport(
-        action: ExportingAction,
         genericErrorMessage: String = "Could not share audio",
-        setExportingAction: (ExportingAction) -> Unit,
         emitEffect: (ReviewExportEffect) -> Unit,
         clearExportingAction: () -> Unit,
         block: suspend () -> ReviewExportEffect,
     ) {
-        setExportingAction(action)
         try {
             emitEffect(block())
         } catch (_: UnsupportedOperationException) {
