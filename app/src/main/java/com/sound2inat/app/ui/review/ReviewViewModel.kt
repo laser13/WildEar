@@ -61,27 +61,6 @@ import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
 
 /**
- * Submission seam abstracted from the production [INatSubmitter] so the VM
- * is unit-testable without going near OkHttp. Test fakes return canned
- * outcomes; the production wiring forwards to [INatSubmitter.submit].
- */
-fun interface InatSubmissionJob {
-    suspend fun submit(
-        token: String,
-        draftId: String,
-        habitatPhotos: List<File>,
-        includeHabitatPhotoByTaxon: Map<String, Boolean>,
-        sourceAudioOverride: File?,
-        onProgress: (com.sound2inat.inat.SubmissionProgress) -> Unit,
-    ): InatSubmissionOutcome
-}
-
-sealed interface InatSubmissionOutcome {
-    data class Success(val urls: List<String>) : InatSubmissionOutcome
-    data class Failure(val message: String) : InatSubmissionOutcome
-}
-
-/**
  * Abstraction over saving audio to public storage. Lets VM unit tests
  * inject a fake save operation without touching Android MediaStore.
  * Returns the [Uri] of the saved file, or null if not applicable.
@@ -271,6 +250,12 @@ class ReviewViewModel(
     private val photoController = ReviewPhotoAttachmentController(
         photoStore = photoStore,
         photosDao = photosDao,
+    )
+
+    private val submissionCoordinator = ReviewSubmissionCoordinator(
+        tokenProvider = tokenProvider,
+        acceptInatToken = acceptInatToken,
+        submission = submission,
     )
 
     init {
@@ -684,13 +669,6 @@ class ReviewViewModel(
      * users have reported it firing without an explicit tap, which would
      * otherwise be invisible (the lambda is just `vm::submitToINaturalist`).
      */
-    /**
-     * Tracks whether we've already bounced through interactive re-login in this
-     * submit attempt. Prevents an infinite loop if the user cancels the login
-     * screen or iNat returns a token that still fails to authenticate.
-     */
-    private var interactiveLoginAttempted: Boolean = false
-
     fun submitToINaturalist() {
         if (_state.value.inatSubmission == InatSubmissionState.InProgress) return
         // While we're waiting for the user to finish the interactive login
@@ -729,15 +707,8 @@ class ReviewViewModel(
             )
         }
         scope.launch {
-            val token = tokenProvider()
-            if (token.isNullOrBlank()) {
-                // Silent refresh failed — the iNat session cookie is dead.
-                // Hand off to the UI to launch the interactive login flow.
-                // The screen captures the activity result and feeds it back
-                // via onInteractiveLoginResult(), which will either retry the
-                // submission (on success) or transition to Failed (on cancel).
-                if (interactiveLoginAttempted) {
-                    interactiveLoginAttempted = false
+            when (val resolution = submissionCoordinator.resolveToken()) {
+                is TokenResolution.Expired -> {
                     _state.update {
                         it.copy(
                             inatSubmission = InatSubmissionState.Failed(
@@ -747,7 +718,9 @@ class ReviewViewModel(
                             pendingSubmissionSpecies = null,
                         )
                     }
-                } else {
+                    return@launch
+                }
+                is TokenResolution.NeedsInteractiveLogin -> {
                     android.util.Log.i(
                         "ReviewViewModel",
                         "submitToINaturalist: token unavailable, requesting interactive login",
@@ -759,48 +732,50 @@ class ReviewViewModel(
                             pendingSubmissionSpecies = null,
                         )
                     }
+                    return@launch
                 }
-                return@launch
-            }
-            val photos = _state.value.habitatPhotos.map { java.io.File(it.photoPath) }
-            val includeByTaxon = _state.value.species.associate {
-                it.taxonScientificName to it.includeHabitatPhoto
-            }
-            val sourceAudioOverride = try {
-                File(currentProfileAudioPath())
-            } catch (t: Throwable) {
-                Log.w("ReviewViewModel", "submitToINaturalist failed to resolve current profile audio", t)
-                _state.update {
-                    it.copy(
-                        inatSubmission = InatSubmissionState.Failed("Processed audio is not ready"),
-                        submissionProgress = null,
-                        pendingSubmissionSpecies = null,
+                is TokenResolution.Ready -> {
+                    val photos = _state.value.habitatPhotos.map { java.io.File(it.photoPath) }
+                    val includeByTaxon = _state.value.species.associate {
+                        it.taxonScientificName to it.includeHabitatPhoto
+                    }
+                    val sourceAudioOverride = try {
+                        File(currentProfileAudioPath())
+                    } catch (t: Throwable) {
+                        Log.w("ReviewViewModel", "submitToINaturalist failed to resolve current profile audio", t)
+                        _state.update {
+                            it.copy(
+                                inatSubmission = InatSubmissionState.Failed("Processed audio is not ready"),
+                                submissionProgress = null,
+                                pendingSubmissionSpecies = null,
+                            )
+                        }
+                        return@launch
+                    }
+                    val outcome = submissionCoordinator.submit(
+                        token = resolution.token,
+                        draftId = draftId,
+                        habitatPhotos = photos,
+                        includeHabitatPhotoByTaxon = includeByTaxon,
+                        sourceAudioOverride = sourceAudioOverride,
+                        onProgress = { p ->
+                            _state.update { it.copy(submissionProgress = p) }
+                        },
                     )
+                    // Settle terminal state; clear the re-login guard so a fresh
+                    // Submit tap later can request interactive login again.
+                    submissionCoordinator.clearLoginGuard()
+                    _state.update {
+                        it.copy(
+                            inatSubmission = when (outcome) {
+                                is InatSubmissionOutcome.Success -> InatSubmissionState.Done(outcome.urls)
+                                is InatSubmissionOutcome.Failure -> InatSubmissionState.Failed(outcome.message)
+                            },
+                            submissionProgress = null,
+                            pendingSubmissionSpecies = null,
+                        )
+                    }
                 }
-                return@launch
-            }
-            val outcome = submission.submit(
-                token = token,
-                draftId = draftId,
-                habitatPhotos = photos,
-                includeHabitatPhotoByTaxon = includeByTaxon,
-                sourceAudioOverride = sourceAudioOverride,
-                onProgress = { p ->
-                    _state.update { it.copy(submissionProgress = p) }
-                },
-            )
-            // Settle terminal state; clear the re-login guard so a fresh
-            // Submit tap later can request interactive login again.
-            interactiveLoginAttempted = false
-            _state.update {
-                it.copy(
-                    inatSubmission = when (outcome) {
-                        is InatSubmissionOutcome.Success -> InatSubmissionState.Done(outcome.urls)
-                        is InatSubmissionOutcome.Failure -> InatSubmissionState.Failed(outcome.message)
-                    },
-                    submissionProgress = null,
-                    pendingSubmissionSpecies = null,
-                )
             }
         }
     }
@@ -838,7 +813,7 @@ class ReviewViewModel(
     }
 
     fun resetInatSubmission() {
-        interactiveLoginAttempted = false
+        submissionCoordinator.clearLoginGuard()
         _state.update { it.copy(inatSubmission = InatSubmissionState.Idle) }
     }
 
@@ -863,7 +838,7 @@ class ReviewViewModel(
         }
         if (token.isNullOrBlank()) {
             android.util.Log.i("ReviewViewModel", "onInteractiveLoginResult: login cancelled")
-            interactiveLoginAttempted = false
+            submissionCoordinator.clearLoginGuard()
             _state.update {
                 it.copy(
                     inatSubmission = InatSubmissionState.Failed(
@@ -874,16 +849,16 @@ class ReviewViewModel(
             return
         }
         android.util.Log.i("ReviewViewModel", "onInteractiveLoginResult: token captured, retrying submit")
-        interactiveLoginAttempted = true
+        submissionCoordinator.markInteractiveLoginAttempted()
         // Move out of NeedsInteractiveLogin so submitToINaturalist()'s guard
         // doesn't short-circuit; Idle is the natural "nothing yet" baseline.
         _state.update { it.copy(inatSubmission = InatSubmissionState.Idle) }
         scope.launch {
             try {
-                acceptInatToken(token)
+                submissionCoordinator.acceptToken(token)
             } catch (t: Throwable) {
                 android.util.Log.w("ReviewViewModel", "acceptInatToken failed", t)
-                interactiveLoginAttempted = false
+                submissionCoordinator.clearLoginGuard()
                 _state.update {
                     it.copy(
                         inatSubmission = InatSubmissionState.Failed(
