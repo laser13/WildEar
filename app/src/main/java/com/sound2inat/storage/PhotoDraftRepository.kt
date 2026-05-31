@@ -3,8 +3,8 @@ package com.sound2inat.storage
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
@@ -19,8 +19,7 @@ class PhotoDraftRepository(
     private val runInTransaction: (block: () -> Unit) -> Unit = { it() },
 ) {
     fun observeSummaries(): Flow<List<PhotoDraftSummary>> =
-        draftDao.observeAll().map { drafts ->
-            val allImages = imageDao.listAll()
+        combine(draftDao.observeAll(), imageDao.observeAll()) { drafts, allImages ->
             val imagesByDraft = allImages.groupBy { it.photoDraftId }
             drafts.map { draft ->
                 val images = imagesByDraft[draft.id] ?: emptyList()

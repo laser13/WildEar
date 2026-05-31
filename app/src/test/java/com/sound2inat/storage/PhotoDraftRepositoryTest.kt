@@ -5,7 +5,10 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Before
@@ -25,6 +28,12 @@ class PhotoDraftRepositoryTest {
     @get:Rule
     val instant = InstantTaskExecutorRule()
 
+    // Shared scheduler so that ioDispatcher and runTest use the same virtual clock.
+    // This is required because combine() creates child coroutines via produce(), and
+    // flowOn(ioDispatcher) must share the TestCoroutineScheduler with runTest.
+    private val testScheduler = TestCoroutineScheduler()
+    private val testDispatcher = UnconfinedTestDispatcher(testScheduler)
+
     private lateinit var db: Sound2iNatDb
     private lateinit var fileStore: PhotoObservationFileStore
     private lateinit var repo: PhotoDraftRepository
@@ -43,7 +52,7 @@ class PhotoDraftRepositoryTest {
             fileStore = fileStore,
             nowMs = { 10L },
             idFactory = { "id${++nextId}" },
-            ioDispatcher = UnconfinedTestDispatcher(),
+            ioDispatcher = testDispatcher,
             runInTransaction = { block -> db.runInTransaction(block) },
         )
     }
@@ -54,7 +63,7 @@ class PhotoDraftRepositoryTest {
     }
 
     @Test
-    fun `create draft add image and delete draft cleanly`() = runTest {
+    fun `create draft add image and delete draft cleanly`() = runTest(testScheduler) {
         val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
         val imageFile = fileStore.newPhotoFile(draftId, "photo1").apply {
             parentFile?.mkdirs()
@@ -84,7 +93,7 @@ class PhotoDraftRepositoryTest {
     }
 
     @Test
-    fun `observe summaries returns newest first with first thumbnail and count`() = runTest {
+    fun `observe summaries returns newest first with first thumbnail and count`() = runTest(testScheduler) {
         val oldId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
         val newId = repo.createDraft(2L, latitude = 10.0, longitude = 20.0, accuracyMeters = 5f)
         val firstPhoto = fileStore.newPhotoFile(newId, "first").apply { writeText("jpeg") }
@@ -115,5 +124,50 @@ class PhotoDraftRepositoryTest {
         assertThat(summaries.first().latitude).isEqualTo(10.0)
         assertThat(summaries.first().locationAccuracyMeters).isEqualTo(5f)
         assertThat(db.photoDraftImages().listForDraft(newId).map { it.id }).containsExactly("first", "second").inOrder()
+    }
+
+    @Test
+    fun `observeSummaries reacts to image changes on a single subscription`() = runTest(testScheduler) {
+        val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
+        val p1 = fileStore.newPhotoFile(draftId, "p1").apply { writeText("jpeg") }
+        val p2 = fileStore.newPhotoFile(draftId, "p2").apply { writeText("jpeg") }
+        repo.addImage(draftId, "p1", p1, takenAtUtcMs = 1L, width = 10, height = 10)
+        repo.addImage(draftId, "p2", p2, takenAtUtcMs = 2L, width = 10, height = 10)
+
+        assertThat(repo.observeSummaries().first().single().photoCount).isEqualTo(2)
+
+        // Delete one image. A correct reactive flow must reflect the new count
+        // WITHOUT re-subscribing (i.e. a freshly collected first() must be 1).
+        repo.deleteImage("p2")
+
+        val after = repo.observeSummaries().first().single()
+        assertThat(after.photoCount).isEqualTo(1)
+        assertThat(after.firstPhotoPath).isEqualTo(p1.absolutePath)
+    }
+
+    @Test
+    fun `single observeSummaries subscription emits again when only images change`() = runTest(testScheduler) {
+        val draftId = repo.createDraft(1L, latitude = null, longitude = null, accuracyMeters = null)
+        val p1 = fileStore.newPhotoFile(draftId, "p1").apply { writeText("jpeg") }
+        val p2 = fileStore.newPhotoFile(draftId, "p2").apply { writeText("jpeg") }
+        repo.addImage(draftId, "p1", p1, takenAtUtcMs = 1L, width = 10, height = 10)
+        repo.addImage(draftId, "p2", p2, takenAtUtcMs = 2L, width = 10, height = 10)
+
+        val emissions = mutableListOf<Int>()
+        val job = launch {
+            repo.observeSummaries().collect { summaries ->
+                emissions += summaries.firstOrNull()?.photoCount ?: 0
+            }
+        }
+        runCurrent()
+        assertThat(emissions.last()).isEqualTo(2)
+
+        // deleteImage touches only the images table (no draft row update) — a
+        // non-reactive map{} over draftDao.observeAll() would NOT re-emit here.
+        repo.deleteImage("p2")
+        runCurrent()
+
+        assertThat(emissions.last()).isEqualTo(1) // only p1 remains
+        job.cancel()
     }
 }
