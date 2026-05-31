@@ -6,10 +6,10 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
-import com.sound2inat.app.data.Settings
 import com.sound2inat.inat.INatAuthRepository
 import com.sound2inat.inat.INatTokenStore
 import com.sound2inat.inat.INaturalistClient
+import com.sound2inat.inat.LegacyInatTokenSource
 import com.sound2inat.inat.PhotoAnnotationUseCase
 import com.sound2inat.inat.PhotoSubmitResult
 import com.sound2inat.inat.PhotoSubmitter
@@ -24,7 +24,9 @@ import com.sound2inat.storage.Sound2iNatDb
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -669,7 +671,12 @@ class PhotoReviewViewModelTest {
             override fun save(token: String, login: String?, userId: Long?, fetchedAtUtcMs: Long) = Unit
             override fun clear() = Unit
         },
-        settings = Settings(ApplicationProvider.getApplicationContext()),
+        legacyTokens = object : LegacyInatTokenSource {
+            override val inatToken: Flow<String?> = flowOf(null)
+            override val inatLogin: Flow<String?> = flowOf(null)
+            override suspend fun setInatToken(value: String?) = Unit
+            override suspend fun setInatLogin(value: String?) = Unit
+        },
         client = INaturalistClient(OkHttpClient()),
     ) {
         override suspend fun getValidToken(refreshDispatcher: kotlinx.coroutines.CoroutineDispatcher): String? =

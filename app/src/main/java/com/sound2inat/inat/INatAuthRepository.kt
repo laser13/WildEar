@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.WebStorage
-import com.sound2inat.app.data.Settings
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Deferred
@@ -39,13 +38,13 @@ import kotlin.coroutines.resume
  *     surfaces an "interactive login required" UX.
  *  3. One-time migration: legacy plain-DataStore tokens (used in earlier
  *     versions) are imported into encrypted storage on first read, then
- *     scrubbed from DataStore.
+ *     scrubbed from DataStore via [LegacyInatTokenSource].
  */
 @Singleton
 open class INatAuthRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val storage: INatTokenStore,
-    private val settings: Settings,
+    private val legacyTokens: LegacyInatTokenSource,
     private val client: INaturalistClient,
 ) {
     private val _tokenState: MutableStateFlow<String?> = MutableStateFlow(storage.token)
@@ -256,16 +255,16 @@ open class INatAuthRepository @Inject constructor(
 
     /** Override in tests to avoid DataStore dependency. */
     internal open suspend fun readLegacyToken(): Pair<String, String?>? {
-        val legacy = runCatching { settings.inatToken.first() }.getOrNull() ?: return null
+        val legacy = runCatching { legacyTokens.inatToken.first() }.getOrNull() ?: return null
         if (legacy.isBlank()) return null
-        return legacy to runCatching { settings.inatLogin.first() }.getOrNull()
+        return legacy to runCatching { legacyTokens.inatLogin.first() }.getOrNull()
     }
 
     /** Override in tests to avoid DataStore dependency. */
     internal open suspend fun clearLegacyToken() {
         runCatching {
-            settings.setInatToken(null)
-            settings.setInatLogin(null)
+            legacyTokens.setInatToken(null)
+            legacyTokens.setInatLogin(null)
         }
     }
 

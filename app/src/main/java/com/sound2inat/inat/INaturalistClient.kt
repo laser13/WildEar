@@ -1,6 +1,5 @@
 package com.sound2inat.inat
 
-import com.sound2inat.app.BuildConfig
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -41,6 +40,12 @@ open class INaturalistClient(
      */
     private val v2BaseUrl: String = baseUrl.removeSuffix("/v1") + "/v2",
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /**
+     * When true, failed HTTP responses are logged with the full response body.
+     * Wire to `BuildConfig.DEBUG` from `:app`'s DI module so this class stays
+     * independent of the app layer.
+     */
+    private val debugLogging: Boolean = false,
 ) {
 
     /**
@@ -881,7 +886,7 @@ open class INaturalistClient(
         if (code in SUCCESS_RANGE) {
             android.util.Log.d(LOG_TAG, "${req.method} ${req.url} -> $code (${raw.length}B)")
         } else {
-            if (BuildConfig.DEBUG) {
+            if (debugLogging) {
                 android.util.Log.w(LOG_TAG, "${req.method} ${req.url} -> $code body=${raw.take(LOG_BODY_LEN)}")
             } else {
                 android.util.Log.w(LOG_TAG, "${req.method} ${req.url} -> $code")

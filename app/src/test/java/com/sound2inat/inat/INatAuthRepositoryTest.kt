@@ -2,9 +2,10 @@ package com.sound2inat.inat
 
 import android.content.Context
 import com.google.common.truth.Truth.assertThat
-import com.sound2inat.app.data.Settings
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
@@ -25,9 +26,8 @@ class INatAuthRepositoryTest {
         silentRefreshFn: suspend () -> String? = { null },
         legacySource: suspend () -> Pair<String, String?>? = { null },
     ): INatAuthRepository {
-        val settings = Settings(ctx)
         val client = INaturalistClient(OkHttpClient())
-        return object : INatAuthRepository(ctx, storage, settings, client) {
+        return object : INatAuthRepository(ctx, storage, NoOpLegacyInatTokenSource, client) {
             override suspend fun trySilentRefresh(dispatcher: CoroutineDispatcher) = silentRefreshFn()
             override suspend fun readLegacyToken(): Pair<String, String?>? = legacySource()
             override suspend fun clearLegacyToken() = Unit
@@ -81,6 +81,13 @@ class INatAuthRepositoryTest {
         assertThat(storage.savedToken).isEqualTo("legacy-token")
         assertThat(storage.savedLogin).isEqualTo("alice")
     }
+}
+
+private object NoOpLegacyInatTokenSource : LegacyInatTokenSource {
+    override val inatToken: Flow<String?> = flowOf(null)
+    override val inatLogin: Flow<String?> = flowOf(null)
+    override suspend fun setInatToken(value: String?) = Unit
+    override suspend fun setInatLogin(value: String?) = Unit
 }
 
 private class FakeTokenStore(

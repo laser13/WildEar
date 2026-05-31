@@ -2,11 +2,14 @@ package com.sound2inat.app.di
 
 import android.content.Context
 import androidx.room.Room
+import com.sound2inat.app.BuildConfig
 import com.sound2inat.app.data.Settings
+import com.sound2inat.app.data.SettingsLegacyInatTokenSource
 import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INatTokenStorage
 import com.sound2inat.inat.INatTokenStore
 import com.sound2inat.inat.INaturalistClient
+import com.sound2inat.inat.LegacyInatTokenSource
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inat.RegionLookup
 import com.sound2inat.inference.InterpreterFactory
@@ -138,6 +141,9 @@ object AppModule {
     fun provideTokenStore(impl: INatTokenStorage): INatTokenStore = impl
 
     @Provides @Singleton
+    fun provideLegacyInatTokenSource(impl: SettingsLegacyInatTokenSource): LegacyInatTokenSource = impl
+
+    @Provides @Singleton
     fun provideHttp(): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -148,7 +154,8 @@ object AppModule {
     fun provideInterpreterFactory(): InterpreterFactory = TfliteInterpreterFactory()
 
     @Provides @Singleton
-    fun provideINaturalistClient(http: OkHttpClient): INaturalistClient = INaturalistClient(http)
+    fun provideINaturalistClient(http: OkHttpClient): INaturalistClient =
+        INaturalistClient(http, debugLogging = BuildConfig.DEBUG)
 
     @Provides @Singleton
     fun provideRegionFilter(client: INaturalistClient): RegionFilter {
