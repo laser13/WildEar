@@ -1,12 +1,14 @@
 package com.sound2inat.app.ui.photos
 
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.app.ui.common.ProgressRowState
 import com.sound2inat.inat.InatTaxonInfo
 import com.sound2inat.inat.InatVisionCandidate
 import com.sound2inat.inat.InatVisionResponse
 import com.sound2inat.inat.PhotoVisionLadder
 import com.sound2inat.inat.PhotoVisionPlanner
 import com.sound2inat.inat.PhotoVisionSuggestion
+import com.sound2inat.inat.SubmissionProgress
 import org.junit.Test
 
 class PhotoReviewUiStateTest {
@@ -289,6 +291,70 @@ class PhotoReviewUiStateTest {
             "Delta",
         ).inOrder()
         assertThat(ladder.shouldShowAllToggle()).isTrue()
+    }
+
+    // ── photoProgressRowState ────────────────────────────────────────────────
+
+    @Test
+    fun `photoProgressRowState failure at UploadingPrimaryPhoto marks that row Failed earlier rows Done later rows Pending`() {
+        val failedAt = SubmissionProgress.Step.UploadingPrimaryPhoto
+        val terminal = SubmissionProgress.Step.DoneFailed
+
+        assertThat(
+            photoProgressRowState(terminal, failedAt, SubmissionProgress.Step.CreatingObservation)
+        ).isEqualTo(ProgressRowState.Done)
+
+        assertThat(
+            photoProgressRowState(terminal, failedAt, SubmissionProgress.Step.UploadingPrimaryPhoto)
+        ).isEqualTo(ProgressRowState.Failed)
+
+        assertThat(
+            photoProgressRowState(terminal, failedAt, SubmissionProgress.Step.UploadingExtraPhoto)
+        ).isEqualTo(ProgressRowState.Pending)
+        assertThat(
+            photoProgressRowState(terminal, failedAt, SubmissionProgress.Step.ApplyingTag)
+        ).isEqualTo(ProgressRowState.Pending)
+        assertThat(
+            photoProgressRowState(terminal, failedAt, SubmissionProgress.Step.Persisting)
+        ).isEqualTo(ProgressRowState.Pending)
+    }
+
+    @Test
+    fun `photoProgressRowState unknown failedStep does NOT mislabel row 0 as Failed`() {
+        val terminal = SubmissionProgress.Step.DoneFailed
+        assertThat(
+            photoProgressRowState(terminal, null, SubmissionProgress.Step.CreatingObservation)
+        ).isEqualTo(ProgressRowState.Pending)
+        assertThat(
+            photoProgressRowState(terminal, null, SubmissionProgress.Step.UploadingPrimaryPhoto)
+        ).isEqualTo(ProgressRowState.Pending)
+    }
+
+    @Test
+    fun `photoProgressRowState DoneOk marks all rows Done`() {
+        val terminal = SubmissionProgress.Step.DoneOk
+        for (step in listOf(
+            SubmissionProgress.Step.CreatingObservation,
+            SubmissionProgress.Step.UploadingPrimaryPhoto,
+            SubmissionProgress.Step.UploadingExtraPhoto,
+            SubmissionProgress.Step.ApplyingTag,
+            SubmissionProgress.Step.Persisting,
+        )) {
+            assertThat(photoProgressRowState(terminal, null, step)).isEqualTo(ProgressRowState.Done)
+        }
+    }
+
+    @Test
+    fun `photoProgressRowState failure at first step marks only that row Failed all others Pending`() {
+        val failedAt = SubmissionProgress.Step.CreatingObservation
+        val terminal = SubmissionProgress.Step.DoneFailed
+
+        assertThat(
+            photoProgressRowState(terminal, failedAt, SubmissionProgress.Step.CreatingObservation)
+        ).isEqualTo(ProgressRowState.Failed)
+        assertThat(
+            photoProgressRowState(terminal, failedAt, SubmissionProgress.Step.UploadingPrimaryPhoto)
+        ).isEqualTo(ProgressRowState.Pending)
     }
 
     private fun suggestion(id: Long, name: String) = PhotoVisionSuggestion(

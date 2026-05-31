@@ -454,7 +454,7 @@ private fun PhotoSubmitBottomBar(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (state.isSubmitting) {
-                PhotoSubmissionProgressChecklist(progress = state.submissionProgress)
+                PhotoSubmissionProgressChecklist(progress = state.submissionProgress, failedStep = state.failedStep)
             }
             Button(
                 onClick = onUpload,
@@ -469,7 +469,7 @@ private fun PhotoSubmitBottomBar(
 
 @Suppress("FunctionNaming")
 @Composable
-private fun PhotoSubmissionProgressChecklist(progress: SubmissionProgress?) {
+private fun PhotoSubmissionProgressChecklist(progress: SubmissionProgress?, failedStep: SubmissionProgress.Step?) {
     val step = (progress as? SubmissionProgress.Species)?.step
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
@@ -479,29 +479,30 @@ private fun PhotoSubmissionProgressChecklist(progress: SubmissionProgress?) {
         )
         ProgressRow(
             label = stringResource(R.string.photo_submit_step_creating),
-            state = photoProgressRowState(step, SubmissionProgress.Step.CreatingObservation),
+            state = photoProgressRowState(step, failedStep, SubmissionProgress.Step.CreatingObservation),
         )
         ProgressRow(
             label = stringResource(R.string.photo_submit_step_photo_primary),
-            state = photoProgressRowState(step, SubmissionProgress.Step.UploadingPrimaryPhoto),
+            state = photoProgressRowState(step, failedStep, SubmissionProgress.Step.UploadingPrimaryPhoto),
         )
         ProgressRow(
             label = stringResource(R.string.photo_submit_step_photo_extra),
-            state = photoProgressRowState(step, SubmissionProgress.Step.UploadingExtraPhoto),
+            state = photoProgressRowState(step, failedStep, SubmissionProgress.Step.UploadingExtraPhoto),
         )
         ProgressRow(
             label = stringResource(R.string.photo_submit_step_tag),
-            state = photoProgressRowState(step, SubmissionProgress.Step.ApplyingTag),
+            state = photoProgressRowState(step, failedStep, SubmissionProgress.Step.ApplyingTag),
         )
         ProgressRow(
             label = stringResource(R.string.photo_submit_step_persisting),
-            state = photoProgressRowState(step, SubmissionProgress.Step.Persisting),
+            state = photoProgressRowState(step, failedStep, SubmissionProgress.Step.Persisting),
         )
     }
 }
 
-private fun photoProgressRowState(
+internal fun photoProgressRowState(
     step: SubmissionProgress.Step?,
+    failedStep: SubmissionProgress.Step?,
     rowStep: SubmissionProgress.Step,
 ): ProgressRowState {
     val orderedSteps = photoProgressSteps()
@@ -509,7 +510,14 @@ private fun photoProgressRowState(
     val currentIndex = orderedSteps.indexOf(step)
     return when {
         step == SubmissionProgress.Step.DoneOk -> ProgressRowState.Done
-        step == SubmissionProgress.Step.DoneFailed && rowIndex == currentIndex + 1 -> ProgressRowState.Failed
+        step == SubmissionProgress.Step.DoneFailed -> {
+            val failedIndex = orderedSteps.indexOf(failedStep)
+            when {
+                failedStep != null && rowStep == failedStep -> ProgressRowState.Failed
+                failedIndex >= 0 && rowIndex < failedIndex -> ProgressRowState.Done
+                else -> ProgressRowState.Pending
+            }
+        }
         step == rowStep -> ProgressRowState.InProgress
         currentIndex >= 0 && rowIndex < currentIndex -> ProgressRowState.Done
         else -> ProgressRowState.Pending
