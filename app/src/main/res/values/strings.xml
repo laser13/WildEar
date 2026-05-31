@@ -270,7 +270,10 @@
     <string name="photos_loading">Loading photos…</string>
 
     <!-- Photo capture screen -->
-    <string name="photos_capture_count">%1$d photos</string>
+    <plurals name="photos_capture_count">
+        <item quantity="one">%1$d photo</item>
+        <item quantity="other">%1$d photos</item>
+    </plurals>
     <string name="photos_capture_cancel">Cancel</string>
     <string name="photos_capture_shutter">Shutter</string>
     <string name="photos_capture_done">Done</string>
