@@ -1,6 +1,4 @@
-package com.sound2inat.app.ui.spectrogram
-
-import com.sound2inat.audio.SpectrogramRingBuffer
+package com.sound2inat.audio
 import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.pow

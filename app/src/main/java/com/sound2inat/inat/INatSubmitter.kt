@@ -1,6 +1,6 @@
 package com.sound2inat.inat
 
-import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
+import com.sound2inat.audio.SpectrogramPalette
 import com.sound2inat.inference.SourceStats
 import com.sound2inat.modelmanager.KnownModels
 import com.sound2inat.storage.DetectionEntity

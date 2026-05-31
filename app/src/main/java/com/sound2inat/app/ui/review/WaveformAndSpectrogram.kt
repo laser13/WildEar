@@ -178,7 +178,7 @@ internal fun WaveformAndSpectrogram(
                             displayPlane
                                 ?.takeIf { it.width > 0 && it.height > 0 }
                                 ?.let { plane ->
-                                    ReviewSpectrogramPreview.fromDisplayPlane(plane, spectrogramConfig)
+                                    previewFromDisplayPlane(plane, spectrogramConfig)
                                 }
                                 ?.takeIf { it.width > 0 && it.height > 0 }
                                 ?.let { preview ->

@@ -1,4 +1,4 @@
-package com.sound2inat.app.ui.review
+package com.sound2inat.audio
 
 /**
  * Normalized, smoothed display-space spectrogram values.
@@ -7,7 +7,7 @@ package com.sound2inat.app.ui.review
  * preview pixels. Palette changes can reuse the same plane and only remap
  * colors.
  */
-data class ReviewSpectrogramDisplayPlane(
+data class SpectrogramDisplayPlane(
     val width: Int,
     val height: Int,
     val values: Array<FloatArray>,
@@ -21,7 +21,7 @@ data class ReviewSpectrogramDisplayPlane(
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
-        if (other !is ReviewSpectrogramDisplayPlane) return false
+        if (other !is SpectrogramDisplayPlane) return false
         return width == other.width &&
             height == other.height &&
             values.contentDeepEquals(other.values)

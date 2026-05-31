@@ -1,4 +1,4 @@
-package com.sound2inat.app.ui.review
+package com.sound2inat.audio
 
 import android.graphics.Bitmap
 import java.io.File

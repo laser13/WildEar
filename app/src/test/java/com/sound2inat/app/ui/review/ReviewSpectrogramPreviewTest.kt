@@ -39,7 +39,7 @@ class ReviewSpectrogramPreviewTest {
     @Test
     fun `fromDisplayPlane renders a preview from the plane`() {
         val config = ReviewSpectrogramConfig.BirdDefault.copy(palette = SpectrogramPalette.INK)
-        val preview = ReviewSpectrogramPreview.fromDisplayPlane(
+        val preview = previewFromDisplayPlane(
             ReviewSpectrogramDisplayPlane(
                 width = 2,
                 height = 2,

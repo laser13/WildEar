@@ -1,6 +1,6 @@
-package com.sound2inat.app.ui.review
+package com.sound2inat.audio
 
-class ReviewSpectrogramPreview(
+class SpectrogramPreview(
     val width: Int,
     val height: Int,
     argb: IntArray,
@@ -15,7 +15,7 @@ class ReviewSpectrogramPreview(
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
-        if (other !is ReviewSpectrogramPreview) return false
+        if (other !is SpectrogramPreview) return false
         return width == other.width &&
             height == other.height &&
             argb.contentEquals(other.argb)
@@ -25,8 +25,8 @@ class ReviewSpectrogramPreview(
         31 * (31 * width + height) + argb.contentHashCode()
 
     companion object {
-        fun fromRows(rows: Array<IntArray>): ReviewSpectrogramPreview {
-            if (rows.isEmpty()) return ReviewSpectrogramPreview(width = 0, height = 0, argb = IntArray(0))
+        fun fromRows(rows: Array<IntArray>): SpectrogramPreview {
+            if (rows.isEmpty()) return SpectrogramPreview(width = 0, height = 0, argb = IntArray(0))
             val width = rows.first().size
             require(width > 0) { "rows must not be empty" }
             val flat = IntArray(width * rows.size)
@@ -34,13 +34,7 @@ class ReviewSpectrogramPreview(
                 require(row.size == width) { "rows must all have the same width" }
                 System.arraycopy(row, 0, flat, rowIndex * width, width)
             }
-            return ReviewSpectrogramPreview(width = width, height = rows.size, argb = flat)
+            return SpectrogramPreview(width = width, height = rows.size, argb = flat)
         }
-
-        fun fromDisplayPlane(
-            displayPlane: ReviewSpectrogramDisplayPlane,
-            config: ReviewSpectrogramConfig,
-        ): ReviewSpectrogramPreview =
-            LiveStyleReviewRenderer.colorize(displayPlane, config.effectivePalette)
     }
 }

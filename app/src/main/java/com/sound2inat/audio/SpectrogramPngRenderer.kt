@@ -1,10 +1,4 @@
-package com.sound2inat.app.ui.review
-
-import com.sound2inat.app.ui.spectrogram.SpectrogramColorMap
-import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
-import com.sound2inat.app.ui.spectrogram.SpectrogramRenderProfile
-import com.sound2inat.app.ui.spectrogram.SpectrogramVisualPipeline
-import com.sound2inat.audio.Spectrogram
+package com.sound2inat.audio
 
 /**
  * Batch-mode renderer that mirrors [com.sound2inat.app.ui.recording.LiveSpectrogramView]:
@@ -15,7 +9,7 @@ import com.sound2inat.audio.Spectrogram
  *
  * Stateless / re-entrant — call sites can render concurrently.
  */
-internal object LiveStyleReviewRenderer {
+object SpectrogramPngRenderer {
 
     private const val FFT_SIZE = 2048
     private const val HOP_SIZE = 512
@@ -109,7 +103,7 @@ internal object LiveStyleReviewRenderer {
         gateDb: Float,
         displayRangeDb: Float,
         gamma: Float,
-    ): ReviewSpectrogramDisplayPlane {
+    ): SpectrogramDisplayPlane {
         val values = Array(HEIGHT_BINS) { y ->
             FloatArray(width) { x ->
                 SpectrogramVisualPipeline.displayValue(
@@ -120,7 +114,7 @@ internal object LiveStyleReviewRenderer {
                 )
             }
         }
-        return ReviewSpectrogramDisplayPlane(width = width, height = HEIGHT_BINS, values = values)
+        return SpectrogramDisplayPlane(width = width, height = HEIGHT_BINS, values = values)
     }
 
     /**
@@ -128,10 +122,10 @@ internal object LiveStyleReviewRenderer {
      * Compose layer when only the palette changes — no need to re-run STFT.
      */
     fun colorize(
-        plane: ReviewSpectrogramDisplayPlane,
+        plane: SpectrogramDisplayPlane,
         palette: SpectrogramPalette,
         maxInkArgb: Int = SpectrogramRenderProfile.LiveBird.maxInkArgb,
-    ): ReviewSpectrogramPreview {
+    ): SpectrogramPreview {
         val lut = paletteLut(palette, maxInkArgb)
         val width = plane.width
         val height = plane.height
@@ -146,7 +140,7 @@ internal object LiveStyleReviewRenderer {
                 argb[rowStart + x] = SpectrogramColorMap.map(row[x], lut)
             }
         }
-        return ReviewSpectrogramPreview(width = width, height = height, argb = argb)
+        return SpectrogramPreview(width = width, height = height, argb = argb)
     }
 
     private fun paletteLut(palette: SpectrogramPalette, maxInkArgb: Int): IntArray = when (palette) {
@@ -156,11 +150,11 @@ internal object LiveStyleReviewRenderer {
         SpectrogramPalette.GRAY -> SpectrogramColorMap.gray()
     }
 
-    private fun emptyDisplayPlane() = ReviewSpectrogramDisplayPlane(0, 0, emptyArray())
-    private fun emptyPreview() = ReviewSpectrogramPreview(0, 0, IntArray(0))
+    private fun emptyDisplayPlane() = SpectrogramDisplayPlane(0, 0, emptyArray())
+    private fun emptyPreview() = SpectrogramPreview(0, 0, IntArray(0))
 }
 
 data class RenderedSpectrogram(
-    val displayPlane: ReviewSpectrogramDisplayPlane,
-    val preview: ReviewSpectrogramPreview,
+    val displayPlane: SpectrogramDisplayPlane,
+    val preview: SpectrogramPreview,
 )
