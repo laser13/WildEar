@@ -1,7 +1,5 @@
 package com.sound2inat.app.recording
 
-import com.sound2inat.app.ui.recording.GpsStatus
-import com.sound2inat.app.ui.recording.LiveCard
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.DetectionAggregator
@@ -42,11 +40,12 @@ sealed interface RecordingSessionState {
         val recordingStartMs: Long,
         val elapsedMs: Long,
         val rms: Float,
-        val gps: GpsStatus,
+        val gpsFix: GpsFix?,
+        val locationTimedOut: Boolean,
         val warningSoftLimit: Boolean,
         val backlogWindows: Int,
-        val liveCards: List<LiveCard>,
-        val lastDetection: LiveCard?,
+        val detections: List<LiveDetection>,
+        val lastDetection: LiveDetection?,
     ) : RecordingSessionState
     data class Done(val draftId: String) : RecordingSessionState
     data class Error(val message: String) : RecordingSessionState
@@ -155,10 +154,11 @@ class DefaultRecordingController(
                 recordingStartMs = recordingStartMs,
                 elapsedMs = 0L,
                 rms = 0f,
-                gps = GpsStatus.Acquiring,
+                gpsFix = null,
+                locationTimedOut = false,
                 warningSoftLimit = false,
                 backlogWindows = 0,
-                liveCards = emptyList(),
+                detections = emptyList(),
                 lastDetection = null,
             )
 
@@ -195,15 +195,15 @@ class DefaultRecordingController(
                         .filter { !regionalStatusCache.containsKey(it) }
                         .forEach { pendingDisplay.add(it) }
                 }
-                val cards = snap.mapNotNull { det ->
+                val detections = snap.mapNotNull { det ->
                     if (det.taxonScientificName in pendingDisplay) {
                         null
                     } else {
-                        det.toLiveCard(regionalStatusCache[det.taxonScientificName])
+                        det.toLiveDetection(regionalStatusCache[det.taxonScientificName])
                     }
                 }
-                val last = cards.maxByOrNull { it.lastSeenMs }
-                updateRecording { copy(liveCards = cards, lastDetection = last) }
+                val last = detections.maxByOrNull { it.lastSeenMs }
+                updateRecording { copy(detections = detections, lastDetection = last) }
                 annotateNewSpecies(snap)
             }
         }
@@ -219,10 +219,15 @@ class DefaultRecordingController(
             delay(tickIntervalMs)
             val cur = _state.value as? RecordingSessionState.Recording ?: return
             val elapsed = nowMs() - recordingStartMs
-            val gps = fix?.let { GpsStatus.Fix(it.latitude, it.longitude, it.accuracyMeters) }
-                ?: if (elapsed >= locationTimeoutMs) GpsStatus.NoFix else GpsStatus.Acquiring
+            val gpsFix = fix?.let { GpsFix(it.latitude, it.longitude, it.accuracyMeters) }
+            val timedOut = fix == null && elapsed >= locationTimeoutMs
             val soft = elapsed >= softLimitMs
-            _state.value = cur.copy(elapsedMs = elapsed, gps = gps, warningSoftLimit = soft)
+            _state.value = cur.copy(
+                elapsedMs = elapsed,
+                gpsFix = gpsFix,
+                locationTimedOut = timedOut,
+                warningSoftLimit = soft,
+            )
         }
     }
 
@@ -315,7 +320,7 @@ class DefaultRecordingController(
         _state.update { s -> (s as? RecordingSessionState.Recording)?.block() ?: s }
     }
 
-    private fun AggregatedDetection.toLiveCard(status: RegionalStatus?) = LiveCard(
+    private fun AggregatedDetection.toLiveDetection(status: RegionalStatus?) = LiveDetection(
         scientificName = taxonScientificName,
         commonName = taxonCommonName,
         count = detectedWindows,
@@ -346,7 +351,7 @@ class DefaultRecordingController(
                 // Filter disabled: un-hide species that were waiting for annotation.
                 val unhidden = snap.map { it.taxonScientificName }.distinct()
                     .filter { pendingDisplay.remove(it) }
-                if (unhidden.isNotEmpty()) refreshLiveCards()
+                if (unhidden.isNotEmpty()) refreshDetections()
                 return@launch
             }
             val radius = runCatching { regionRadiusKm.first() }.getOrDefault(DEFAULT_REGION_RADIUS_KM)
@@ -362,33 +367,33 @@ class DefaultRecordingController(
                     det.regionalStatus?.let { regionalStatusCache[det.taxonScientificName] = it }
                     pendingDisplay.remove(det.taxonScientificName)
                 }
-                refreshLiveCards()
+                refreshDetections()
             } finally {
                 pending.forEach { annotationInFlight.remove(it) }
                 // Safety: if annotation threw before updating pendingDisplay, un-hide
                 // affected species so they're never permanently invisible.
                 val stillHidden = pending.filter { pendingDisplay.remove(it) }
-                if (stillHidden.isNotEmpty()) refreshLiveCards()
+                if (stillHidden.isNotEmpty()) refreshDetections()
             }
         }
     }
 
     /**
-     * Rebuilds [liveCards] from the current aggregator snapshot, respecting
+     * Rebuilds [detections] from the current aggregator snapshot, respecting
      * [pendingDisplay] (hidden) and [regionalStatusCache] (known statuses).
      * Called after annotation resolves to reveal newly-annotated species in
      * the correct section without waiting for the next audio window.
      */
-    private fun refreshLiveCards() {
+    private fun refreshDetections() {
         val snap = activeAggregator?.snapshot() ?: return
-        val cards = snap.mapNotNull { det ->
+        val detections = snap.mapNotNull { det ->
             if (det.taxonScientificName in pendingDisplay) {
                 null
             } else {
-                det.toLiveCard(regionalStatusCache[det.taxonScientificName])
+                det.toLiveDetection(regionalStatusCache[det.taxonScientificName])
             }
         }
-        updateRecording { copy(liveCards = cards, lastDetection = cards.maxByOrNull { it.lastSeenMs }) }
+        updateRecording { copy(detections = detections, lastDetection = detections.maxByOrNull { it.lastSeenMs }) }
     }
 
     companion object {

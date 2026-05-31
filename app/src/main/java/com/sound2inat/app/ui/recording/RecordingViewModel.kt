@@ -8,6 +8,8 @@ import androidx.lifecycle.viewModelScope
 import com.sound2inat.app.permissions.Permission
 import com.sound2inat.app.permissions.PermissionStatus
 import com.sound2inat.app.permissions.PermissionsController
+import com.sound2inat.app.recording.GpsFix
+import com.sound2inat.app.recording.LiveDetection
 import com.sound2inat.app.recording.RecordingController
 import com.sound2inat.app.recording.RecordingServiceLauncher
 import com.sound2inat.app.recording.RecordingSessionState
@@ -175,15 +177,31 @@ class RecordingViewModel(
             draftId = draftId,
             elapsedMs = elapsedMs,
             rms = rms,
-            gps = gps,
+            gps = toGpsStatus(gpsFix, locationTimedOut),
             warningSoftLimit = warningSoftLimit,
-            liveCards = liveCards,
+            liveCards = detections.map { it.toLiveCard() },
             backlogWindows = backlogWindows,
             habitatPhotoCount = photoCount,
         )
         is RecordingSessionState.Done -> RecordingUiState.Done(draftId)
         is RecordingSessionState.Error -> RecordingUiState.Error(message)
     }
+
+    private fun toGpsStatus(fix: GpsFix?, timedOut: Boolean): GpsStatus = when {
+        fix != null -> GpsStatus.Fix(fix.latitude, fix.longitude, fix.accuracyMeters)
+        timedOut -> GpsStatus.NoFix
+        else -> GpsStatus.Acquiring
+    }
+
+    private fun LiveDetection.toLiveCard(): LiveCard = LiveCard(
+        scientificName = scientificName,
+        commonName = commonName,
+        count = count,
+        peakConfidence = peakConfidence,
+        firstSeenMs = firstSeenMs,
+        lastSeenMs = lastSeenMs,
+        regionalStatus = regionalStatus,
+    )
 
     private companion object {
         val RECORDING_PERMISSIONS = setOf(
