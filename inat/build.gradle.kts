@@ -39,8 +39,8 @@ detekt {
 }
 
 dependencies {
-    implementation(project(":inference"))
-    implementation(project(":storage"))
+    api(project(":inference"))
+    api(project(":storage"))
     implementation(project(":core-audio"))
 
     implementation(libs.androidx.core.ktx)

@@ -74,7 +74,7 @@ copyRoomSchemasIntoAssets.configure {
 }
 
 dependencies {
-    implementation(project(":inference"))
+    api(project(":inference"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.coroutines.android)
