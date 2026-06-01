@@ -26,7 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
+import com.sound2inat.audio.SpectrogramPalette
 
 @Suppress("FunctionNaming")
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)

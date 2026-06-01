@@ -1,13 +1,15 @@
 package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
-import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
+import com.sound2inat.audio.SpectrogramDisplayPlane
+import com.sound2inat.audio.SpectrogramPalette
+import com.sound2inat.audio.SpectrogramPreview
 import org.junit.Test
 
-class ReviewSpectrogramPreviewTest {
+class SpectrogramPreviewTest {
     @Test
     fun `fromRows flattens pixels row-major`() {
-        val preview = ReviewSpectrogramPreview.fromRows(
+        val preview = SpectrogramPreview.fromRows(
             arrayOf(
                 intArrayOf(0x11, 0x12),
                 intArrayOf(0x21, 0x22),
@@ -22,7 +24,7 @@ class ReviewSpectrogramPreviewTest {
     @Test
     fun `fromRows rejects ragged rows`() {
         val thrown = try {
-            ReviewSpectrogramPreview.fromRows(
+            SpectrogramPreview.fromRows(
                 arrayOf(
                     intArrayOf(0x11, 0x12),
                     intArrayOf(0x21),
@@ -40,7 +42,7 @@ class ReviewSpectrogramPreviewTest {
     fun `fromDisplayPlane renders a preview from the plane`() {
         val config = ReviewSpectrogramConfig.BirdDefault.copy(palette = SpectrogramPalette.INK)
         val preview = previewFromDisplayPlane(
-            ReviewSpectrogramDisplayPlane(
+            SpectrogramDisplayPlane(
                 width = 2,
                 height = 2,
                 values = arrayOf(
@@ -58,13 +60,13 @@ class ReviewSpectrogramPreviewTest {
 
     @Test
     fun `equal previews compare pixel content not array identity`() {
-        val first = ReviewSpectrogramPreview.fromRows(
+        val first = SpectrogramPreview.fromRows(
             arrayOf(
                 intArrayOf(0x11, 0x12),
                 intArrayOf(0x21, 0x22),
             ),
         )
-        val second = ReviewSpectrogramPreview.fromRows(
+        val second = SpectrogramPreview.fromRows(
             arrayOf(
                 intArrayOf(0x11, 0x12),
                 intArrayOf(0x21, 0x22),
@@ -78,7 +80,7 @@ class ReviewSpectrogramPreviewTest {
     @Test
     fun `constructor clones the source pixel array`() {
         val source = intArrayOf(0x11, 0x12, 0x21, 0x22)
-        val preview = ReviewSpectrogramPreview(width = 2, height = 2, argb = source)
+        val preview = SpectrogramPreview(width = 2, height = 2, argb = source)
 
         source[0] = 0x99
 

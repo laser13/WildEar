@@ -110,7 +110,26 @@ data class ReviewUiState(
      * BEFORE executing the side effect (before startActivity or showSnackbar).
      */
     val exportEffect: ReviewExportEffect? = null,
-)
+) {
+    /**
+     * [incompleteObservations] minus the species that the in-flight submission
+     * is currently uploading. During a live submission a row is legitimately
+     * INCOMPLETE in the window between the `Persisting` step and the final
+     * `markComplete` (see [com.sound2inat.inat.INatSubmitter]); surfacing it in
+     * the banner would falsely tell the user the upload was *interrupted* while
+     * it is actively running. We therefore hide rows for species in
+     * [pendingSubmissionSpecies] only while [inatSubmission] is [InatSubmissionState.InProgress];
+     * genuinely stuck rows from a prior interrupted run (not part of the current
+     * batch) stay visible so the recreate action remains reachable.
+     */
+    val visibleIncompleteObservations: List<IncompleteObsEntry>
+        get() = if (inatSubmission is InatSubmissionState.InProgress) {
+            val uploading = pendingSubmissionSpecies?.toSet().orEmpty()
+            incompleteObservations.filterNot { it.scientificName in uploading }
+        } else {
+            incompleteObservations
+        }
+}
 
 sealed interface PlaybackState {
     data object Idle : PlaybackState

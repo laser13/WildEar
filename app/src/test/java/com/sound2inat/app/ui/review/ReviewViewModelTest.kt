@@ -4,7 +4,9 @@ import android.net.Uri
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.app.inference.InferenceQueue
 import com.sound2inat.app.inference.QueuedJob
-import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
+import com.sound2inat.audio.SpectrogramDisplayPlane
+import com.sound2inat.audio.SpectrogramPalette
+import com.sound2inat.audio.SpectrogramPreview
 import com.sound2inat.audio.WavWriter
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inat.RegionLookup
@@ -53,7 +55,7 @@ class ReviewViewModelTest {
     val tmp = TemporaryFolder()
 
     private fun preview(color: Int = 0xFF000000.toInt()) =
-        ReviewSpectrogramPreview(width = 1, height = 1, argb = intArrayOf(color))
+        SpectrogramPreview(width = 1, height = 1, argb = intArrayOf(color))
 
     @Test
     fun `pending inference draft kicks off inference and populates species`() =
@@ -565,7 +567,7 @@ class ReviewViewModelTest {
                 inference = noopInference(),
                 visuals = VisualsProvider { _, _, _, _ ->
                     Visuals(
-                        displayPlane = ReviewSpectrogramDisplayPlane(
+                        displayPlane = SpectrogramDisplayPlane(
                             width = 1,
                             height = 1,
                             values = arrayOf(floatArrayOf(0.5f)),

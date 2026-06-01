@@ -1,6 +1,7 @@
 package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.audio.SpectrogramPreview
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -12,7 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReviewVisualsCoordinatorTest {
     private fun preview(color: Int = 0xFF000000.toInt()) =
-        ReviewSpectrogramPreview(width = 1, height = 1, argb = intArrayOf(color))
+        SpectrogramPreview(width = 1, height = 1, argb = intArrayOf(color))
 
     @Test
     fun `identical key shares the same in-flight build`() = runTest {

@@ -2,6 +2,7 @@ package com.sound2inat.app.ui.spectrogram
 
 import com.google.common.truth.Truth.assertThat
 import com.sound2inat.audio.SpectrogramRingBuffer
+import com.sound2inat.audio.SpectrogramVisualPipeline
 import org.junit.Test
 import kotlin.math.pow
 

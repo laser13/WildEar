@@ -12,7 +12,9 @@ import com.sound2inat.app.data.Settings
 import com.sound2inat.app.inference.InferenceQueue
 import com.sound2inat.app.inference.JobStatus
 import com.sound2inat.app.inference.QueuedJob
-import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
+import com.sound2inat.audio.SpectrogramDisplayPlane
+import com.sound2inat.audio.SpectrogramPalette
+import com.sound2inat.audio.SpectrogramPreview
 import com.sound2inat.inat.INatSubmitter
 import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.ObservationDetail
@@ -173,11 +175,11 @@ class ReviewViewModel(
     private val _processingProfile = MutableStateFlow(ReviewProcessingProfile.Default)
     val processingProfile: StateFlow<ReviewProcessingProfile> = _processingProfile.asStateFlow()
 
-    private val _displayPlane = MutableStateFlow<ReviewSpectrogramDisplayPlane?>(null)
-    val spectrogramDisplayPlane: StateFlow<ReviewSpectrogramDisplayPlane?> = _displayPlane.asStateFlow()
+    private val _displayPlane = MutableStateFlow<SpectrogramDisplayPlane?>(null)
+    val spectrogramDisplayPlane: StateFlow<SpectrogramDisplayPlane?> = _displayPlane.asStateFlow()
 
-    private val _spectrogramPreview = MutableStateFlow<ReviewSpectrogramPreview?>(null)
-    val spectrogramPreview: StateFlow<ReviewSpectrogramPreview?> = _spectrogramPreview.asStateFlow()
+    private val _spectrogramPreview = MutableStateFlow<SpectrogramPreview?>(null)
+    val spectrogramPreview: StateFlow<SpectrogramPreview?> = _spectrogramPreview.asStateFlow()
 
     private val _spectrogramConfig = MutableStateFlow(ReviewProcessingProfile.Default.spectrogramConfig)
     val spectrogramConfig: StateFlow<ReviewSpectrogramConfig> = _spectrogramConfig.asStateFlow()

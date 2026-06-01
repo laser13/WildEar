@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sound2inat.app.ui.spectrogram.DisplayRangeSpec
+import com.sound2inat.audio.SpectrogramDisplayPlane
 import com.sound2inat.inference.WindowPrediction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
@@ -57,7 +58,7 @@ import kotlin.math.ln
 @Composable
 internal fun WaveformAndSpectrogram(
     @Suppress("UNUSED_PARAMETER") peaks: FloatArray?,
-    displayPlane: ReviewSpectrogramDisplayPlane?,
+    displayPlane: SpectrogramDisplayPlane?,
     spectrogramConfig: ReviewSpectrogramConfig,
     durationMs: Long,
     positionFlow: StateFlow<Long>,

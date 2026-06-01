@@ -1,11 +1,12 @@
 package com.sound2inat.app.ui.review
 
 import com.google.common.truth.Truth.assertThat
-import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
+import com.sound2inat.audio.SpectrogramPalette
+import com.sound2inat.audio.SpectrogramPngRenderer
 import org.junit.Test
 import kotlin.math.sin
 
-class LiveStyleReviewRendererStreamingTest {
+class SpectrogramPngRendererStreamingTest {
 
     private fun tone(samples: Int, sampleRateHz: Int, freqHz: Double): FloatArray =
         FloatArray(samples) { i -> sin(2.0 * Math.PI * freqHz * i / sampleRateHz).toFloat() * 0.5f }
@@ -16,7 +17,7 @@ class LiveStyleReviewRendererStreamingTest {
         // ~0.5s — enough to span many FFT hops but tiny in memory.
         val samples = tone(24_000, sampleRate, freqHz = 2_000.0)
 
-        val full = LiveStyleReviewRenderer.render(
+        val full = SpectrogramPngRenderer.render(
             samples = samples,
             sampleRateHz = sampleRate,
             palette = SpectrogramPalette.INK,
@@ -24,7 +25,7 @@ class LiveStyleReviewRendererStreamingTest {
         )
 
         // Feed the same samples in small, ragged blocks via the streaming entry point.
-        val streamed = LiveStyleReviewRenderer.renderStreaming(
+        val streamed = SpectrogramPngRenderer.renderStreaming(
             sampleRateHz = sampleRate,
             palette = SpectrogramPalette.INK,
             contrastDb = 0f,
@@ -53,7 +54,7 @@ class LiveStyleReviewRendererStreamingTest {
 
     @Test
     fun `streaming render on empty stream yields empty plane`() {
-        val streamed = LiveStyleReviewRenderer.renderStreaming(
+        val streamed = SpectrogramPngRenderer.renderStreaming(
             sampleRateHz = 48_000,
             palette = SpectrogramPalette.INK,
             contrastDb = 0f,

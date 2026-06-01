@@ -1,6 +1,7 @@
 package com.sound2inat.app.ui.spectrogram
 
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.audio.SpectrogramColorMap
 import org.junit.Test
 
 class SpectrogramColorMapTest {

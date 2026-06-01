@@ -13,11 +13,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
-import com.sound2inat.app.ui.spectrogram.SpectrogramColorMap
-import com.sound2inat.app.ui.spectrogram.SpectrogramRenderProfile
-import com.sound2inat.app.ui.spectrogram.SpectrogramVisualPipeline
 import com.sound2inat.audio.Spectrogram
+import com.sound2inat.audio.SpectrogramColorMap
+import com.sound2inat.audio.SpectrogramRenderProfile
 import com.sound2inat.audio.SpectrogramRingBuffer
+import com.sound2inat.audio.SpectrogramVisualPipeline
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.withContext

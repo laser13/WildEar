@@ -2,7 +2,10 @@ package com.sound2inat.app.ui.review
 
 import android.os.SystemClock
 import android.util.Log
-import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
+import com.sound2inat.audio.SpectrogramDisplayPlane
+import com.sound2inat.audio.SpectrogramPalette
+import com.sound2inat.audio.SpectrogramPngRenderer
+import com.sound2inat.audio.SpectrogramPreview
 import com.sound2inat.audio.WavPcmReader
 import java.io.File
 
@@ -11,7 +14,7 @@ import java.io.File
  * Decoupled from Android's `Bitmap` so the VM can be unit-tested on the JVM.
  *
  * Production wiring: [ProductionVisualsProvider] streams the WAV block-by-block
- * via [streamMono16] into [LiveStyleReviewRenderer.renderStreaming], then computes
+ * via [streamMono16] into [SpectrogramPngRenderer.renderStreaming], then computes
  * per-column peaks via a downsampled envelope. PNG generation is deferred until
  * submission/export.
  */
@@ -31,12 +34,12 @@ fun interface VisualsProvider {
  * envelope used by the Compose waveform canvas.
  */
 data class Visuals(
-    val displayPlane: ReviewSpectrogramDisplayPlane = ReviewSpectrogramDisplayPlane(
+    val displayPlane: SpectrogramDisplayPlane = SpectrogramDisplayPlane(
         width = 0,
         height = 0,
         values = emptyArray(),
     ),
-    val spectrogramPreview: ReviewSpectrogramPreview = ReviewSpectrogramPreview(
+    val spectrogramPreview: SpectrogramPreview = SpectrogramPreview(
         width = 0,
         height = 0,
         argb = IntArray(0),
@@ -94,7 +97,7 @@ internal class ProductionVisualsProvider(
         val palette = config.palette ?: SpectrogramPalette.INK
         val contrastDb = config.gainDb ?: 0f
         val renderStart = SystemClock.elapsedRealtime()
-        val rendered = LiveStyleReviewRenderer.renderStreaming(
+        val rendered = SpectrogramPngRenderer.renderStreaming(
             sampleRateHz = info.sampleRateHz,
             palette = palette,
             contrastDb = contrastDb,

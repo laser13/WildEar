@@ -1,8 +1,8 @@
 package com.sound2inat.app.ui.review
 
 import com.sound2inat.app.ui.spectrogram.DisplayRangeSpec
-import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
-import com.sound2inat.app.ui.spectrogram.SpectrogramRenderProfile
+import com.sound2inat.audio.SpectrogramPalette
+import com.sound2inat.audio.SpectrogramRenderProfile
 
 /**
  * Review-screen spectrogram visual configuration.

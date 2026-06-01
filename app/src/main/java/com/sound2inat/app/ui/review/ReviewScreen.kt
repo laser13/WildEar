@@ -298,10 +298,10 @@ private fun ReviewPage(
             // visuals, banner, Submit and species list all scroll together so the
             // species list is no longer pinned in a tiny inner viewport.
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                if (state.incompleteObservations.isNotEmpty()) {
+                if (state.visibleIncompleteObservations.isNotEmpty()) {
                     item("incomplete-banner") {
                         IncompleteObservationsBanner(
-                            rows = state.incompleteObservations,
+                            rows = state.visibleIncompleteObservations,
                             retrying = state.retryingIncomplete,
                             lastError = state.retryIncompleteError,
                             onRecreate = { row -> vm.retryIncomplete(row.rowId, row.observationId) },

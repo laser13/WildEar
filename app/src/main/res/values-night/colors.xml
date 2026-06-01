@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Тёмно-зелёный фон ночной adaptive-иконки (под светло-зелёный foreground из drawable-night-*) -->
+    <color name="ic_launcher_background">#2B3D23</color>
+</resources>
