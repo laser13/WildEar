@@ -8,7 +8,7 @@ internal const val MAX_CLIPS_PER_OBSERVATION = 5
 internal const val CLIP_PADDING_MS = 1_000L
 
 /**
- * Maximum spectrogram window length (seconds). `LiveStyleReviewRenderer`
+ * Maximum spectrogram window length (seconds). `SpectrogramPngRenderer`
  * emits ~94 columns/second, so a 10 s window yields a ~940 px wide PNG —
  * compact enough that iNat's `large` thumbnail (max 1024 px) keeps full
  * resolution without horizontal squashing.
