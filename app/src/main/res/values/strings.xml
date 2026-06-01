@@ -1,6 +1,13 @@
 <resources>
     <string name="app_name">WildEar</string>
 
+    <!-- Bottom navigation (icon-only) content descriptions -->
+    <string name="nav_cd_recordings">Recordings</string>
+    <string name="nav_cd_photos">Photos</string>
+    <string name="nav_cd_radar">Radar</string>
+    <string name="cd_fab_record_audio">Record audio</string>
+    <string name="cd_fab_take_photos">Take photos</string>
+
     <!-- Common buttons / content descriptions -->
     <string name="btn_cancel">Cancel</string>
     <string name="btn_delete">Delete</string>

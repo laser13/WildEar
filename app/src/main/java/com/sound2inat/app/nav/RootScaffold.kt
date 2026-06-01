@@ -12,13 +12,14 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.sound2inat.app.R
 
 /**
  * Top-level scaffold owning bottom navigation and capture shortcuts. Shell
@@ -40,20 +41,32 @@ fun RootScaffold() {
                     NavigationBarItem(
                         selected = currentRoute == Routes.HOME,
                         onClick = { nav.navigateToTab(Routes.HOME) },
-                        icon = { Icon(Icons.Outlined.Mic, contentDescription = "Recordings") },
-                        label = { Text("Audio") },
+                        icon = {
+                            Icon(
+                                Icons.Outlined.Mic,
+                                contentDescription = stringResource(R.string.nav_cd_recordings),
+                            )
+                        },
                     )
                     NavigationBarItem(
                         selected = currentRoute == Routes.PHOTOS,
                         onClick = { nav.navigateToTab(Routes.PHOTOS) },
-                        icon = { Icon(Icons.Outlined.PhotoLibrary, contentDescription = "Photos") },
-                        label = { Text("Photos") },
+                        icon = {
+                            Icon(
+                                Icons.Outlined.PhotoLibrary,
+                                contentDescription = stringResource(R.string.nav_cd_photos),
+                            )
+                        },
                     )
                     NavigationBarItem(
                         selected = currentRoute == Routes.RADAR,
                         onClick = { nav.navigateToTab(Routes.RADAR) },
-                        icon = { Icon(Icons.Outlined.Public, contentDescription = "Radar") },
-                        label = { Text("Radar") },
+                        icon = {
+                            Icon(
+                                Icons.Outlined.Public,
+                                contentDescription = stringResource(R.string.nav_cd_radar),
+                            )
+                        },
                     )
                 }
             }
@@ -62,10 +75,16 @@ fun RootScaffold() {
             if (showShellChrome) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     SmallFloatingActionButton(onClick = { nav.navigate(Routes.RECORDING) }) {
-                        Icon(Icons.Outlined.Mic, contentDescription = "Record audio")
+                        Icon(
+                            Icons.Outlined.Mic,
+                            contentDescription = stringResource(R.string.cd_fab_record_audio),
+                        )
                     }
                     SmallFloatingActionButton(onClick = { nav.navigate(Routes.photoCapture()) }) {
-                        Icon(Icons.Outlined.CameraAlt, contentDescription = "Take photos")
+                        Icon(
+                            Icons.Outlined.CameraAlt,
+                            contentDescription = stringResource(R.string.cd_fab_take_photos),
+                        )
                     }
                 }
             }
