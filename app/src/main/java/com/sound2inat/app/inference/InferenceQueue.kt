@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -41,6 +42,12 @@ data class QueuedJob(
     val runPerch: Boolean,
     /** true = use inferenceReanalysis (no YAMNet gate); false = use inference (with gate). */
     val skipYamNetGate: Boolean,
+    /**
+     * Unique identity assigned by [InferenceQueue.enqueue]. Default 0 for test helpers that
+     * build [QueuedJob] directly; the real value is always overwritten inside [enqueue] before
+     * the job enters the channel or the pending list.
+     */
+    val id: Long = 0,
 )
 
 @Singleton
@@ -50,6 +57,9 @@ class InferenceQueue @Inject constructor(
     private val repo: DraftRepository,
 ) {
     private val enqueueMutex = Mutex()
+
+    /** Monotonically increasing counter that gives each enqueued job a unique [QueuedJob.id]. */
+    private val seq = AtomicLong(0)
 
     // Bounded queue: backpressure protects against unbounded growth if the UI
     // somehow floods enqueue(). Capacity is generous relative to realistic
@@ -105,8 +115,11 @@ class InferenceQueue @Inject constructor(
             for (job in jobChannel) {
                 try {
                     // Honour cancellations made after trySend but before dequeue.
-                    if (_pendingJobs.value.none { it.draftId == job.draftId }) continue
-                    _pendingJobs.update { list -> list.filterNot { it.draftId == job.draftId } }
+                    // Match by job.id (not draftId) so that a stale channel item whose id was
+                    // removed by cancelQueued is skipped even if a new job for the same draftId
+                    // was subsequently enqueued (the new job has a different id).
+                    if (_pendingJobs.value.none { it.id == job.id }) continue
+                    _pendingJobs.update { list -> list.filterNot { it.id == job.id } }
                     _runningDraftId.value = job.draftId
                     _runningStatus.value = JobStatus.Running(null, null)
                     val startMs = System.currentTimeMillis()
@@ -135,6 +148,18 @@ class InferenceQueue @Inject constructor(
             inferenceUseCase.inference
         }
 
+        // Collect failure messages without writing to _failedJobs mid-run.
+        // Writing immediately would cause the UI to show Failed while a subsequent step (Perch)
+        // is still in-flight. Instead we accumulate the first failure and emit it only once, at
+        // the very end of this function, after all steps have completed.
+        //
+        // Semantics: BirdNET failure is a terminal failure for the job (primary step).
+        // Perch is always run best-effort even after a BirdNET failure.  The final status is:
+        //   • Failed(birdnetMessage) if BirdNET failed — regardless of Perch outcome.
+        //   • Failed(perchMessage)   if only Perch failed.
+        //   • (no entry in _failedJobs) if all enabled steps succeeded.
+        var pendingFailure: JobStatus.Failed? = null
+
         if (job.runBirdnet) {
             val outcome = inferenceJob.run(job.audioPath, job.lat, job.lon, job.recordedAt) { p ->
                 _runningStatus.value = JobStatus.Running(birdnetProgress = p, perchProgress = null)
@@ -149,8 +174,7 @@ class InferenceQueue @Inject constructor(
                         promoteToReviewed = true,
                     )
                 }
-                is InferenceOutcome.Failure ->
-                    _failedJobs.update { it + (job.draftId to JobStatus.Failed(outcome.message)) }
+                is InferenceOutcome.Failure -> pendingFailure = JobStatus.Failed(outcome.message)
             }
         }
 
@@ -174,10 +198,21 @@ class InferenceQueue @Inject constructor(
                     freshDetections = outcome.detections,
                 )
                 is PerchAnalysisOutcome.Failure ->
-                    _failedJobs.update { it + (job.draftId to JobStatus.Failed(outcome.message)) }
+                    // Only record Perch failure if BirdNET didn't already fail (BirdNET dominates).
+                    if (pendingFailure == null) {
+                        pendingFailure = JobStatus.Failed(outcome.message)
+                    }
                 PerchAnalysisOutcome.NotInstalled ->
-                    _failedJobs.update { it + (job.draftId to JobStatus.Failed("Perch not installed")) }
+                    if (pendingFailure == null) {
+                        pendingFailure = JobStatus.Failed("Perch not installed")
+                    }
             }
+        }
+
+        // Emit the final failure status (if any) only now, after every step has completed.
+        // This ensures the UI never sees Failed while a subsequent step is still running.
+        pendingFailure?.let { failure ->
+            _failedJobs.update { it + (job.draftId to failure) }
         }
     }
 
@@ -187,15 +222,21 @@ class InferenceQueue @Inject constructor(
         _status.update { it - job.draftId }
         if (_pendingJobs.value.any { it.draftId == job.draftId }) return@withLock false
         if (_runningDraftId.value == job.draftId) return@withLock false
+        // Assign a unique id so the worker can identify THIS specific enqueue by identity, not
+        // just by draftId. This prevents a cancel+re-enqueue race where the stale channel item
+        // (old job, id=N) would otherwise pass the guard because the new job's draftId is still
+        // in pending. With id-based matching the stale item (id=N no longer in pending) is
+        // correctly skipped while the new item (id=N+1, in pending) runs.
+        val taggedJob = job.copy(id = seq.incrementAndGet())
         // _pendingJobs.update BEFORE trySend: the worker guard checks _pendingJobs when it
         // dequeues a job. The guard must see the job in pending, so we register it first.
         // If the channel is full (trySend fails), we roll back the pending update so state
         // stays consistent — no orphaned pending entry with no corresponding channel slot.
-        _pendingJobs.update { it + job }
-        val sent = jobChannel.trySend(job)
+        _pendingJobs.update { it + taggedJob }
+        val sent = jobChannel.trySend(taggedJob)
         if (sent.isFailure) {
             Log.w("InferenceQueue", "Queue full (>$MAX_QUEUED_JOBS), rejecting ${job.draftId}")
-            _pendingJobs.update { it.filterNot { j -> j.draftId == job.draftId } }
+            _pendingJobs.update { it.filterNot { j -> j.id == taggedJob.id } }
             return@withLock false
         }
         true

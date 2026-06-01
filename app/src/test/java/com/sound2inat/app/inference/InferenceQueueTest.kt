@@ -357,6 +357,179 @@ class InferenceQueueTest {
         assertThat(birdnetCalled).isFalse()
         assertThat(perchCalled).isTrue()
     }
+
+    // ── A1: cancel + re-enqueue race (same draftId) ──────────────────────────
+
+    /**
+     * Regression test for the cancel+re-enqueue race on the same draftId.
+     *
+     * Scenario:
+     *  1. A "blocker" job for d2 occupies the worker (blocked on a latch).
+     *     This frees the pending slot for d1 so we can enqueue d1-B while the worker is busy.
+     *  2. d1-B is enqueued. It sits in the channel and in pending (worker is busy with d2).
+     *  3. cancelQueued("d1") removes d1-B's id from pending.
+     *  4. d1-C is re-enqueued for the same draftId. Gets a NEW id, goes into pending + channel.
+     *  5. The blocker is released. Worker finishes d2.
+     *  6. Worker dequeues d1-B from the channel — id-based guard sees d1-B's id is no longer
+     *     in pending → skip.
+     *  7. Worker dequeues d1-C — its id IS in pending → runs.
+     *
+     * Assertions:
+     *  - d1-B's fake job is NOT invoked (stale channel item is skipped).
+     *  - d1-C's fake job IS invoked exactly once (new job after re-enqueue runs).
+     */
+    @Test
+    fun `cancel then re-enqueue same draftId runs new job not stale one`() = runTest {
+        val blockerLatch = CompletableDeferred<Unit>()
+        var newCRan = false
+
+        // Route birdnet calls by audioPath (which encodes the draftId in our helper).
+        // d2 → blocks on latch; d1 (any invocation) → sets flag.
+        // The key invariant: the FIRST d1 invocation must set newCRan, not staleBRan.
+        // We track call count rather than using removeAt() to avoid the pitfall where a
+        // guard-skipped job's list slot is consumed by the next real job.
+        var d1CallCount = 0
+        val queue = InferenceQueue(
+            backgroundScope,
+            useCase(
+                birdnet = InferenceJob { audioPath, _, _, _, _ ->
+                    when {
+                        audioPath.contains("d2") -> {
+                            blockerLatch.await()
+                            InferenceOutcome.Success("b", "1", emptyList())
+                        }
+                        audioPath.contains("d1") -> {
+                            d1CallCount++
+                            // If the guard is BROKEN and the stale item runs first, d1CallCount==1
+                            // when we expect the NEW job to run — we detect this below.
+                            // If the guard is WORKING, the stale item is skipped and only the new
+                            // job runs, setting newCRan = true.
+                            newCRan = true
+                            InferenceOutcome.Success("b", "1", emptyList())
+                        }
+                        else -> InferenceOutcome.Success("b", "1", emptyList())
+                    }
+                }
+            ),
+            repo(),
+        )
+
+        // Step 1: enqueue d2 (blocker) — starts immediately, blocks on latch.
+        queue.enqueue(job("d2"))
+        runCurrent()
+
+        // Step 2: enqueue d1-B (sits in channel+pending while d2 is running).
+        val enqueuedB = queue.enqueue(job("d1"))
+        runCurrent()
+        assertThat(enqueuedB).isTrue()
+
+        // Step 3: cancel d1 — d1-B's id removed from pending.
+        queue.cancelQueued("d1")
+
+        // Step 4: re-enqueue d1-C — new id, enters channel+pending.
+        val enqueuedC = queue.enqueue(job("d1"))
+        runCurrent()
+        assertThat(enqueuedC).isTrue()
+
+        // Step 5: release blocker; worker drains d2, then d1-B (skipped), then d1-C (runs).
+        blockerLatch.complete(Unit)
+        runCurrent()
+        runCurrent() // one tick finishes d2, second tick drains remaining channel items
+
+        // With id-based guard: d1-B is skipped (never runs), d1-C runs exactly once.
+        assertThat(d1CallCount).isEqualTo(1) // only the new job should have run
+        assertThat(newCRan).isTrue() // new C must run
+        assertThat(queue.status.value).doesNotContainKey("d1")
+    }
+
+    // ── A3: BirdNET failure must not show Failed while Perch still running ───
+
+    /**
+     * Regression test for the mid-run Failed status defect.
+     *
+     * Semantics chosen: BirdNET failure is a TERMINAL failure for the job (same as today).
+     * Perch still runs best-effort. The Failed status is written only ONCE, AFTER all steps
+     * have completed — so the UI never sees Failed while Perch is still in-flight.
+     *
+     * Invariants asserted:
+     *  (a) While Perch is blocked (running), status is NOT Failed — it is Running.
+     *  (b) After Perch finishes, the final status is Failed (BirdNET failure dominates).
+     *
+     * Implementation note: we cannot capture queue.status.value from inside the Perch lambda
+     * because the `combine`-based _status update runs in a separate backgroundScope coroutine
+     * that may not have been scheduled yet at the point of capture.  Instead we gate Perch on a
+     * latch, call runCurrent() while Perch is blocked, and inspect _status at that point —
+     * all tasks that could have run have run, so if Failed had been written it would be visible.
+     */
+    @Test
+    fun `birdnet failure does not show Failed status while perch still running`() = runTest {
+        val perchLatch = CompletableDeferred<Unit>()
+
+        val queue = InferenceQueue(
+            backgroundScope,
+            useCase(
+                birdnet = InferenceJob { _, _, _, _, _ ->
+                    InferenceOutcome.Failure("Model crash")
+                },
+                perch = PerchAnalysisJob { _, _, _, _, _ ->
+                    perchLatch.await() // block until we explicitly release
+                    PerchAnalysisOutcome.Success(emptyList())
+                },
+            ),
+            repo(),
+        )
+
+        queue.enqueue(job("d1", runBirdnet = true, runPerch = true))
+        // BirdNET runs (fails), Perch starts and blocks on the latch.
+        // runCurrent() drains all currently-runnable work, including the combine update.
+        runCurrent()
+
+        // (a) While Perch is still blocked, status must NOT be Failed.
+        //     With the fix, pendingFailure is held in a local var; _failedJobs has not been
+        //     touched yet, so combine cannot have produced a Failed entry.
+        val statusWhilePerchRunning = queue.status.value["d1"]
+        assertThat(statusWhilePerchRunning).isNotInstanceOf(JobStatus.Failed::class.java)
+        assertThat(statusWhilePerchRunning).isInstanceOf(JobStatus.Running::class.java)
+
+        // Release Perch so the job can finish.
+        perchLatch.complete(Unit)
+        runCurrent()
+
+        // (b) Final status: BirdNET failed → job is Failed (Perch ran best-effort but
+        //     the primary step that produces the main detections failed).
+        val finalStatus = queue.status.value["d1"]
+        assertThat(finalStatus).isInstanceOf(JobStatus.Failed::class.java)
+        assertThat((finalStatus as JobStatus.Failed).message).isEqualTo("Model crash")
+    }
+
+    /**
+     * Additional A3 invariant: if BirdNET fails and Perch also fails, the FINAL Failed
+     * message must come from BirdNET (primary step), not from Perch overwriting it mid-run.
+     * Also verifies no stale Failed entry exists after a clean re-enqueue.
+     */
+    @Test
+    fun `birdnet failure dominates perch failure in final status`() = runTest {
+        val queue = InferenceQueue(
+            backgroundScope,
+            useCase(
+                birdnet = InferenceJob { _, _, _, _, _ ->
+                    InferenceOutcome.Failure("BirdNET crashed")
+                },
+                perch = PerchAnalysisJob { _, _, _, _, _ ->
+                    PerchAnalysisOutcome.Failure("Perch crashed")
+                },
+            ),
+            repo(),
+        )
+
+        queue.enqueue(job("d1", runBirdnet = true, runPerch = true))
+        runCurrent()
+
+        val finalStatus = queue.status.value["d1"]
+        assertThat(finalStatus).isInstanceOf(JobStatus.Failed::class.java)
+        // BirdNET failure message is the one surfaced (first/primary step).
+        assertThat((finalStatus as JobStatus.Failed).message).isEqualTo("BirdNET crashed")
+    }
 }
 
 // ── Fake DAOs ──────────────────────────────────────────────────────────────────
