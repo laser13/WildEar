@@ -271,7 +271,7 @@ class DraftRepository(
      * max/min of both sides. Species that appear in only one list are kept
      * as-is. Result is sorted by [AggregatedDetection.maxConfidence] descending.
      */
-    internal fun mergeBySpecies(
+    fun mergeBySpecies(
         existing: List<AggregatedDetection>,
         incoming: List<AggregatedDetection>,
     ): List<AggregatedDetection> {

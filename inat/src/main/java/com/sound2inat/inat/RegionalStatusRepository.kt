@@ -107,7 +107,7 @@ class RegionalStatusRepository(
         const val TTL_MS = 24L * 60 * 60 * 1000
 
         /** Test factory: avoids constructing a full [RegionFilter]. */
-        internal fun forTest(
+        fun forTest(
             annotator: Annotator,
             nowMs: () -> Long = System::currentTimeMillis,
         ): RegionalStatusRepository {

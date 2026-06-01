@@ -257,11 +257,12 @@ internal fun SpeciesDetailsSheet(
                                 },
                             )
                         }
-                        if (d.taxonCommonName != null && d.qualityGrade == "research") {
+                        val commonName = d.taxonCommonName
+                        if (commonName != null && d.qualityGrade == "research") {
                             item {
                                 DetailRow(
                                     label = stringResource(R.string.sheet_label_confirmed_as),
-                                    value = d.taxonCommonName
+                                    value = commonName
                                 )
                             }
                         }

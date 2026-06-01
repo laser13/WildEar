@@ -11,7 +11,6 @@ import com.sound2inat.inference.InferenceUseCase
 import com.sound2inat.inference.InterpreterFactory
 import com.sound2inat.inference.LiveInferenceEngine
 import com.sound2inat.inference.LiveInferenceEngineFactory
-import com.sound2inat.modelmanager.ModelIds
 import com.sound2inat.inference.PerchTfliteModel
 import com.sound2inat.inference.YamNetGate
 import com.sound2inat.inference.YamNetTfliteGate
@@ -20,6 +19,7 @@ import com.sound2inat.location.LocationProvider
 import com.sound2inat.modelmanager.BirdNetMetaV24
 import com.sound2inat.modelmanager.KnownModels
 import com.sound2inat.modelmanager.ModelDescriptor
+import com.sound2inat.modelmanager.ModelIds
 import com.sound2inat.modelmanager.ModelManager
 import com.sound2inat.modelmanager.YamNetV1
 import com.sound2inat.recorder.AndroidAudioRecordSource

@@ -3,8 +3,8 @@ package com.sound2inat.app.inference
 import android.util.Log
 import com.sound2inat.inference.InferenceOutcome
 import com.sound2inat.inference.InferenceUseCase
-import com.sound2inat.modelmanager.ModelIds
 import com.sound2inat.inference.PerchAnalysisOutcome
+import com.sound2inat.modelmanager.ModelIds
 import com.sound2inat.storage.DraftRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
