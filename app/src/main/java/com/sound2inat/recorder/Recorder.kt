@@ -1,6 +1,7 @@
 package com.sound2inat.recorder
 
 import android.util.Log
+import com.sound2inat.audio.WavWriter
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

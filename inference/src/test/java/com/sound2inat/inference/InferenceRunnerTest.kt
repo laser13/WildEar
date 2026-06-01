@@ -1,0 +1,220 @@
+package com.sound2inat.inference
+
+import com.google.common.truth.Truth.assertThat
+import com.sound2inat.audio.WavPcmReader
+import com.sound2inat.audio.WavWriter
+import kotlinx.coroutines.test.runTest
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
+
+/**
+ * Fake [BioacousticModel] for runner tests. Returns a single [WindowPrediction]
+ * per call labelled with the supplied window timestamps so the test can assert
+ * window slicing.
+ */
+private class RecordingFakeModel(
+    override val expectedSampleRateHz: Int = 48_000,
+    override val windowMs: Long = 3_000L,
+) : BioacousticModel {
+    override val modelId = "fake"
+    override val modelVersion = "0"
+    val calls = mutableListOf<Pair<Long, Long>>()
+    var lastSampleRate: Int = -1
+
+    override suspend fun load(modelFile: File, labelsFile: File) = Unit
+
+    override suspend fun predict(
+        pcmFloat32: FloatArray,
+        sampleRateHz: Int,
+        latitude: Double?,
+        longitude: Double?,
+        observedAtMillis: Long,
+        windowStartMs: Long,
+        windowEndMs: Long,
+    ): List<WindowPrediction> {
+        lastSampleRate = sampleRateHz
+        calls += windowStartMs to windowEndMs
+        return listOf(
+            WindowPrediction(
+                startMs = windowStartMs,
+                endMs = windowEndMs,
+                taxonScientificName = "Fakus testus",
+                taxonCommonName = null,
+                confidence = 0.5f,
+            ),
+        )
+    }
+
+    override fun newInstance(): BioacousticModel = RecordingFakeModel(expectedSampleRateHz, windowMs)
+    override fun close() = Unit
+}
+
+/**
+ * Integration test for [InferenceRunner].
+ *
+ * `app/src/test/resources/spike_fixtures/` is intentionally empty in Spec 1 (see
+ * `MODEL_SPIKE.md` "Deferred work"), so this test synthesises a 5-second mono
+ * 16-bit silent WAV via the production [WavWriter] to verify both the WAV
+ * reader contract and the slicing math.
+ */
+class InferenceRunnerTest {
+    @get:Rule val tmp = TemporaryFolder()
+
+    private fun writeSilentWav(durationSeconds: Int, sampleRate: Int = 48_000): File {
+        val file = tmp.newFile("silence_${durationSeconds}s.wav")
+        val writer = WavWriter(file, sampleRate = sampleRate, channels = 1, bitsPerSample = 16)
+        writer.open()
+        val total = durationSeconds * sampleRate
+        val chunk = ShortArray(sampleRate) // 1 second of zeros
+        var written = 0
+        while (written < total) {
+            val n = minOf(chunk.size, total - written)
+            writer.writeShorts(chunk, 0, n)
+            written += n
+        }
+        writer.close()
+        return file
+    }
+
+    @Test
+    fun `slices 5s WAV into three 3s windows at 1s hop`() = runTest {
+        val wav = writeSilentWav(durationSeconds = 5)
+        val model = RecordingFakeModel()
+        val runner = InferenceRunner(listOf(model), hopSeconds = 1f)
+
+        val out = runner.run(wav, latitude = null, longitude = null, observedAtMillis = 0L)
+
+        // 5 s @ window=3 / hop=1 => floor((5-3)/1)+1 = 3 windows.
+        assertThat(out).hasSize(3)
+        assertThat(model.calls).containsExactly(
+            0L to 3_000L,
+            1_000L to 4_000L,
+            2_000L to 5_000L,
+        ).inOrder()
+        assertThat(model.lastSampleRate).isEqualTo(48_000)
+        assertThat(runner.progress.value).isEqualTo(1.0f)
+    }
+
+    @Test
+    fun `WAV shorter than window yields no predictions but progress still 1`() = runTest {
+        val wav = writeSilentWav(durationSeconds = 2) // shorter than 3 s window
+        val model = RecordingFakeModel()
+        val runner = InferenceRunner(listOf(model))
+
+        val out = runner.run(wav, null, null, 0L)
+
+        assertThat(out).isEmpty()
+        assertThat(model.calls).isEmpty()
+        assertThat(runner.progress.value).isEqualTo(1.0f)
+    }
+
+    @Test
+    fun `48k WAV is resampled to model's 32k expected rate before slicing`() = runTest {
+        val wav = writeSilentWav(durationSeconds = 6, sampleRate = 48_000)
+        val model = RecordingFakeModel(expectedSampleRateHz = 32_000, windowMs = 5_000L)
+        val runner = InferenceRunner(listOf(model), hopSeconds = 1f)
+
+        val out = runner.run(wav, null, null, 0L)
+
+        // After resample to 32k there are 6 s of audio. 5 s window @ 1 s hop
+        // gives floor((6-5)/1)+1 = 2 windows. Model sees the model rate, not
+        // the WAV's native rate.
+        assertThat(out).hasSize(2)
+        assertThat(model.lastSampleRate).isEqualTo(32_000)
+        assertThat(model.calls).containsExactly(
+            0L to 5_000L,
+            1_000L to 6_000L,
+        ).inOrder()
+    }
+
+    @Test
+    fun `gate returning DOWNRANK skips all windows when model confidence is low`() = runTest {
+        val wav = writeSilentWav(durationSeconds = 5)
+        val model = RecordingFakeModel() // returns confidence 0.5, below 0.7 override threshold
+        val alwaysDownrankGate = YamNetGate { _, _ ->
+            YamNetGateResult(
+                biologicalScore = 0.02f,
+                backgroundScore = 0.85f,
+                recommendation = GateRecommendation.DOWNRANK,
+            )
+        }
+        val runner = InferenceRunner(listOf(model), hopSeconds = 1f, yamNetGate = alwaysDownrankGate)
+
+        val out = runner.run(wav, latitude = null, longitude = null, observedAtMillis = 0L)
+
+        // No predictions emitted — DOWNRANK + confidence 0.5 < 0.7 override threshold
+        assertThat(out).isEmpty()
+        assertThat(runner.progress.value).isEqualTo(1.0f)
+    }
+}
+
+class WavReaderTest {
+    @get:Rule val tmp = TemporaryFolder()
+
+    @Test
+    fun `rejects file with wrong data chunk magic at offset 36`() {
+        // Build a 44-byte header where offset 36 is "LIST" instead of "data".
+        val header = ByteArray(44)
+        // RIFF magic
+        header[0] = 'R'.code.toByte()
+        header[1] = 'I'.code.toByte()
+        header[2] = 'F'.code.toByte()
+        header[3] = 'F'.code.toByte()
+        // RIFF size (irrelevant for this test)
+        header[4] = 0
+        header[5] = 0
+        header[6] = 0
+        header[7] = 0
+        // WAVE magic
+        header[8] = 'W'.code.toByte()
+        header[9] = 'A'.code.toByte()
+        header[10] = 'V'.code.toByte()
+        header[11] = 'E'.code.toByte()
+        // fmt chunk id "fmt " + size=16 (LE) + PCM=1 + ch=1 + sr=48000 + ... + bits=16
+        header[12] = 'f'.code.toByte()
+        header[13] = 'm'.code.toByte()
+        header[14] = 't'.code.toByte()
+        header[15] = ' '.code.toByte()
+        header[16] = 16
+        header[17] = 0
+        header[18] = 0
+        header[19] = 0 // chunk size = 16
+        header[20] = 1
+        header[21] = 0 // PCM = 1
+        header[22] = 1
+        header[23] = 0 // channels = 1
+        header[24] = 0x80.toByte()
+        header[25] = 0xBB.toByte()
+        header[26] = 0
+        header[27] = 0 // 48000 Hz
+        header[28] = 0
+        header[29] = 0
+        header[30] = 0
+        header[31] = 0 // byte rate
+        header[32] = 2
+        header[33] = 0 // block align
+        header[34] = 16
+        header[35] = 0 // bits per sample = 16
+        // Wrong chunk id at offset 36: "LIST" instead of "data"
+        header[36] = 'L'.code.toByte()
+        header[37] = 'I'.code.toByte()
+        header[38] = 'S'.code.toByte()
+        header[39] = 'T'.code.toByte()
+        header[40] = 0
+        header[41] = 0
+        header[42] = 0
+        header[43] = 0
+
+        val file = tmp.newFile("bad.wav")
+        file.writeBytes(header)
+
+        try {
+            WavPcmReader.readMono16(file)
+            error("Expected IllegalArgumentException")
+        } catch (e: IllegalArgumentException) {
+            assertThat(e.message).contains("data")
+        }
+    }
+}

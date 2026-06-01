@@ -5,6 +5,7 @@ import com.google.common.truth.Truth.assertThat
 import com.sound2inat.app.inference.InferenceQueue
 import com.sound2inat.app.inference.QueuedJob
 import com.sound2inat.app.ui.spectrogram.SpectrogramPalette
+import com.sound2inat.audio.WavWriter
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inat.RegionLookup
 import com.sound2inat.inat.RegionalStatusRepository
@@ -1573,7 +1574,7 @@ class ReviewViewModelTest {
     /** Creates a valid mono 16-bit PCM WAV file containing [durationMs] ms of silence. */
     private fun createSilentWav(dest: File, sampleRate: Int = 16_000, durationMs: Long = 1_000): File {
         val samples = ((sampleRate.toLong() * durationMs) / 1000L).toInt()
-        val writer = com.sound2inat.recorder.WavWriter(dest, sampleRate, channels = 1, bitsPerSample = 16)
+        val writer = WavWriter(dest, sampleRate, channels = 1, bitsPerSample = 16)
         writer.open()
         writer.writeShorts(ShortArray(samples), 0, samples)
         writer.close()
@@ -1587,7 +1588,7 @@ class ReviewViewModelTest {
         durationMs: Long = 4 * 60_000L,
     ): File {
         val totalSamples = ((sampleRate.toLong() * durationMs) / 1000L).toInt()
-        val writer = com.sound2inat.recorder.WavWriter(dest, sampleRate, channels = 1, bitsPerSample = 16)
+        val writer = WavWriter(dest, sampleRate, channels = 1, bitsPerSample = 16)
         writer.open()
         val chunk = ShortArray(8_192)
         var written = 0
@@ -1608,7 +1609,7 @@ class ReviewViewModelTest {
         sampleValue: Int,
     ): File {
         val samples = ((sampleRate.toLong() * durationMs) / 1000L).toInt()
-        val writer = com.sound2inat.recorder.WavWriter(dest, sampleRate, channels = 1, bitsPerSample = 16)
+        val writer = WavWriter(dest, sampleRate, channels = 1, bitsPerSample = 16)
         writer.open()
         val shorts = ShortArray(samples) { sampleValue.toShort() }
         writer.writeShorts(shorts, 0, shorts.size)

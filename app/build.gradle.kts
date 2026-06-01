@@ -6,7 +6,6 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
-    alias(libs.plugins.room)
     alias(libs.plugins.detekt)
 }
 
@@ -66,20 +65,11 @@ android {
         buildConfig = true
     }
 
-    sourceSets {
-        getByName("test").assets.srcDir("$projectDir/schemas")
-        getByName("androidTest").assets.srcDir("$projectDir/schemas")
-    }
-
     packaging {
         resources.excludes += setOf(
             "META-INF/AL2.0",
             "META-INF/LGPL2.1",
         )
-    }
-
-    room {
-        schemaDirectory("$projectDir/schemas")
     }
 
     testOptions {
@@ -101,33 +91,12 @@ detekt {
     autoCorrect = true
 }
 
-// Workaround for the AGP / Room interaction where mergeDebugAssets is computed
-// up-to-date before Room exports a freshly-bumped schema (e.g. 11.json), and
-// MigrationTest then fails to locate the schema file. Force the merged-assets
-// directory to contain every checked-in schema before unit tests run.
-val schemaSourceDir = layout.projectDirectory.dir("schemas")
-val schemaMergeOutputDir = layout.buildDirectory.dir(
-    "intermediates/assets/debug/mergeDebugAssets"
-)
-val copyRoomSchemasIntoAssets = tasks.register<Copy>("copyRoomSchemasIntoAssets") {
-    from(schemaSourceDir)
-    into(schemaMergeOutputDir)
-}
-// Anything that bundles or reads merged test assets must run after the copy
-// task; mergeDebugAssets itself stays the source of truth and only gets
-// supplemented (the copy writes alongside its outputs).
-tasks.matching {
-    it.name == "testDebugUnitTest" ||
-        it.name == "packageDebugUnitTestForUnitTest" ||
-        it.name == "compressDebugAssets"
-}.configureEach {
-    dependsOn(copyRoomSchemasIntoAssets)
-}
-copyRoomSchemasIntoAssets.configure {
-    mustRunAfter("mergeDebugAssets")
-}
-
 dependencies {
+    implementation(project(":core-audio"))
+    implementation(project(":inference"))
+    implementation(project(":storage"))
+    implementation(project(":inat"))
+
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
@@ -147,18 +116,12 @@ dependencies {
 
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
-    ksp(libs.room.compiler)
 
     implementation(libs.datastore.preferences)
     implementation(libs.coroutines.android)
     implementation(libs.okhttp)
-    implementation(libs.jtransforms)
-    implementation(libs.tflite)
-    implementation(libs.tflite.gpu)
-    implementation(libs.tflite.support)
     implementation(libs.play.services.location)
     implementation(libs.coil.compose)
-    implementation(libs.androidx.security.crypto)
     implementation(libs.osmdroid.android)
     implementation(libs.androidx.browser)
     implementation(libs.androidx.camera.core)
@@ -178,8 +141,6 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.core.testing)
     testImplementation(libs.androidx.test.core)
-    testImplementation(libs.room.testing)
-
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.espresso.core)

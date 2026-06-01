@@ -2,6 +2,7 @@ package com.sound2inat.app
 
 import com.sound2inat.app.di.SwappableModule
 import com.sound2inat.app.data.Settings
+import com.sound2inat.app.data.SettingsInferenceAdapter
 import com.sound2inat.inference.BioacousticModel
 import com.sound2inat.inference.BirdNetMetaModel
 import com.sound2inat.inference.DefaultInferenceUseCase
@@ -18,7 +19,7 @@ import com.sound2inat.modelmanager.ModelManager
 import com.sound2inat.recorder.AudioRecordSource
 import com.sound2inat.recorder.Recorder
 import com.sound2inat.recorder.RecordingResult
-import com.sound2inat.recorder.WavWriter
+import com.sound2inat.audio.WavWriter
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.components.SingletonComponent
@@ -104,7 +105,7 @@ object TestSwappableModule {
         models = bioModels,
         descriptors = descriptors,
         modelManager = modelManager,
-        settings = settings,
+        settings = SettingsInferenceAdapter(settings),
         yamNetGate = yamNetGate,
         birdNetMeta = birdNetMeta,
     )
