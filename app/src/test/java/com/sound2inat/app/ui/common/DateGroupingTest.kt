@@ -19,7 +19,7 @@ class DateGroupingTest {
     }
 
     @Test
-    fun `today and yesterday get human labels`() {
+    fun `recent days get concrete date labels`() {
         val now = atLocalDay(2026, 4, 30)
         val today = atLocalDay(2026, 4, 30, hour = 9)
         val yesterday = atLocalDay(2026, 4, 29, hour = 9)
@@ -27,7 +27,7 @@ class DateGroupingTest {
 
         val groups = groupDatedItems(items, now = now) { it }
 
-        assertThat(groups.map { it.label }).containsExactly("Today", "Yesterday").inOrder()
+        assertThat(groups.map { it.label }).containsExactly("30 May 2026", "29 May 2026").inOrder()
         assertThat(groups[0].items).containsExactly(today)
         assertThat(groups[1].items).containsExactly(yesterday)
     }
@@ -41,18 +41,18 @@ class DateGroupingTest {
         val groups = groupDatedItems(listOf(evening, morning), now = now) { it }
 
         assertThat(groups).hasSize(1)
-        assertThat(groups[0].label).isEqualTo("Today")
+        assertThat(groups[0].label).isEqualTo("30 May 2026")
         assertThat(groups[0].items).containsExactly(evening, morning).inOrder()
     }
 
     @Test
-    fun `older items fall back to a full date label`() {
+    fun `older items also get a concrete date label`() {
         val now = atLocalDay(2026, 4, 30)
-        val old = atLocalDay(2026, 0, 15) // Jan 15, 2026 — more than a week ago
+        val old = atLocalDay(2026, 0, 15) // Jan 15, 2026
 
         val groups = groupDatedItems(listOf(old), now = now) { it }
 
         assertThat(groups).hasSize(1)
-        assertThat(groups[0].label).isEqualTo("January 15, 2026")
+        assertThat(groups[0].label).isEqualTo("15 January 2026")
     }
 }

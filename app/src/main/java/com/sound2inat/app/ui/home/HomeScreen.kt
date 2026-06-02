@@ -288,47 +288,38 @@ private fun RecordingCard(
         ),
     ) {
         if (species.isNotEmpty()) {
-            // Species strip layout: header row (timestamp only) + photo strip + model badges.
-            // No species-name headline and no workflow status text — the inat/total count and
-            // upload badge already convey review/submission state.
-            ListItem(
-                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                leadingContent = if (selectionMode) {
-                    { Checkbox(checked = selected, onCheckedChange = { onToggleSelection() }) }
-                } else {
-                    null
-                },
-                headlineContent = {
-                    Text(
-                        formatTimestamp(summary.recordedAtUtcMs),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                },
-                trailingContent = {
-                    Column(
-                        horizontalAlignment = Alignment.End,
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        Text(
-                            formatDurationMs(summary.durationMs),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        if (detectionCount > 0) {
-                            val countText = if (inatCount > 0) "$inatCount/$detectionCount" else "$detectionCount"
-                            Text(
-                                countText,
-                                style = MaterialTheme.typography.titleLarge,
-                                color = if (inatCount > 0) iNatGreen else MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-                        badge?.invoke()
-                    }
-                },
-            )
+            // Photos pinned to the top of the card; capture time, audio duration and
+            // detection count moved to a single bottom row. The recording date now
+            // lives in the section header, so only the time is shown here.
             SpeciesPhotoStrip(species = species, observeTaxonPhoto = observeTaxonPhoto)
             if (models.isNotEmpty()) {
                 ModelBadgesRow(models = models)
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (selectionMode) {
+                    Checkbox(checked = selected, onCheckedChange = { onToggleSelection() })
+                }
+                Text(
+                    "${formatTime(summary.recordedAtUtcMs)} · ${formatDurationMs(summary.durationMs)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.weight(1f))
+                if (detectionCount > 0) {
+                    val countText = if (inatCount > 0) "$inatCount/$detectionCount" else "$detectionCount"
+                    Text(
+                        countText,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = if (inatCount > 0) iNatGreen else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                badge?.invoke()
             }
         } else {
             // Fallback: status icon + headline (analysing / empty / failed / queued)
@@ -350,7 +341,7 @@ private fun RecordingCard(
                 },
                 supportingContent = {
                     Text(
-                        formatTimestamp(summary.recordedAtUtcMs),
+                        formatTime(summary.recordedAtUtcMs),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -413,7 +404,7 @@ private fun SpeciesPhotoStrip(
     LazyRow(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(species, key = { it.scientificName }) { item ->
@@ -556,8 +547,8 @@ private fun statusHeadline(status: DraftStatus, analysedButEmpty: Boolean, jobSt
     )
 }
 
-private fun formatTimestamp(ms: Long): String {
-    val formatter = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm")
+private fun formatTime(ms: Long): String {
+    val formatter = DateTimeFormatter.ofPattern("HH:mm")
         .withZone(ZoneId.systemDefault())
     return formatter.format(Instant.ofEpochMilli(ms))
 }
