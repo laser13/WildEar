@@ -12,6 +12,7 @@ import com.sound2inat.inat.INaturalistClient
 import com.sound2inat.inat.LegacyInatTokenSource
 import com.sound2inat.inat.RegionFilter
 import com.sound2inat.inat.RegionLookup
+import com.sound2inat.inat.RegionalStatusRepository
 import com.sound2inat.inference.InterpreterFactory
 import com.sound2inat.inference.TfliteInterpreterFactory
 import com.sound2inat.storage.DetectionDao
@@ -174,6 +175,14 @@ object AppModule {
         }
         return RegionFilter(lookup)
     }
+
+    @Provides @Singleton
+    fun provideRegionalStatusAnnotator(
+        repo: RegionalStatusRepository,
+    ): RegionalStatusRepository.Annotator =
+        RegionalStatusRepository.Annotator { name, lat, lon ->
+            repo.get(name, lat, lon)
+        }
 
     @Provides @Singleton
     fun provideINatSubmitter(

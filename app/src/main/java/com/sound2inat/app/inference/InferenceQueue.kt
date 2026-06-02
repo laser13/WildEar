@@ -1,9 +1,11 @@
 package com.sound2inat.app.inference
 
 import android.util.Log
+import com.sound2inat.inat.RegionalStatusRepository
 import com.sound2inat.inference.InferenceOutcome
 import com.sound2inat.inference.InferenceUseCase
 import com.sound2inat.inference.PerchAnalysisOutcome
+import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.modelmanager.ModelIds
 import com.sound2inat.storage.DraftRepository
 import kotlinx.coroutines.CancellationException
@@ -55,6 +57,10 @@ class InferenceQueue @Inject constructor(
     private val scope: CoroutineScope,
     private val inferenceUseCase: InferenceUseCase,
     private val repo: DraftRepository,
+    // No-op default keeps existing positional/named test call-sites compiling.
+    // Hilt overrides this with provideRegionalStatusAnnotator in production.
+    private val regionAnnotator: RegionalStatusRepository.Annotator =
+        RegionalStatusRepository.Annotator { _, _, _ -> RegionalStatus.UNVERIFIED },
 ) {
     private val enqueueMutex = Mutex()
 
@@ -130,6 +136,9 @@ class InferenceQueue @Inject constructor(
                         _runningDraftId.value = null
                         _runningStatus.value = null
                     }
+                    // Best-effort post-step: runs AFTER running-status is cleared so
+                    // the card is not stuck "Running" during the (network) annotation.
+                    annotateRegion(job)
                 } catch (t: Throwable) {
                     if (t is CancellationException) throw t
                     Log.e("InferenceQueue", "Job ${job.draftId} failed; worker continues", t)
@@ -213,6 +222,33 @@ class InferenceQueue @Inject constructor(
         // This ensures the UI never sees Failed while a subsequent step is still running.
         pendingFailure?.let { failure ->
             _failedJobs.update { it + (job.draftId to failure) }
+        }
+    }
+
+    /**
+     * Best-effort: annotate the draft's persisted detections with their regional
+     * status and store it. Skipped when the recording has no location. Any failure
+     * is swallowed (logged) so it never turns a successful analysis into a Failed job.
+     * Uses the cache-backed annotator, so repeated species across recordings are cheap.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun annotateRegion(job: QueuedJob) {
+        val lat = job.lat
+        val lon = job.lon
+        if (lat == null || lon == null) return
+        try {
+            val species = repo.listDetections(job.draftId)
+                .map { it.taxonScientificName }
+                .distinct()
+            if (species.isEmpty()) return
+            val statuses = species.associateWith { name ->
+                regionAnnotator.annotate(name, lat, lon)
+            }
+            repo.updateRegionalStatuses(job.draftId, statuses)
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            Log.w("InferenceQueue", "Region annotation failed for ${job.draftId}; continuing", t)
         }
     }
 
