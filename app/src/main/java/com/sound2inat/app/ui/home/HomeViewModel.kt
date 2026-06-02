@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.sound2inat.app.data.Settings
 import com.sound2inat.app.inference.InferenceQueue
 import com.sound2inat.inat.TaxonPhotoRepository
+import com.sound2inat.inference.RegionalStatus
+import com.sound2inat.inference.SourceStats
 import com.sound2inat.modelmanager.BirdNetV24
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
@@ -138,10 +140,31 @@ class HomeViewModel @Inject constructor(
             list.firstOrNull()?.let { it.taxonCommonName ?: it.taxonScientificName }
         }.flowOn(Dispatchers.IO)
 
-    fun observeTopSpecies(draftId: String, limit: Int = TOP_SPECIES_LIMIT): Flow<List<TopSpeciesItem>> =
+    fun observeRecordingSpecies(draftId: String): Flow<List<RecordingSpeciesItem>> =
         detectionDao.observeForDraft(draftId)
             .map { list ->
-                list.take(limit).map { d -> TopSpeciesItem(d.taxonScientificName, d.taxonCommonName) }
+                sortRecordingSpecies(
+                    list.map { d ->
+                        RecordingSpeciesItem(
+                            scientificName = d.taxonScientificName,
+                            commonName = d.taxonCommonName,
+                            maxConfidence = d.maxConfidence,
+                            regionalStatus = d.regionalStatus?.let {
+                                runCatching { RegionalStatus.valueOf(it) }.getOrNull()
+                            },
+                        )
+                    },
+                )
+            }
+            .flowOn(Dispatchers.IO)
+
+    fun observeRecordingModels(draftId: String): Flow<Set<ModelBadge>> =
+        detectionDao.observeForDraft(draftId)
+            .map { list ->
+                val keys = buildSet {
+                    list.forEach { addAll(SourceStats.decodeConfidenceOnly(it.sources).keys) }
+                }
+                modelBadgesOf(keys)
             }
             .flowOn(Dispatchers.IO)
 
@@ -160,12 +183,33 @@ class HomeViewModel @Inject constructor(
             .flowOn(Dispatchers.IO)
 
     private companion object {
-        const val TOP_SPECIES_LIMIT = 3
         const val STOP_TIMEOUT_MS = 5_000L
     }
 }
 
-data class TopSpeciesItem(
+data class RecordingSpeciesItem(
     val scientificName: String,
     val commonName: String?,
+    val maxConfidence: Float,
+    val regionalStatus: RegionalStatus?,
 )
+
+enum class ModelBadge { BIRDNET, PERCH }
+
+internal fun sortRecordingSpecies(items: List<RecordingSpeciesItem>): List<RecordingSpeciesItem> {
+    // NOT_CONFIRMED goes to the end; everything else (CONFIRMED / UNVERIFIED / null) shown first.
+    // Within each group, score DESC. sortedWith is stable for equal keys.
+    return items.sortedWith(
+        compareBy<RecordingSpeciesItem> { it.regionalStatus == RegionalStatus.NOT_CONFIRMED }
+            .thenByDescending { it.maxConfidence },
+    )
+}
+
+internal fun modelBadgesOf(sourceKeys: Set<String>): Set<ModelBadge> = buildSet {
+    sourceKeys.forEach { key ->
+        when {
+            key.startsWith("birdnet") -> add(ModelBadge.BIRDNET)
+            key.startsWith("perch") -> add(ModelBadge.PERCH)
+        }
+    }
+}

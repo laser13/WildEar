@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Autorenew
@@ -50,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -72,6 +75,7 @@ import com.sound2inat.app.ui.common.groupDatedItems
 import com.sound2inat.app.ui.formatDurationMs
 import com.sound2inat.app.ui.theme.iNatGreen
 import com.sound2inat.app.ui.theme.onScrimLight
+import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.storage.DraftStatus
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
@@ -214,7 +218,8 @@ fun HomeScreen(
                                     modifier = Modifier.padding(horizontal = 16.dp),
                                     summary = d,
                                     observeTopLabel = vm::observeTopLabel,
-                                    observeTopSpecies = vm::observeTopSpecies,
+                                    observeRecordingSpecies = vm::observeRecordingSpecies,
+                                    observeRecordingModels = vm::observeRecordingModels,
                                     observeDetectionCount = vm::observeDetectionCount,
                                     observeInatObservationCount = vm::observeInatObservationCount,
                                     observeTaxonPhoto = vm::observeTaxonPhoto,
@@ -240,7 +245,8 @@ private fun RecordingCard(
     modifier: Modifier = Modifier,
     summary: DraftSummary,
     observeTopLabel: (String) -> Flow<String?>,
-    observeTopSpecies: (String) -> Flow<List<TopSpeciesItem>>,
+    observeRecordingSpecies: (String) -> Flow<List<RecordingSpeciesItem>>,
+    observeRecordingModels: (String) -> Flow<Set<ModelBadge>>,
     observeDetectionCount: (String) -> Flow<Int>,
     observeInatObservationCount: (String) -> Flow<Int>,
     observeTaxonPhoto: (String) -> Flow<String?>,
@@ -250,12 +256,15 @@ private fun RecordingCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
 ) {
-    val topLabel by remember(
-        summary.id
-    ) { observeTopLabel(summary.id) }.collectAsStateWithLifecycle(initialValue = null)
-    val topSpecies by remember(summary.id) {
-        observeTopSpecies(summary.id)
+    val topLabel by remember(summary.id) {
+        observeTopLabel(summary.id)
+    }.collectAsStateWithLifecycle(initialValue = null)
+    val species by remember(summary.id) {
+        observeRecordingSpecies(summary.id)
     }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val models by remember(summary.id) {
+        observeRecordingModels(summary.id)
+    }.collectAsStateWithLifecycle(initialValue = emptySet())
     val detectionCount by remember(summary.id) {
         observeDetectionCount(summary.id)
     }.collectAsStateWithLifecycle(initialValue = 0)
@@ -263,7 +272,7 @@ private fun RecordingCard(
         observeInatObservationCount(summary.id)
     }.collectAsStateWithLifecycle(initialValue = 0)
 
-    val analysedButEmpty = topSpecies.isEmpty() &&
+    val analysedButEmpty = species.isEmpty() &&
         (
             summary.status == DraftStatus.PENDING_REVIEW ||
                 summary.status == DraftStatus.REVIEWED
@@ -283,82 +292,111 @@ private fun RecordingCard(
             },
         ),
     ) {
-        ListItem(
-            colors = ListItemDefaults.colors(
-                containerColor = Color.Transparent,
-            ),
-            leadingContent = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    if (selectionMode) {
-                        Checkbox(checked = selected, onCheckedChange = { onToggleSelection() })
-                    }
-                    RecordingThumbnail(
-                        firstSpecies = topSpecies.firstOrNull(),
-                        icon = icon,
-                        iconBg = iconBg,
-                        observeTaxonPhoto = observeTaxonPhoto,
-                    )
-                }
-            },
-            headlineContent = {
-                Text(topLabel ?: statusHeadline(summary.status, analysedButEmpty, summary.jobStatus))
-            },
-            supportingContent = {
-                Text(
-                    "${formatTimestamp(summary.recordedAtUtcMs)} · " +
-                        homeStatusLabel(summary.status, analysedButEmpty, summary.jobStatus),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            },
-            trailingContent = {
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
+        if (species.isNotEmpty()) {
+            // Species strip layout: header row + photo strip + model badges
+            ListItem(
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                leadingContent = if (selectionMode) {
+                    { Checkbox(checked = selected, onCheckedChange = { onToggleSelection() }) }
+                } else {
+                    null
+                },
+                headlineContent = {
+                    Text(topLabel ?: statusHeadline(summary.status, analysedButEmpty, summary.jobStatus))
+                },
+                supportingContent = {
                     Text(
-                        formatDurationMs(summary.durationMs),
+                        "${formatTimestamp(summary.recordedAtUtcMs)} · " +
+                            homeStatusLabel(summary.status, analysedButEmpty, summary.jobStatus),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    if (detectionCount > 0) {
-                        val countText = if (inatCount > 0) "$inatCount/$detectionCount" else "$detectionCount"
+                },
+                trailingContent = {
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
                         Text(
-                            countText,
-                            style = MaterialTheme.typography.titleLarge,
-                            color = if (inatCount > 0) {
-                                iNatGreen
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            },
+                            formatDurationMs(summary.durationMs),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (detectionCount > 0) {
+                            val countText = if (inatCount > 0) "$inatCount/$detectionCount" else "$detectionCount"
+                            Text(
+                                countText,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = if (inatCount > 0) iNatGreen else MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                        badge?.invoke()
                     }
-                    badge?.invoke()
-                }
-            },
-        )
+                },
+            )
+            SpeciesPhotoStrip(species = species, observeTaxonPhoto = observeTaxonPhoto)
+            if (models.isNotEmpty()) {
+                ModelBadgesRow(models = models)
+            }
+        } else {
+            // Fallback: status icon + headline (analysing / empty / failed / queued)
+            ListItem(
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                leadingContent = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        if (selectionMode) {
+                            Checkbox(checked = selected, onCheckedChange = { onToggleSelection() })
+                        }
+                        RecordingThumbnail(icon = icon, iconBg = iconBg)
+                    }
+                },
+                headlineContent = {
+                    Text(topLabel ?: statusHeadline(summary.status, analysedButEmpty, summary.jobStatus))
+                },
+                supportingContent = {
+                    Text(
+                        "${formatTimestamp(summary.recordedAtUtcMs)} · " +
+                            homeStatusLabel(summary.status, analysedButEmpty, summary.jobStatus),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                trailingContent = {
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            formatDurationMs(summary.durationMs),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (detectionCount > 0) {
+                            val countText = if (inatCount > 0) "$inatCount/$detectionCount" else "$detectionCount"
+                            Text(
+                                countText,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = if (inatCount > 0) iNatGreen else MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                        badge?.invoke()
+                    }
+                },
+            )
+        }
     }
 }
 
 @Suppress("FunctionNaming")
 @Composable
 private fun RecordingThumbnail(
-    firstSpecies: TopSpeciesItem?,
     icon: ImageVector,
     iconBg: Color,
-    observeTaxonPhoto: (String) -> Flow<String?>,
 ) {
     val shape = RoundedCornerShape(RECORDING_THUMB_CORNER_DP.dp)
-    var photoUrl: String? = null
-    if (firstSpecies != null) {
-        val observedUrl by remember(firstSpecies.scientificName) {
-            observeTaxonPhoto(firstSpecies.scientificName)
-        }.collectAsStateWithLifecycle(initialValue = null)
-        photoUrl = observedUrl
-    }
     Box(
         modifier = Modifier
             .size(RECORDING_THUMB_SIZE_DP.dp)
@@ -366,20 +404,93 @@ private fun RecordingThumbnail(
             .background(iconBg),
         contentAlignment = Alignment.Center,
     ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = onScrimLight,
+            modifier = Modifier.size(STATUS_ICON_INNER_DP.dp),
+        )
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun SpeciesPhotoStrip(
+    species: List<RecordingSpeciesItem>,
+    observeTaxonPhoto: (String) -> Flow<String?>,
+) {
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(species, key = { it.scientificName }) { item ->
+            SpeciesPhotoTile(item = item, observeTaxonPhoto = observeTaxonPhoto)
+        }
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun SpeciesPhotoTile(
+    item: RecordingSpeciesItem,
+    observeTaxonPhoto: (String) -> Flow<String?>,
+) {
+    val shape = RoundedCornerShape(RECORDING_THUMB_CORNER_DP.dp)
+    val photoUrl by remember(item.scientificName) {
+        observeTaxonPhoto(item.scientificName)
+    }.collectAsStateWithLifecycle(initialValue = null)
+    val dimmed = item.regionalStatus == RegionalStatus.NOT_CONFIRMED
+    Box(
+        modifier = Modifier
+            .size(RECORDING_STRIP_THUMB_SIZE_DP.dp)
+            .alpha(if (dimmed) NOT_CONFIRMED_ALPHA else 1f)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
         if (photoUrl != null) {
             AsyncImage(
                 model = photoUrl,
-                contentDescription = firstSpecies?.commonName ?: firstSpecies?.scientificName,
+                contentDescription = item.commonName ?: item.scientificName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize().clip(shape),
             )
         } else {
             Icon(
-                icon,
-                contentDescription = null,
+                Icons.Filled.Eco,
+                contentDescription = item.commonName ?: item.scientificName,
                 tint = onScrimLight,
                 modifier = Modifier.size(STATUS_ICON_INNER_DP.dp),
             )
+        }
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun ModelBadgesRow(models: Set<ModelBadge>) {
+    if (models.isEmpty()) return
+    Row(
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        models.forEach { badge ->
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = RoundedCornerShape(RECORDING_THUMB_CORNER_DP.dp),
+            ) {
+                Text(
+                    text = when (badge) {
+                        ModelBadge.BIRDNET -> "BirdNET"
+                        ModelBadge.PERCH -> "Perch"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
         }
     }
 }
@@ -499,6 +610,8 @@ private const val RECORDING_THUMB_SIZE_DP = 48
 private const val RECORDING_THUMB_CORNER_DP = 6
 private const val STATUS_ICON_INNER_DP = 20
 private const val BADGE_ICON_SIZE_DP = 14
+private const val RECORDING_STRIP_THUMB_SIZE_DP = 72
+private const val NOT_CONFIRMED_ALPHA = 0.45f
 
 @Suppress("FunctionNaming")
 @OptIn(ExperimentalMaterial3Api::class)

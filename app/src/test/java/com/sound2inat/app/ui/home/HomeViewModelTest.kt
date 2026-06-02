@@ -9,6 +9,7 @@ import com.sound2inat.modelmanager.BirdNetV24
 import com.sound2inat.modelmanager.ModelInstallState
 import com.sound2inat.modelmanager.ModelManager
 import com.sound2inat.storage.DetectionDao
+import com.sound2inat.storage.DetectionEntity
 import com.sound2inat.storage.DraftDetectionCount
 import com.sound2inat.storage.DraftEntity
 import com.sound2inat.storage.DraftObservationCount
@@ -120,6 +121,53 @@ class HomeViewModelTest {
         vm.state.test {
             val s = awaitItem()
             assertThat(s.isModelReady).isFalse()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test fun `observeRecordingModels derives badges from sources keys`() = runTest {
+        val repo = mockk<DraftRepository>(relaxed = true)
+        every { repo.observeAll() } returns flowOf(emptyList())
+        val modelManager = mockk<ModelManager>(relaxed = true)
+        coEvery { modelManager.stateFor(BirdNetV24.descriptor) } returns ModelInstallState.NotInstalled
+        val detectionDao = mockk<DetectionDao>(relaxed = true)
+        every { detectionDao.observeCountsByDraft() } returns flowOf(emptyList<DraftDetectionCount>())
+        every { detectionDao.observeForDraft("d1") } returns flowOf(
+            listOf(
+                DetectionEntity(
+                    draftId = "d1",
+                    taxonScientificName = "Parus major",
+                    taxonCommonName = null,
+                    maxConfidence = 0.9f,
+                    detectedWindows = 1,
+                    firstSeenMs = 0,
+                    lastSeenMs = 1,
+                    isSelectedByUser = false,
+                    sources = "birdnet_v2_4=0.9:1:0:1;perch_v2=0.8:1:0:1",
+                ),
+            ),
+        )
+        val inatObservationDao = mockk<InatObservationDao>(relaxed = true)
+        every { inatObservationDao.observeCountsByDraft() } returns flowOf(emptyList<DraftObservationCount>())
+        val taxonPhotoRepository = mockk<TaxonPhotoRepository>(relaxed = true)
+        every { taxonPhotoRepository.observe(any()) } returns flowOf(null)
+        val settings = mockk<Settings>(relaxed = true)
+        every { settings.allowDeleteUploaded } returns flowOf(false)
+        val inferenceQueue = mockk<InferenceQueue>(relaxed = true)
+        every { inferenceQueue.status } returns kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
+
+        val vm = HomeViewModel(
+            repo = repo,
+            detectionDao = detectionDao,
+            inatObservationDao = inatObservationDao,
+            modelManager = modelManager,
+            taxonPhotoRepository = taxonPhotoRepository,
+            settings = settings,
+            inferenceQueue = inferenceQueue,
+        )
+
+        vm.observeRecordingModels("d1").test {
+            assertThat(awaitItem()).containsExactly(ModelBadge.BIRDNET, ModelBadge.PERCH)
             cancelAndIgnoreRemainingEvents()
         }
     }
