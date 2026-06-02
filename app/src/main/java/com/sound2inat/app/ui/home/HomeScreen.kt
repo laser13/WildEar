@@ -217,7 +217,6 @@ fun HomeScreen(
                                 RecordingCard(
                                     modifier = Modifier.padding(horizontal = 16.dp),
                                     summary = d,
-                                    observeTopLabel = vm::observeTopLabel,
                                     observeRecordingSpecies = vm::observeRecordingSpecies,
                                     observeRecordingModels = vm::observeRecordingModels,
                                     observeDetectionCount = vm::observeDetectionCount,
@@ -244,7 +243,6 @@ fun HomeScreen(
 private fun RecordingCard(
     modifier: Modifier = Modifier,
     summary: DraftSummary,
-    observeTopLabel: (String) -> Flow<String?>,
     observeRecordingSpecies: (String) -> Flow<List<RecordingSpeciesItem>>,
     observeRecordingModels: (String) -> Flow<Set<ModelBadge>>,
     observeDetectionCount: (String) -> Flow<Int>,
@@ -256,9 +254,6 @@ private fun RecordingCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
 ) {
-    val topLabel by remember(summary.id) {
-        observeTopLabel(summary.id)
-    }.collectAsStateWithLifecycle(initialValue = null)
     val species by remember(summary.id) {
         observeRecordingSpecies(summary.id)
     }.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -293,13 +288,9 @@ private fun RecordingCard(
         ),
     ) {
         if (species.isNotEmpty()) {
-            // Species strip layout: header row + photo strip + model badges
-            // Derive headline from the first (top in-region) species in the sorted strip,
-            // so the card title matches what's shown prominently in the photo strip.
-            val stripHeadline = species.firstOrNull()
-                ?.let { it.commonName ?: it.scientificName }
-                ?: topLabel
-                ?: statusHeadline(summary.status, analysedButEmpty, summary.jobStatus)
+            // Species strip layout: header row (timestamp only) + photo strip + model badges.
+            // No species-name headline and no workflow status text — the inat/total count and
+            // upload badge already convey review/submission state.
             ListItem(
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 leadingContent = if (selectionMode) {
@@ -308,14 +299,9 @@ private fun RecordingCard(
                     null
                 },
                 headlineContent = {
-                    Text(stripHeadline)
-                },
-                supportingContent = {
                     Text(
-                        "${formatTimestamp(summary.recordedAtUtcMs)} · " +
-                            homeStatusLabel(summary.status, analysedButEmpty, summary.jobStatus),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        formatTimestamp(summary.recordedAtUtcMs),
+                        style = MaterialTheme.typography.bodyMedium,
                     )
                 },
                 trailingContent = {
@@ -360,12 +346,11 @@ private fun RecordingCard(
                     }
                 },
                 headlineContent = {
-                    Text(topLabel ?: statusHeadline(summary.status, analysedButEmpty, summary.jobStatus))
+                    Text(statusHeadline(summary.status, analysedButEmpty, summary.jobStatus))
                 },
                 supportingContent = {
                     Text(
-                        "${formatTimestamp(summary.recordedAtUtcMs)} · " +
-                            homeStatusLabel(summary.status, analysedButEmpty, summary.jobStatus),
+                        formatTimestamp(summary.recordedAtUtcMs),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -567,41 +552,6 @@ private fun statusHeadline(status: DraftStatus, analysedButEmpty: Boolean, jobSt
             DraftStatus.PENDING_REVIEW -> R.string.home_headline_ready_review
             DraftStatus.REVIEWED -> R.string.home_headline_ready_submit
             DraftStatus.UPLOADED -> R.string.home_headline_submitted
-        }
-    )
-}
-
-@Composable
-private fun homeStatusLabel(status: DraftStatus, analysedButEmpty: Boolean, jobStatus: JobStatus? = null): String {
-    if (analysedButEmpty) return stringResource(R.string.home_label_no_detections)
-    if (status == DraftStatus.PENDING_INFERENCE || jobStatus != null) {
-        return when (jobStatus) {
-            is JobStatus.Running -> {
-                val pct = (jobStatus.birdnetProgress ?: jobStatus.perchProgress)
-                    ?.let { (it * 100).toInt() }
-                if (pct != null) {
-                    stringResource(R.string.home_label_analyzing_progress, pct)
-                } else {
-                    stringResource(R.string.home_label_analyzing)
-                }
-            }
-            is JobStatus.Queued -> {
-                if (jobStatus.position == 0) {
-                    stringResource(R.string.home_label_up_next)
-                } else {
-                    stringResource(R.string.home_label_in_queue, jobStatus.position + 1)
-                }
-            }
-            is JobStatus.Failed -> stringResource(R.string.home_label_analysis_failed)
-            null -> stringResource(R.string.home_label_analyzing)
-        }
-    }
-    return stringResource(
-        when (status) {
-            DraftStatus.PENDING_INFERENCE -> R.string.home_label_analyzing
-            DraftStatus.PENDING_REVIEW -> R.string.home_label_needs_review
-            DraftStatus.REVIEWED -> R.string.home_label_not_submitted
-            DraftStatus.UPLOADED -> R.string.home_label_submitted
         }
     )
 }

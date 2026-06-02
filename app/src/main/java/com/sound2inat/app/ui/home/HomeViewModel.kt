@@ -135,11 +135,6 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun observeTopLabel(draftId: String): Flow<String?> =
-        detectionDao.observeForDraft(draftId).map { list ->
-            list.firstOrNull()?.let { it.taxonCommonName ?: it.taxonScientificName }
-        }.flowOn(Dispatchers.IO)
-
     fun observeRecordingSpecies(draftId: String): Flow<List<RecordingSpeciesItem>> =
         detectionDao.observeForDraft(draftId)
             .map { list ->
