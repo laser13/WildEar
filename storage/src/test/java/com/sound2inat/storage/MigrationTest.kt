@@ -422,6 +422,13 @@ class MigrationTest {
             assertThat(c.moveToFirst()).isTrue()
             assertThat(c.getInt(0)).isEqualTo(1)
         }
+
+        // Also verify the column is writable and readable (not just present as nullable).
+        db.execSQL("UPDATE detections SET regionalStatus = 'CONFIRMED' WHERE draftId = 'd14'")
+        db.query("SELECT regionalStatus FROM detections WHERE draftId = 'd14'").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getString(0)).isEqualTo("CONFIRMED")
+        }
     }
 
     @Test

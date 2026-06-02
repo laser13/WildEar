@@ -344,6 +344,10 @@ class DraftRepository(
                 lastSeenBySource = mergedLastSeen,
                 fragmentRanges = prior.fragmentRanges + d.fragmentRanges,
                 aggregatedConfidence = maxOf(prior.aggregatedConfidence, d.aggregatedConfidence),
+                // Preserve prior's regionalStatus: incoming fresh detections arrive with null
+                // (annotation runs after mergeAndPersist), so losing prior's annotated value
+                // would cause the card to lose regional dimming until re-annotation completes.
+                regionalStatus = prior.regionalStatus ?: d.regionalStatus,
             )
         }
         return byName.values.sortedByDescending { it.maxConfidence }
@@ -370,6 +374,7 @@ class DraftRepository(
         ),
         fragmentRanges = FragmentRanges.encode(fragmentRanges),
         aggregatedConfidence = aggregatedConfidence,
+        regionalStatus = regionalStatus?.name,
     )
 
     private companion object {

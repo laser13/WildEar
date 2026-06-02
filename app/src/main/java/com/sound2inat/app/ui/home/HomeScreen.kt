@@ -294,6 +294,12 @@ private fun RecordingCard(
     ) {
         if (species.isNotEmpty()) {
             // Species strip layout: header row + photo strip + model badges
+            // Derive headline from the first (top in-region) species in the sorted strip,
+            // so the card title matches what's shown prominently in the photo strip.
+            val stripHeadline = species.firstOrNull()
+                ?.let { it.commonName ?: it.scientificName }
+                ?: topLabel
+                ?: statusHeadline(summary.status, analysedButEmpty, summary.jobStatus)
             ListItem(
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 leadingContent = if (selectionMode) {
@@ -302,7 +308,7 @@ private fun RecordingCard(
                     null
                 },
                 headlineContent = {
-                    Text(topLabel ?: statusHeadline(summary.status, analysedButEmpty, summary.jobStatus))
+                    Text(stripHeadline)
                 },
                 supportingContent = {
                     Text(
@@ -476,7 +482,7 @@ private fun ModelBadgesRow(models: Set<ModelBadge>) {
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        models.forEach { badge ->
+        models.sortedBy { it.ordinal }.forEach { badge ->
             Surface(
                 color = MaterialTheme.colorScheme.secondaryContainer,
                 shape = RoundedCornerShape(RECORDING_THUMB_CORNER_DP.dp),
