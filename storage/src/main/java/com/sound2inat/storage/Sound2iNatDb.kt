@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PhotoDraftEntity::class,
         PhotoDraftImageEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -249,6 +249,15 @@ abstract class Sound2iNatDb : RoomDatabase() {
         val MIGRATION_12_13: Migration = object : Migration(12, 13) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE photo_drafts ADD COLUMN uploadStatus TEXT")
+            }
+        }
+
+        // v14: per-detection regional (geographic) status, computed once at
+        // analysis time. Nullable — pre-v14 rows stay NULL (treated as
+        // shown/UNVERIFIED by the UI) until re-analysed.
+        val MIGRATION_13_14: Migration = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE detections ADD COLUMN regionalStatus TEXT")
             }
         }
     }

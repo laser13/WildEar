@@ -3,6 +3,7 @@ package com.sound2inat.storage
 import android.util.Log
 import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.FragmentRanges
+import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.inference.SourceStat
 import com.sound2inat.inference.SourceStats
 import kotlinx.coroutines.CoroutineDispatcher
@@ -223,6 +224,34 @@ class DraftRepository(
         }
     }
 
+    /**
+     * Persists the per-detection regional status for a draft, keyed by scientific
+     * name, in a single transaction. Species not present in the draft are ignored.
+     * Called best-effort by [com.sound2inat.app.inference.InferenceQueue] after
+     * analysis; absence of an entry leaves the existing value (null) untouched.
+     */
+    suspend fun updateRegionalStatuses(
+        draftId: String,
+        statusBySpecies: Map<String, RegionalStatus>,
+    ) = withContext(ioDispatcher) {
+        runInTransaction {
+            statusBySpecies.forEach { (name, status) ->
+                detections.updateRegionalStatusBySpecies(draftId, name, status.name)
+            }
+        }
+    }
+
+    /**
+     * One-shot synchronous read of the draft's persisted detections (ordered by
+     * maxConfidence DESC, via [DetectionDao.listForDraft]). Unlike
+     * [observeWithDetections].first(), this does NOT go through a Flow with its own
+     * [flowOn] dispatcher, so it cannot return a value staler than the most recent
+     * [mergeAndPersist] on the same [ioDispatcher]. Used by the InferenceQueue
+     * region-annotation step which runs immediately after persistence.
+     */
+    suspend fun listDetections(draftId: String): List<DetectionEntity> =
+        withContext(ioDispatcher) { detections.listForDraft(draftId) }
+
     suspend fun updatePalette(id: String, name: String?) =
         withContext(ioDispatcher) { drafts.updatePalette(id, name, nowMs()) }
 
@@ -248,6 +277,9 @@ class DraftRepository(
             lastSeenBySource = fullStats.mapValues { it.value.lastSeenMs },
             fragmentRanges = FragmentRanges.decode(fragmentRanges),
             aggregatedConfidence = aggregatedConfidence,
+            regionalStatus = regionalStatus?.let {
+                runCatching { RegionalStatus.valueOf(it) }.getOrNull()
+            },
         )
     }
 

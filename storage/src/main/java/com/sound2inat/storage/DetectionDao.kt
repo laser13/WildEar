@@ -24,6 +24,9 @@ interface DetectionDao {
 
     @Query("SELECT draftId AS draftId, COUNT(*) AS count FROM detections GROUP BY draftId")
     fun observeCountsByDraft(): Flow<List<DraftDetectionCount>>
+
+    @Query("UPDATE detections SET regionalStatus = :status WHERE draftId = :draftId AND taxonScientificName = :name")
+    fun updateRegionalStatusBySpecies(draftId: String, name: String, status: String?): Int
 }
 
 data class DraftDetectionCount(val draftId: String, val count: Int)
