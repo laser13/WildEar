@@ -295,6 +295,16 @@ private fun RecordingCard(
             if (models.isNotEmpty()) {
                 ModelBadgesRow(models = models)
             }
+            // Re-analysis: the strip stays populated while a fresh job runs, so
+            // surface its live progress here (the empty branch can't, having a strip).
+            activeJobLabel(summary.status, summary.jobStatus)?.let { jobLabel ->
+                Text(
+                    jobLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
+                )
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -521,22 +531,53 @@ private fun statusVisuals(
     }
 }
 
+/**
+ * Live inference status text for a draft with an active analysis job:
+ * "Analyzing… NN%" (with live percentage when a model reports it), the queue
+ * position ("Up next" / "In queue (#3)"), or "Analysis failed". Returns null
+ * when no job is active (no analysis in flight), so callers can fall back to a
+ * workflow label or hide the line entirely.
+ *
+ * Shared by both card layouts so analysis progress shows whether or not the
+ * recording already has detections — i.e. on a first analysis (empty strip)
+ * AND on a re-analysis (photo strip still populated).
+ */
+@Composable
+private fun activeJobLabel(status: DraftStatus, jobStatus: JobStatus?): String? {
+    val analyzingRes = if (status == DraftStatus.PENDING_INFERENCE) {
+        R.string.home_headline_analyzing
+    } else {
+        R.string.home_headline_reanalyzing
+    }
+    return when (jobStatus) {
+        is JobStatus.Failed -> stringResource(R.string.home_headline_analysis_failed)
+        is JobStatus.Queued ->
+            if (jobStatus.position == 0) {
+                stringResource(R.string.home_label_up_next)
+            } else {
+                stringResource(R.string.home_label_in_queue, jobStatus.position + 1)
+            }
+        is JobStatus.Running -> {
+            val pct = (jobStatus.birdnetProgress ?: jobStatus.perchProgress)
+                ?.let { (it * 100).toInt() }
+            if (pct != null) {
+                stringResource(
+                    R.string.home_label_analyzing_progress,
+                    pct
+                )
+            } else {
+                stringResource(analyzingRes)
+            }
+        }
+        // No queue entry yet, but the draft is still pending its first analysis.
+        null -> if (status == DraftStatus.PENDING_INFERENCE) stringResource(analyzingRes) else null
+    }
+}
+
 @Composable
 private fun statusHeadline(status: DraftStatus, analysedButEmpty: Boolean, jobStatus: JobStatus? = null): String {
     if (analysedButEmpty) return stringResource(R.string.home_headline_nothing_detected)
-    if (status == DraftStatus.PENDING_INFERENCE || jobStatus != null) {
-        return when (jobStatus) {
-            is JobStatus.Failed -> stringResource(R.string.home_headline_analysis_failed)
-            is JobStatus.Queued -> stringResource(R.string.home_headline_in_queue)
-            is JobStatus.Running, null -> stringResource(
-                if (status == DraftStatus.PENDING_INFERENCE) {
-                    R.string.home_headline_analyzing
-                } else {
-                    R.string.home_headline_reanalyzing
-                }
-            )
-        }
-    }
+    activeJobLabel(status, jobStatus)?.let { return it }
     return stringResource(
         when (status) {
             DraftStatus.PENDING_INFERENCE -> R.string.home_headline_analyzing
