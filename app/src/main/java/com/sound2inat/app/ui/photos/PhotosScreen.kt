@@ -42,6 +42,23 @@ fun PhotosScreen(
     val vm: PhotosViewModel = hiltViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
 
+    // One-shot pull-to-refresh result toast, hoisted to screen level so it fires
+    // regardless of which list branch is rendered (a refresh that ends with an
+    // empty list would otherwise never reach an effect nested in the list branch).
+    val context = LocalContext.current
+    val syncMessage = state.lastSyncResult?.let { r ->
+        when {
+            r.failed > 0 -> stringResource(R.string.photos_sync_done_with_errors, r.synced, r.failed)
+            r.synced > 0 -> stringResource(R.string.photos_sync_done, r.synced)
+            else -> stringResource(R.string.photos_sync_nothing)
+        }
+    }
+    LaunchedEffect(state.lastSyncResult) {
+        if (syncMessage == null) return@LaunchedEffect
+        Toast.makeText(context, syncMessage, Toast.LENGTH_SHORT).show()
+        vm.clearSyncResult()
+    }
+
     Scaffold(
         topBar = {
             Sound2iNatTopBar(title = stringResource(R.string.title_photos))
@@ -66,19 +83,6 @@ fun PhotosScreen(
                     )
                 }
                 else -> {
-                    val context = LocalContext.current
-                    val syncMessage = state.lastSyncResult?.let { r ->
-                        when {
-                            r.failed > 0 -> stringResource(R.string.photos_sync_done_with_errors, r.synced, r.failed)
-                            r.synced > 0 -> stringResource(R.string.photos_sync_done, r.synced)
-                            else -> stringResource(R.string.photos_sync_nothing)
-                        }
-                    }
-                    LaunchedEffect(state.lastSyncResult) {
-                        if (syncMessage == null) return@LaunchedEffect
-                        Toast.makeText(context, syncMessage, Toast.LENGTH_SHORT).show()
-                        vm.clearSyncResult()
-                    }
                     val groups = remember(state.drafts) {
                         groupDatedItems(state.drafts) { it.observedAtUtcMs }
                     }
