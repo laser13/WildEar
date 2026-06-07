@@ -770,7 +770,7 @@ open class INaturalistClient(
      * Fetches details for a single observation by numeric [id].
      * Throws [INatException] on network or HTTP errors.
      */
-    suspend fun getObservation(idOrUuid: String): ObservationDetail = withContext(ioDispatcher) {
+    open suspend fun getObservation(idOrUuid: String): ObservationDetail = withContext(ioDispatcher) {
         val json = executeJson(anonGet("/observations/$idOrUuid"))
         val results = json.optJSONArray("results")
             ?: throw INatException(-1, "Missing results array")
