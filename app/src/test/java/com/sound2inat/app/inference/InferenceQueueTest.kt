@@ -1,11 +1,14 @@
 package com.sound2inat.app.inference
 
 import com.google.common.truth.Truth.assertThat
+import com.sound2inat.inat.RegionalStatusRepository
+import com.sound2inat.inference.AggregatedDetection
 import com.sound2inat.inference.InferenceJob
 import com.sound2inat.inference.InferenceOutcome
 import com.sound2inat.inference.InferenceUseCase
 import com.sound2inat.inference.PerchAnalysisJob
 import com.sound2inat.inference.PerchAnalysisOutcome
+import com.sound2inat.inference.RegionalStatus
 import com.sound2inat.storage.DetectionDao
 import com.sound2inat.storage.DetectionEntity
 import com.sound2inat.storage.DraftDao
@@ -15,6 +18,7 @@ import com.sound2inat.storage.DraftRepository
 import com.sound2inat.storage.DraftStatus
 import com.sound2inat.storage.WavFileStore
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -530,6 +534,130 @@ class InferenceQueueTest {
         // BirdNET failure message is the one surfaced (first/primary step).
         assertThat((finalStatus as JobStatus.Failed).message).isEqualTo("BirdNET crashed")
     }
+
+    // ── Region annotation step tests ─────────────────────────────────────────────
+
+    @Test
+    fun `annotation step persists regional status for detected species when lat lon present`() = runTest {
+        val det = FakeDetectionDao()
+        val repo = DraftRepository(
+            drafts = FakeDraftDao(),
+            detections = det,
+            files = WavFileStore(tmp.root),
+            nowMs = { 0L },
+            ioDispatcher = Dispatchers.Unconfined,
+        )
+        val annotator = RegionalStatusRepository.Annotator { name, _, _ ->
+            if (name == "Parus major") {
+                RegionalStatus.CONFIRMED
+            } else {
+                RegionalStatus.NOT_CONFIRMED
+            }
+        }
+        val birdnet = InferenceJob { _, _, _, _, _ ->
+            InferenceOutcome.Success(
+                "birdnet_v2_4",
+                "2.4",
+                listOf(
+                    AggregatedDetection("Parus major", "Great Tit", 0.9f, 1, 0, 1),
+                    AggregatedDetection("Sylvia atricapilla", "Blackcap", 0.8f, 1, 0, 1),
+                ),
+            )
+        }
+        val queue = InferenceQueue(backgroundScope, useCase(birdnet = birdnet), repo, annotator)
+
+        queue.enqueue(
+            QueuedJob(
+                draftId = "d1",
+                audioPath = "/tmp/d1.wav",
+                lat = 48.85,
+                lon = 2.35,
+                recordedAt = 0L,
+                runBirdnet = true,
+                runPerch = false,
+                skipYamNetGate = true,
+            ),
+        )
+        runCurrent()
+        runCurrent() // second tick: drain the post-runJob annotation step (repo IO hops)
+
+        val byName = det.rows.associateBy { it.taxonScientificName }
+        assertThat(byName["Parus major"]!!.regionalStatus).isEqualTo("CONFIRMED")
+        assertThat(byName["Sylvia atricapilla"]!!.regionalStatus).isEqualTo("NOT_CONFIRMED")
+    }
+
+    @Test
+    fun `annotation step skipped when lat lon null`() = runTest {
+        val det = FakeDetectionDao()
+        val repo = DraftRepository(
+            drafts = FakeDraftDao(),
+            detections = det,
+            files = WavFileStore(tmp.root),
+            nowMs = { 0L },
+            ioDispatcher = Dispatchers.Unconfined,
+        )
+        var annotateCalls = 0
+        val annotator = RegionalStatusRepository.Annotator { _, _, _ ->
+            annotateCalls++
+            RegionalStatus.CONFIRMED
+        }
+        val birdnet = InferenceJob { _, _, _, _, _ ->
+            InferenceOutcome.Success(
+                "birdnet_v2_4",
+                "2.4",
+                listOf(AggregatedDetection("Parus major", null, 0.9f, 1, 0, 1)),
+            )
+        }
+        val queue = InferenceQueue(backgroundScope, useCase(birdnet = birdnet), repo, annotator)
+
+        queue.enqueue(job("d1")) // job() uses lat=null, lon=null
+        runCurrent()
+
+        assertThat(annotateCalls).isEqualTo(0)
+        assertThat(det.rows.single().regionalStatus).isNull()
+    }
+
+    @Test
+    fun `annotation failure does not fail the job`() = runTest {
+        val det = FakeDetectionDao()
+        val repo = DraftRepository(
+            drafts = FakeDraftDao(),
+            detections = det,
+            files = WavFileStore(tmp.root),
+            nowMs = { 0L },
+            ioDispatcher = Dispatchers.Unconfined,
+        )
+        val annotator = RegionalStatusRepository.Annotator { _, _, _ ->
+            throw RuntimeException("network down")
+        }
+        val birdnet = InferenceJob { _, _, _, _, _ ->
+            InferenceOutcome.Success(
+                "birdnet_v2_4",
+                "2.4",
+                listOf(AggregatedDetection("Parus major", null, 0.9f, 1, 0, 1)),
+            )
+        }
+        val queue = InferenceQueue(backgroundScope, useCase(birdnet = birdnet), repo, annotator)
+
+        queue.enqueue(
+            QueuedJob(
+                draftId = "d1",
+                audioPath = "/tmp/d1.wav",
+                lat = 48.85,
+                lon = 2.35,
+                recordedAt = 0L,
+                runBirdnet = true,
+                runPerch = false,
+                skipYamNetGate = true,
+            ),
+        )
+        runCurrent()
+        runCurrent() // second tick: let the (throwing) annotation step run and be swallowed
+
+        // Job must NOT be marked Failed by an annotation error (best-effort).
+        assertThat(queue.status.value).doesNotContainKey("d1")
+        assertThat(det.rows.single().regionalStatus).isNull()
+    }
 }
 
 // ── Fake DAOs ──────────────────────────────────────────────────────────────────
@@ -602,7 +730,7 @@ private class FakeDraftDao : DraftDao {
 }
 
 private class FakeDetectionDao : DetectionDao {
-    private val rows = mutableListOf<DetectionEntity>()
+    val rows = mutableListOf<DetectionEntity>()
     private val emitter = MutableStateFlow<List<DetectionEntity>>(emptyList())
 
     override fun insertAll(items: List<DetectionEntity>) {
@@ -633,4 +761,16 @@ private class FakeDetectionDao : DetectionDao {
 
     override fun observeCountsByDraft(): Flow<List<DraftDetectionCount>> =
         flowOf(emptyList())
+
+    override fun updateRegionalStatusBySpecies(draftId: String, name: String, status: String?): Int {
+        var n = 0
+        for (i in rows.indices) {
+            if (rows[i].draftId == draftId && rows[i].taxonScientificName == name) {
+                rows[i] = rows[i].copy(regionalStatus = status)
+                n++
+            }
+        }
+        emitter.value = rows.toList()
+        return n
+    }
 }

@@ -2394,6 +2394,18 @@ private class FakeDetectionDao : DetectionDao {
     }
     override fun observeCountsByDraft(): kotlinx.coroutines.flow.Flow<List<com.sound2inat.storage.DraftDetectionCount>> =
         kotlinx.coroutines.flow.flowOf(emptyList())
+
+    override fun updateRegionalStatusBySpecies(draftId: String, name: String, status: String?): Int {
+        var n = 0
+        for (i in rows.indices) {
+            if (rows[i].draftId == draftId && rows[i].taxonScientificName == name) {
+                rows[i] = rows[i].copy(regionalStatus = status)
+                n++
+            }
+        }
+        emitter.value = rows.toList()
+        return n
+    }
 }
 
 private class FakeInferenceUseCase(

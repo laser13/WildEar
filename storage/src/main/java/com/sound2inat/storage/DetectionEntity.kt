@@ -40,4 +40,11 @@ data class DetectionEntity(
     val fragmentRanges: String = "",
     /** Average confidence across all contributing windows. 0 for pre-v5 rows. */
     val aggregatedConfidence: Float = 0f,
+    /**
+     * iNaturalist regional presence for this taxon at the recording location,
+     * computed once at analysis time: "CONFIRMED" / "NOT_CONFIRMED" / "UNVERIFIED".
+     * `null` = not yet annotated (old rows, no location, or annotation failed) —
+     * UI treats null as shown/UNVERIFIED. Re-analysis recomputes.
+     */
+    val regionalStatus: String? = null,
 )

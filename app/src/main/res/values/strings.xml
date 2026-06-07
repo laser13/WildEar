@@ -270,6 +270,9 @@
     <string name="photos_empty_subtitle">Photo observations will appear here.</string>
     <string name="photos_action_take_photos">Take photos</string>
     <string name="photos_draft_unnamed">Observation</string>
+    <string name="photos_sync_done">Updated %1$d observation(s)</string>
+    <string name="photos_sync_done_with_errors">Updated %1$d, %2$d failed</string>
+    <string name="photos_sync_nothing">Nothing to update</string>
 
     <!-- Photos tab + capture + review (Phase 1 unification) -->
     <string name="title_photos">Observations</string>

@@ -35,6 +35,7 @@ class PhotoDraftRepository(
                     locationAccuracyMeters = draft.locationAccuracyMeters,
                     firstPhotoPath = images.firstOrNull()?.photoPath,
                     photoCount = images.size,
+                    inatObservationId = draft.inatObservationId,
                     inatObservationUrl = draft.inatObservationUrl,
                     inatLastError = draft.inatLastError,
                 )
@@ -125,6 +126,30 @@ class PhotoDraftRepository(
                 taxonCommonName = taxonCommonName,
                 taxonInatId = taxonInatId,
                 description = description,
+            ),
+        )
+    }
+
+    /**
+     * Writes back the iNat-confirmed taxon for an already-uploaded observation
+     * (fetched via getObservation). Touches ONLY the taxon name columns — status,
+     * updatedAtUtcMs and taxonInatId are left as-is so this remote-driven fill is
+     * not mistaken for a user edit and does not reorder the (observedAt-sorted)
+     * list. No-op when the draft is gone or nothing changed.
+     */
+    suspend fun updateSyncedTaxon(
+        draftId: String,
+        taxonScientificName: String?,
+        taxonCommonName: String?,
+    ) = withContext(ioDispatcher) {
+        val draft = draftDao.getById(draftId) ?: return@withContext
+        if (draft.taxonScientificName == taxonScientificName && draft.taxonCommonName == taxonCommonName) {
+            return@withContext
+        }
+        draftDao.update(
+            draft.copy(
+                taxonScientificName = taxonScientificName,
+                taxonCommonName = taxonCommonName,
             ),
         )
     }

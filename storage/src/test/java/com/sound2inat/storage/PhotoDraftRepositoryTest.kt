@@ -170,4 +170,57 @@ class PhotoDraftRepositoryTest {
         assertThat(emissions.last()).isEqualTo(1) // only p1 remains
         job.cancel()
     }
+
+    @Test
+    fun `updateSyncedTaxon writes taxon names only`() = runTest(testScheduler) {
+        val id = repo.createDraft(observedAtUtcMs = 100L, latitude = null, longitude = null, accuracyMeters = null)
+        repo.updateDetails(
+            id,
+            taxonScientificName = "Old name",
+            taxonCommonName = "Old common",
+            taxonInatId = 42L,
+            description = null,
+        )
+        val before = db.photoDrafts().getById(id)!!
+
+        repo.updateSyncedTaxon(
+            id,
+            taxonScientificName = "Turdus merula",
+            taxonCommonName = "Eurasian Blackbird",
+        )
+
+        val after = db.photoDrafts().getById(id)!!
+        assertThat(after.taxonScientificName).isEqualTo("Turdus merula")
+        assertThat(after.taxonCommonName).isEqualTo("Eurasian Blackbird")
+        assertThat(after.status).isEqualTo(before.status)
+        assertThat(after.updatedAtUtcMs).isEqualTo(before.updatedAtUtcMs)
+        assertThat(after.taxonInatId).isEqualTo(before.taxonInatId)
+    }
+
+    @Test
+    fun `updateSyncedTaxon is a no-op when values are unchanged`() = runTest(testScheduler) {
+        val id = repo.createDraft(observedAtUtcMs = 100L, latitude = null, longitude = null, accuracyMeters = null)
+        repo.updateDetails(
+            id,
+            taxonScientificName = "Turdus merula",
+            taxonCommonName = "Eurasian Blackbird",
+            taxonInatId = 1L,
+            description = null,
+        )
+        val before = db.photoDrafts().getById(id)!!
+
+        repo.updateSyncedTaxon(
+            id,
+            taxonScientificName = "Turdus merula",
+            taxonCommonName = "Eurasian Blackbird",
+        )
+
+        val after = db.photoDrafts().getById(id)!!
+        assertThat(after).isEqualTo(before)
+    }
+
+    @Test
+    fun `updateSyncedTaxon ignores a missing draft`() = runTest(testScheduler) {
+        repo.updateSyncedTaxon("does-not-exist", taxonScientificName = "X", taxonCommonName = null)
+    }
 }

@@ -12,6 +12,7 @@ data class PhotoDraftSummary(
     val locationAccuracyMeters: Float?,
     val firstPhotoPath: String?,
     val photoCount: Int,
+    val inatObservationId: Long?,
     val inatObservationUrl: String?,
     val inatLastError: String?,
 )

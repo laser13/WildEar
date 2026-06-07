@@ -1,5 +1,6 @@
 package com.sound2inat.app.ui.photos
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -280,6 +281,15 @@ class PhotoReviewViewModel(
                         syncError = null,
                         observationDetail = detail.toUiState(),
                     )
+                }
+                // Persist the iNat-confirmed taxon so the Photos list reflects it
+                // without another open. Best-effort: a DB failure must not disturb
+                // the freshly-shown detail. Reuses the already-fetched detail (no
+                // extra request).
+                if (detail.taxonName != null) {
+                    runCatching {
+                        repo.updateSyncedTaxon(draftId, detail.taxonName, detail.taxonCommonName)
+                    }.onFailure { Log.w("PhotoReviewVM", "persist synced taxon failed", it) }
                 }
             }.onFailure { error ->
                 _state.update {

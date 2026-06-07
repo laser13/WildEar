@@ -389,6 +389,49 @@ class MigrationTest {
     }
 
     @Test
+    fun `migrate 13 to 14 adds nullable regionalStatus column to detections`() {
+        val dbName = "migration-test-13-to-14"
+        helper.createDatabase(dbName, 13).use { db ->
+            db.execSQL(
+                """INSERT INTO drafts (id, audioPath, recordedAtUtcMs, durationMs,
+                    status, createdAtUtcMs, updatedAtUtcMs)
+                   VALUES ('d14', '/audio/x.wav', 1000, 3000,
+                    'PENDING_REVIEW', 1000, 1000)""",
+            )
+            db.execSQL(
+                """INSERT INTO detections (draftId, taxonScientificName, taxonCommonName,
+                    maxConfidence, detectedWindows, firstSeenMs, lastSeenMs, isSelectedByUser,
+                    fragmentRanges, aggregatedConfidence)
+                   VALUES ('d14', 'Parus major', 'Great Tit',
+                    0.9, 3, 0, 9000, 0, '', 0.0)""",
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            dbName,
+            14,
+            true,
+            Sound2iNatDb.MIGRATION_13_14,
+        )
+
+        db.query("SELECT regionalStatus FROM detections WHERE draftId='d14'").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.isNull(0)).isTrue()
+        }
+        db.query("SELECT COUNT(*) FROM detections").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getInt(0)).isEqualTo(1)
+        }
+
+        // Also verify the column is writable and readable (not just present as nullable).
+        db.execSQL("UPDATE detections SET regionalStatus = 'CONFIRMED' WHERE draftId = 'd14'")
+        db.query("SELECT regionalStatus FROM detections WHERE draftId = 'd14'").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getString(0)).isEqualTo("CONFIRMED")
+        }
+    }
+
+    @Test
     fun `migrate 12 to 13 adds nullable uploadStatus column to photo_drafts`() {
         val dbName = "migration-test-12-to-13"
         helper.createDatabase(dbName, 12).use { db ->
@@ -410,7 +453,7 @@ class MigrationTest {
     }
 
     @Test
-    fun `migrate all versions 1 through 13 preserves seed data`() {
+    fun `migrate all versions 1 through 14 preserves seed data`() {
         helper.createDatabase(dbName, 1).use { db ->
             db.execSQL(
                 """INSERT INTO drafts (id, audioPath, recordedAtUtcMs, durationMs,
@@ -429,7 +472,7 @@ class MigrationTest {
         }
 
         val db = helper.runMigrationsAndValidate(
-            dbName, 13, true,
+            dbName, 14, true,
             Sound2iNatDb.MIGRATION_1_2,
             Sound2iNatDb.MIGRATION_2_3,
             Sound2iNatDb.MIGRATION_3_4,
@@ -442,6 +485,7 @@ class MigrationTest {
             Sound2iNatDb.MIGRATION_10_11,
             Sound2iNatDb.MIGRATION_11_12,
             Sound2iNatDb.MIGRATION_12_13,
+            Sound2iNatDb.MIGRATION_13_14,
         )
 
         db.query("SELECT COUNT(*) FROM drafts WHERE id='d5'").use { c ->
@@ -456,6 +500,10 @@ class MigrationTest {
             assertThat(c.isNull(1)).isTrue()
             assertThat(c.getString(2)).isEqualTo("")
             assertThat(c.getDouble(3)).isEqualTo(0.0)
+        }
+        db.query("SELECT regionalStatus FROM detections WHERE draftId='d5'").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.isNull(0)).isTrue()
         }
         db.query("SELECT COUNT(*) FROM inat_observations").use { c ->
             assertThat(c.moveToFirst()).isTrue()
